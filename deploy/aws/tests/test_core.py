@@ -394,6 +394,165 @@ def test_delete_snapshot_calls_ec2(monkeypatch):
     assert fake_ec2.delete_snapshot_calls == [{"SnapshotId": "snap-1234567890"}]
 
 
+class _FakeEc2ClientForRestore:
+    def __init__(self):
+        self.create_volume_calls: list[dict] = []
+        self.attach_volume_calls: list[dict] = []
+        self.detach_volume_calls: list[dict] = []
+        self.delete_volume_calls: list[dict] = []
+        self._volume_state = "available"
+
+    def describe_instances(self, **kwargs):
+        return {
+            "Reservations": [
+                {"Instances": [{"Placement": {"AvailabilityZone": "eu-west-2a"}}]}
+            ]
+        }
+
+    def create_volume(self, **kwargs):
+        self.create_volume_calls.append(kwargs)
+        return {"VolumeId": "vol-restore123"}
+
+    def describe_volumes(self, **kwargs):
+        return {"Volumes": [{"State": self._volume_state}]}
+
+    def attach_volume(self, **kwargs):
+        self.attach_volume_calls.append(kwargs)
+        self._volume_state = "in-use"
+
+    def detach_volume(self, **kwargs):
+        self.detach_volume_calls.append(kwargs)
+        self._volume_state = "available"
+
+    def delete_volume(self, **kwargs):
+        self.delete_volume_calls.append(kwargs)
+
+
+def test_restore_snapshot_data_creates_attaches_and_cleans_up_volume(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForRestore()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+    ssm_calls = []
+    monkeypatch.setattr(
+        core,
+        "run_ssm_command",
+        lambda instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None: ssm_calls.append(
+            (instance_id, commands, comment)
+        ),
+    )
+
+    core.restore_snapshot_data("i-1234567890", "snap-1234567890", "eu-west-2", session=None)
+
+    assert fake_ec2.create_volume_calls == [
+        {"SnapshotId": "snap-1234567890", "AvailabilityZone": "eu-west-2a"}
+    ]
+    assert fake_ec2.attach_volume_calls == [
+        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890", "Device": "/dev/sdf"}
+    ]
+    assert len(ssm_calls) == 1
+    assert ssm_calls[0][0] == "i-1234567890"
+    assert "volrestore123" in ssm_calls[0][1][0]
+    assert "glow-postgres" in ssm_calls[0][1][0]
+    assert "odk-postgres" in ssm_calls[0][1][0]
+    assert fake_ec2.detach_volume_calls == [
+        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890"}
+    ]
+    assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-restore123"}]
+
+
+def test_provision_restores_snapshot_data_when_requested(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "find_ami_in_account", lambda region, commit, session=None: "ami-12345678"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(
+        core,
+        "terraform_apply",
+        lambda config, ami_id: {
+            "runner_instance_id": "i-1234567890",
+            "alb_dns_name": "alb.example.com",
+        },
+    )
+    for name in (
+        "wait_for_ssm_online",
+        "wait_for_runner_bootstrap_completion",
+        "verify_runner_health",
+    ):
+        monkeypatch.setattr(core, name, lambda instance_id, region, session=None: None)
+    monkeypatch.setattr(
+        core,
+        "prepare_runner_repository",
+        lambda instance_id, region, repo_url, checkout_ref, session=None: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "rerun_runner_userdata",
+        lambda instance_id, region, domain_name, env=None, session=None: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "restore_snapshot_data",
+        lambda instance_id, snapshot_id, region, session=None: calls.append(
+            (instance_id, snapshot_id)
+        ),
+    )
+
+    core.provision(_make_config(restore_from_snapshot_id="snap-1234567890"))
+
+    assert calls == [("i-1234567890", "snap-1234567890")]
+
+
+def test_provision_skips_restore_when_no_snapshot_requested(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "find_ami_in_account", lambda region, commit, session=None: "ami-12345678"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(
+        core,
+        "terraform_apply",
+        lambda config, ami_id: {
+            "runner_instance_id": "i-1234567890",
+            "alb_dns_name": "alb.example.com",
+        },
+    )
+    for name in (
+        "wait_for_ssm_online",
+        "wait_for_runner_bootstrap_completion",
+        "verify_runner_health",
+    ):
+        monkeypatch.setattr(core, name, lambda instance_id, region, session=None: None)
+    monkeypatch.setattr(
+        core,
+        "prepare_runner_repository",
+        lambda instance_id, region, repo_url, checkout_ref, session=None: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "rerun_runner_userdata",
+        lambda instance_id, region, domain_name, env=None, session=None: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "restore_snapshot_data",
+        lambda *args, **kwargs: calls.append("called"),
+    )
+
+    core.provision(_make_config())
+
+    assert calls == []
+
+
 class _FakeRoute53Client:
     def __init__(self, zones):
         self._zones = zones

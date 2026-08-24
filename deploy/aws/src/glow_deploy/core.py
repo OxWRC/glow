@@ -70,6 +70,7 @@ class Config:
     force_rebuild_ami: bool
     certificate_arn: str = ""
     gui_version: str = GUI_VERSION
+    restore_from_snapshot_id: str = ""
     session: boto3.Session | None = None
 
 
@@ -1116,6 +1117,80 @@ def delete_snapshot(
     write_line(f"[deploy] Deleted snapshot {snapshot_id}")
 
 
+_RESTORE_SNAPSHOT_DATA_SCRIPT = """set -euo pipefail
+by_id_name=$(ls /dev/disk/by-id/ | grep {volume_suffix} | head -n1)
+device="/dev/disk/by-id/${{by_id_name}}"
+mount_point=/mnt/glow-restore
+mkdir -p "${{mount_point}}"
+
+partition="${{device}}-part1"
+if [[ -e "${{partition}}" ]]; then
+  mount "${{partition}}" "${{mount_point}}"
+else
+  mount "${{device}}" "${{mount_point}}"
+fi
+
+cd /opt/glow
+docker compose --profile odk --env-file /var/lib/glow/.deploy/share/.env.runtime -f compose.yml down
+
+rsync -a --delete "${{mount_point}}/glow-postgres/" /var/lib/glow/glow-postgres/
+rsync -a --delete "${{mount_point}}/odk-postgres/" /var/lib/glow/odk-postgres/
+
+docker compose --profile odk --env-file /var/lib/glow/.deploy/share/.env.runtime -f compose.yml up -d
+
+umount "${{mount_point}}"
+"""
+
+
+def restore_snapshot_data(
+    instance_id: str,
+    snapshot_id: str,
+    region: str,
+    session: boto3.Session | None = None,
+) -> None:
+    """Copy glow-postgres/odk-postgres out of a snapshot into a running
+    instance's live data directories — data-only restore, not a whole-volume
+    swap (see "Restore semantics" in the spec for why).
+    """
+    ec2 = _client(session, "ec2", region)
+    instance = ec2.describe_instances(InstanceIds=[instance_id])["Reservations"][0]["Instances"][0]
+    az = instance["Placement"]["AvailabilityZone"]
+
+    write_line(f"[deploy] Creating restore volume from snapshot {snapshot_id}")
+    volume_id = ec2.create_volume(SnapshotId=snapshot_id, AvailabilityZone=az)["VolumeId"]
+
+    def volume_available() -> bool:
+        return ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"] == "available"
+
+    wait_with_spinner(f"Waiting for volume {volume_id}", volume_available, timeout=300)
+
+    device = "/dev/sdf"
+    ec2.attach_volume(VolumeId=volume_id, InstanceId=instance_id, Device=device)
+
+    def volume_attached() -> bool:
+        return ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"] == "in-use"
+
+    wait_with_spinner(f"Attaching volume {volume_id}", volume_attached, timeout=300)
+
+    try:
+        script = _RESTORE_SNAPSHOT_DATA_SCRIPT.format(volume_suffix=volume_id.replace("-", ""))
+        run_ssm_command(
+            instance_id,
+            region,
+            [script],
+            "restore Postgres data from snapshot",
+            timeout=900,
+            session=session,
+        )
+    finally:
+        write_line(f"[deploy] Detaching and deleting restore volume {volume_id}")
+        ec2.detach_volume(VolumeId=volume_id, InstanceId=instance_id)
+        wait_with_spinner(f"Detaching volume {volume_id}", volume_available, timeout=300)
+        ec2.delete_volume(VolumeId=volume_id)
+
+    write_line("[deploy] Restore complete")
+
+
 def get_cpu_utilization(
     instance_ids: list[str], region: str, session: boto3.Session | None = None
 ) -> dict[str, float | None]:
@@ -1225,6 +1300,11 @@ def provision(config: Config) -> dict[str, Any] | None:
         config.session,
     )
     verify_runner_health(instance_id, config.aws_region, config.session)
+
+    if config.restore_from_snapshot_id:
+        restore_snapshot_data(
+            instance_id, config.restore_from_snapshot_id, config.aws_region, config.session
+        )
 
     write_line("[deploy] Deployment complete!")
     write_line(f"[deploy] Instance ID: {instance_id}")
