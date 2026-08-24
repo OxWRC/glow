@@ -1133,8 +1133,8 @@ fi
 cd /opt/glow
 docker compose --profile odk --env-file /var/lib/glow/.deploy/share/.env.runtime -f compose.yml down
 
-rsync -a --delete "${{mount_point}}/glow-postgres/" /var/lib/glow/glow-postgres/
-rsync -a --delete "${{mount_point}}/odk-postgres/" /var/lib/glow/odk-postgres/
+rsync -a --delete "${{mount_point}}/var/lib/glow/glow-postgres/" /var/lib/glow/glow-postgres/
+rsync -a --delete "${{mount_point}}/var/lib/glow/odk-postgres/" /var/lib/glow/odk-postgres/
 
 docker compose --profile odk --env-file /var/lib/glow/.deploy/share/.env.runtime -f compose.yml up -d
 
@@ -1165,14 +1165,14 @@ def restore_snapshot_data(
     wait_with_spinner(f"Waiting for volume {volume_id}", volume_available, timeout=300)
 
     device = "/dev/sdf"
-    ec2.attach_volume(VolumeId=volume_id, InstanceId=instance_id, Device=device)
 
     def volume_attached() -> bool:
         return ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"] == "in-use"
 
-    wait_with_spinner(f"Attaching volume {volume_id}", volume_attached, timeout=300)
-
     try:
+        ec2.attach_volume(VolumeId=volume_id, InstanceId=instance_id, Device=device)
+        wait_with_spinner(f"Attaching volume {volume_id}", volume_attached, timeout=300)
+
         script = _RESTORE_SNAPSHOT_DATA_SCRIPT.format(volume_suffix=volume_id.replace("-", ""))
         run_ssm_command(
             instance_id,
@@ -1184,7 +1184,7 @@ def restore_snapshot_data(
         )
     finally:
         write_line(f"[deploy] Detaching and deleting restore volume {volume_id}")
-        ec2.detach_volume(VolumeId=volume_id, InstanceId=instance_id)
+        ec2.detach_volume(VolumeId=volume_id, InstanceId=instance_id, Force=True)
         wait_with_spinner(f"Detaching volume {volume_id}", volume_available, timeout=300)
         ec2.delete_volume(VolumeId=volume_id)
 

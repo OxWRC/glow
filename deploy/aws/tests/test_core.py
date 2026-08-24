@@ -451,10 +451,10 @@ def test_restore_snapshot_data_creates_attaches_and_cleans_up_volume(monkeypatch
     assert len(ssm_calls) == 1
     assert ssm_calls[0][0] == "i-1234567890"
     assert "volrestore123" in ssm_calls[0][1][0]
-    assert "glow-postgres" in ssm_calls[0][1][0]
-    assert "odk-postgres" in ssm_calls[0][1][0]
+    assert "/var/lib/glow/glow-postgres" in ssm_calls[0][1][0]
+    assert "/var/lib/glow/odk-postgres" in ssm_calls[0][1][0]
     assert fake_ec2.detach_volume_calls == [
-        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890"}
+        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890", "Force": True}
     ]
     assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-restore123"}]
 
