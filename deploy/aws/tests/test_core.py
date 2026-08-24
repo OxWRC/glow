@@ -241,6 +241,155 @@ def test_list_deployments_maps_tags_from_terraform_managed_instances(monkeypatch
     }
 
 
+class _FakeEc2ClientForSnapshots:
+    def __init__(self):
+        self.describe_instances_response = None
+        self.create_snapshot_calls: list[dict] = []
+        self.describe_snapshots_calls: list[dict] = []
+        self.describe_snapshots_response = {"Snapshots": []}
+        self.delete_snapshot_calls: list[dict] = []
+        self._snapshot_state = "completed"
+
+    def describe_instances(self, **kwargs):
+        return self.describe_instances_response
+
+    def create_snapshot(self, **kwargs):
+        self.create_snapshot_calls.append(kwargs)
+        return {"SnapshotId": "snap-1234567890"}
+
+    def describe_snapshots(self, **kwargs):
+        self.describe_snapshots_calls.append(kwargs)
+        if kwargs.get("SnapshotIds"):
+            return {
+                "Snapshots": [
+                    {"SnapshotId": kwargs["SnapshotIds"][0], "State": self._snapshot_state}
+                ]
+            }
+        return self.describe_snapshots_response
+
+    def delete_snapshot(self, **kwargs):
+        self.delete_snapshot_calls.append(kwargs)
+
+
+def test_find_root_volume_id_reads_root_device_mapping(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    fake_ec2.describe_instances_response = {
+        "Reservations": [
+            {
+                "Instances": [
+                    {
+                        "InstanceId": "i-1234567890",
+                        "RootDeviceName": "/dev/xvda",
+                        "BlockDeviceMappings": [
+                            {"DeviceName": "/dev/xvda", "Ebs": {"VolumeId": "vol-abc123"}},
+                            {"DeviceName": "/dev/xvdf", "Ebs": {"VolumeId": "vol-other"}},
+                        ],
+                    }
+                ]
+            }
+        ]
+    }
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    volume_id = core.find_root_volume_id("i-1234567890", "eu-west-2", session=None)
+
+    assert volume_id == "vol-abc123"
+
+
+def test_find_root_volume_id_raises_when_root_mapping_missing(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    fake_ec2.describe_instances_response = {
+        "Reservations": [
+            {
+                "Instances": [
+                    {
+                        "InstanceId": "i-1234567890",
+                        "RootDeviceName": "/dev/xvda",
+                        "BlockDeviceMappings": [],
+                    }
+                ]
+            }
+        ]
+    }
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    with pytest.raises(core.DeployError):
+        core.find_root_volume_id("i-1234567890", "eu-west-2", session=None)
+
+
+def test_create_snapshot_tags_and_waits_for_completion(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    snapshot_id = core.create_snapshot(
+        "vol-abc123", "eu.glow-project.org", "pre-update", "eu-west-2", session=None
+    )
+
+    assert snapshot_id == "snap-1234567890"
+    assert fake_ec2.create_snapshot_calls[0]["VolumeId"] == "vol-abc123"
+    tag_spec = fake_ec2.create_snapshot_calls[0]["TagSpecifications"][0]
+    assert tag_spec["ResourceType"] == "snapshot"
+    assert {"Key": "Domain", "Value": "eu.glow-project.org"} in tag_spec["Tags"]
+    assert {"Key": "Component", "Value": "glow-runner-snapshot"} in tag_spec["Tags"]
+    assert {"Key": "Reason", "Value": "pre-update"} in tag_spec["Tags"]
+    assert fake_ec2.describe_snapshots_calls[0]["SnapshotIds"] == ["snap-1234567890"]
+
+
+def test_list_snapshots_maps_tags_and_filters_by_domain(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    fake_ec2.describe_snapshots_response = {
+        "Snapshots": [
+            {
+                "SnapshotId": "snap-1",
+                "StartTime": "2026-01-01T00:00:00Z",
+                "VolumeSize": 100,
+                "State": "completed",
+                "Tags": [
+                    {"Key": "Domain", "Value": "eu.glow-project.org"},
+                    {"Key": "Component", "Value": "glow-runner-snapshot"},
+                    {"Key": "Reason", "Value": "pre-update"},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    snapshots = core.list_snapshots("eu-west-2", session=None, domain="eu.glow-project.org")
+
+    assert snapshots == [
+        {
+            "snapshot_id": "snap-1",
+            "domain": "eu.glow-project.org",
+            "reason": "pre-update",
+            "started_at": "2026-01-01T00:00:00Z",
+            "size_gb": 100,
+            "state": "completed",
+        }
+    ]
+    filters = fake_ec2.describe_snapshots_calls[0]["Filters"]
+    assert {"Name": "tag:Component", "Values": ["glow-runner-snapshot"]} in filters
+    assert {"Name": "tag:Domain", "Values": ["eu.glow-project.org"]} in filters
+
+
+def test_list_snapshots_without_domain_returns_global_list(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.list_snapshots("eu-west-2", session=None)
+
+    filters = fake_ec2.describe_snapshots_calls[0]["Filters"]
+    assert all(f["Name"] != "tag:Domain" for f in filters)
+
+
+def test_delete_snapshot_calls_ec2(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.delete_snapshot("snap-1234567890", "eu-west-2", session=None)
+
+    assert fake_ec2.delete_snapshot_calls == [{"SnapshotId": "snap-1234567890"}]
+
+
 class _FakeRoute53Client:
     def __init__(self, zones):
         self._zones = zones

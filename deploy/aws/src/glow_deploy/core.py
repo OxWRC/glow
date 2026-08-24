@@ -1018,6 +1018,104 @@ def list_deployments(
     return deployments
 
 
+def find_root_volume_id(
+    instance_id: str, region: str, session: boto3.Session | None = None
+) -> str:
+    """Find the EBS volume ID backing an instance's root device.
+
+    Must be called while the instance is still running/attached — both
+    ``update()``'s pre-update hook and ``destroy()``'s pre-destroy hook need
+    this before the instance terminates and the volume becomes hard to find.
+    """
+    ec2 = _client(session, "ec2", region)
+    response = ec2.describe_instances(InstanceIds=[instance_id])
+    instance = response["Reservations"][0]["Instances"][0]
+    root_device_name = instance["RootDeviceName"]
+    for mapping in instance.get("BlockDeviceMappings", []):
+        if mapping["DeviceName"] == root_device_name:
+            return mapping["Ebs"]["VolumeId"]
+    raise DeployError(f"no root volume found for instance {instance_id}")
+
+
+def create_snapshot(
+    volume_id: str,
+    domain: str,
+    reason: str,
+    region: str,
+    session: boto3.Session | None = None,
+) -> str:
+    """Snapshot an EBS volume, tag it, and wait for the snapshot to complete.
+
+    Waits for completion rather than returning immediately so a caller that
+    deletes the source volume right after (``destroy()``'s pre-destroy hook)
+    never races an in-progress snapshot against the volume disappearing.
+    """
+    ec2 = _client(session, "ec2", region)
+    write_line(f"[deploy] Snapshotting volume {volume_id} ({reason})")
+    response = ec2.create_snapshot(
+        VolumeId=volume_id,
+        Description=f"glow-deploy {reason} snapshot for {domain}",
+        TagSpecifications=[
+            {
+                "ResourceType": "snapshot",
+                "Tags": [
+                    {"Key": "Domain", "Value": domain},
+                    {"Key": "Component", "Value": "glow-runner-snapshot"},
+                    {"Key": "Reason", "Value": reason},
+                ],
+            }
+        ],
+    )
+    snapshot_id = response["SnapshotId"]
+
+    def check() -> bool:
+        state = ec2.describe_snapshots(SnapshotIds=[snapshot_id])["Snapshots"][0]["State"]
+        return state == "completed"
+
+    wait_with_spinner(f"Waiting for snapshot {snapshot_id}", check, timeout=1800)
+    write_line(f"[deploy] Snapshot {snapshot_id} complete")
+    return snapshot_id
+
+
+def list_snapshots(
+    region: str, session: boto3.Session | None = None, domain: str | None = None
+) -> list[dict[str, Any]]:
+    """List glow-runner snapshots, optionally scoped to one domain.
+
+    Omitting ``domain`` returns every snapshot this tool created, including
+    ones tagged for a domain that no longer has a live deployment — the
+    snapshot carries its own Domain tag independent of the instance.
+    """
+    ec2 = _client(session, "ec2", region)
+    filters = [{"Name": "tag:Component", "Values": ["glow-runner-snapshot"]}]
+    if domain:
+        filters.append({"Name": "tag:Domain", "Values": [domain]})
+    response = ec2.describe_snapshots(Filters=filters, OwnerIds=["self"])
+
+    snapshots = []
+    for snap in response.get("Snapshots", []):
+        tags = {tag["Key"]: tag["Value"] for tag in snap.get("Tags", [])}
+        snapshots.append(
+            {
+                "snapshot_id": snap["SnapshotId"],
+                "domain": tags.get("Domain"),
+                "reason": tags.get("Reason"),
+                "started_at": snap.get("StartTime"),
+                "size_gb": snap.get("VolumeSize"),
+                "state": snap.get("State"),
+            }
+        )
+    return snapshots
+
+
+def delete_snapshot(
+    snapshot_id: str, region: str, session: boto3.Session | None = None
+) -> None:
+    ec2 = _client(session, "ec2", region)
+    ec2.delete_snapshot(SnapshotId=snapshot_id)
+    write_line(f"[deploy] Deleted snapshot {snapshot_id}")
+
+
 def get_cpu_utilization(
     instance_ids: list[str], region: str, session: boto3.Session | None = None
 ) -> dict[str, float | None]:
