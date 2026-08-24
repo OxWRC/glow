@@ -46,6 +46,14 @@
       <input type="number" name="runner_root_volume_size_gb" value="{{ defaults.runner_root_volume_size_gb }}" required>
     </label>
     <label><input type="checkbox" name="force_rebuild_ami" value="true"> Force rebuild AMI</label>
+    <label>Restore data from snapshot (optional)
+      <select name="restore_from_snapshot_id">
+        <option value="">— none, start fresh —</option>
+        {% for snap in snapshots %}
+        <option value="{{ snap.snapshot_id }}">{{ snap.domain }} — {{ snap.reason }} — {{ snap.started_at }} ({{ snap.snapshot_id }})</option>
+        {% endfor %}
+      </select>
+    </label>
     <button type="submit" class="button">Start deployment</button>
   </form>
   <script type="module" src="/static/js/domain-check.js"></script>

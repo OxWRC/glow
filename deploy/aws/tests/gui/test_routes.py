@@ -28,6 +28,7 @@ def _no_network_version_checks(monkeypatch):
     with their own monkeypatch as needed."""
     monkeypatch.setattr(deps, "get_cached_release_tags", lambda request: [])
     monkeypatch.setattr(core, "get_deployed_version", lambda domain_name, timeout=5.0: None)
+    monkeypatch.setattr(core, "list_snapshots", lambda region, session, domain=None: [])
 
 
 @pytest.fixture
@@ -344,6 +345,84 @@ def test_new_deployment_plan_surfaces_git_ref_errors(client, monkeypatch):
 
     assert response.status_code == 200
     assert "ref not found" in response.text
+
+
+def test_new_deployment_form_lists_snapshots_for_restore_picker(client, monkeypatch):
+    _sign_in(client)
+    monkeypatch.setattr(
+        core,
+        "list_snapshots",
+        lambda region, session: [
+            {
+                "snapshot_id": "snap-1",
+                "domain": "example.com",
+                "reason": "pre-destroy",
+                "started_at": "2026-01-01T00:00:00Z",
+                "size_gb": 100,
+                "state": "completed",
+            }
+        ],
+    )
+
+    response = client.get("/deployments/new")
+
+    assert response.status_code == 200
+    assert "snap-1" in response.text
+
+
+def test_new_deployment_plan_then_apply_threads_restore_snapshot_id(client, monkeypatch):
+    _sign_in(client)
+    monkeypatch.setattr(core, "list_snapshots", lambda region, session: [])
+    monkeypatch.setattr(
+        github_api, "resolve_git_commit_via_github", lambda repo_url, ref: "d" * 40
+    )
+    monkeypatch.setattr(
+        core,
+        "provision",
+        lambda config: {"runner_instance_id": "i-123", "alb_dns_name": "alb.example.com"},
+    )
+
+    plan_response = client.post(
+        "/deployments/new/plan",
+        data={
+            "domain": "example.com",
+            "git_ref": "v2",
+            "aws_region": "eu-west-2",
+            "restore_from_snapshot_id": "snap-1",
+        },
+        follow_redirects=False,
+    )
+    assert plan_response.status_code == 303
+    plan_job_id = plan_response.headers["location"].removeprefix("/jobs/")
+    _wait_for_job(client, plan_job_id)
+
+    apply_page = client.get(f"/jobs/{plan_job_id}")
+    assert 'name="restore_from_snapshot_id" value="snap-1"' in apply_page.text
+
+    apply_calls = []
+    monkeypatch.setattr(
+        core, "provision", lambda config: apply_calls.append(config) or None
+    )
+    apply_response = client.post(
+        "/deployments/new/apply",
+        data={
+            "domain_name": "example.com",
+            "git_repo_url": "https://github.com/OxWRC/glow.git",
+            "git_ref": "v2",
+            "git_commit": "d" * 40,
+            "aws_region": "eu-west-2",
+            "app_name": "glow-core",
+            "runner_instance_type": "t3.medium",
+            "runner_root_volume_size_gb": "100",
+            "restore_from_snapshot_id": "snap-1",
+        },
+        follow_redirects=False,
+    )
+    assert apply_response.status_code == 303
+    apply_job_id = apply_response.headers["location"].removeprefix("/jobs/")
+    _wait_for_job(client, apply_job_id)
+
+    assert apply_calls[0].restore_from_snapshot_id == "snap-1"
 
 
 def test_check_domain_reports_true_when_a_hosted_zone_is_found(client, monkeypatch):

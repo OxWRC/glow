@@ -62,9 +62,10 @@ def home(request: Request, session=Depends(require_session)):
 
 
 @router.get("/deployments/new", response_class=HTMLResponse)
-def new_deployment_form(request: Request, _session=Depends(require_session)):
+def new_deployment_form(request: Request, session=Depends(require_session)):
     return templates.TemplateResponse(request, "new_deployment.html", {"error": None,
             "available_versions": _sorted_available_versions(request),
+            "snapshots": core.list_snapshots(request.app.state.region, session),
             "defaults": {
                 "git_repo_url": core.DEFAULT_GIT_REPO_URL,
                 "git_ref": _default_git_ref(request),
@@ -107,6 +108,7 @@ def new_deployment_plan(
     runner_instance_type: str = Form("t3.medium"),
     runner_root_volume_size_gb: int = Form(100),
     force_rebuild_ami: bool = Form(False),
+    restore_from_snapshot_id: str = Form(""),
 ):
     resolved_ref = git_ref_override.strip() or git_ref or _default_git_ref(request)
     try:
@@ -114,6 +116,7 @@ def new_deployment_plan(
     except DeployError as exc:
         return templates.TemplateResponse(request, "new_deployment.html", {"error": str(exc),
                 "available_versions": _sorted_available_versions(request),
+                "snapshots": core.list_snapshots(request.app.state.region, session),
                 "defaults": {
                     "git_repo_url": git_repo_url,
                     "git_ref": resolved_ref,
@@ -136,6 +139,7 @@ def new_deployment_plan(
         runner_instance_type=runner_instance_type,
         runner_root_volume_size_gb=runner_root_volume_size_gb,
         force_rebuild_ami=force_rebuild_ami,
+        restore_from_snapshot_id=restore_from_snapshot_id,
     )
     config = core.Config(session=session, dry_run=True, **config_fields)
     job_id = request.app.state.job_manager.submit(
@@ -164,6 +168,7 @@ def new_deployment_apply(
     runner_instance_type: str = Form(...),
     runner_root_volume_size_gb: int = Form(...),
     force_rebuild_ami: bool = Form(False),
+    restore_from_snapshot_id: str = Form(""),
 ):
     config = core.Config(
         session=session,
@@ -178,6 +183,7 @@ def new_deployment_apply(
         runner_instance_type=runner_instance_type,
         runner_root_volume_size_gb=runner_root_volume_size_gb,
         force_rebuild_ami=force_rebuild_ami,
+        restore_from_snapshot_id=restore_from_snapshot_id,
     )
     job_id = request.app.state.job_manager.submit(
         lambda: core.provision(config),
