@@ -322,3 +322,15 @@ def destroy(request: Request, domain: str, session=Depends(require_session)):
         meta={"kind": "destroy_apply", "domain": domain},
     )
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+
+@router.get("/snapshots", response_class=HTMLResponse)
+def all_snapshots(request: Request, session=Depends(require_session)):
+    snapshots = core.list_snapshots(request.app.state.region, session)
+    return templates.TemplateResponse(request, "snapshots.html", {"snapshots": snapshots})
+
+
+@router.post("/snapshots/{snapshot_id}/delete", response_class=HTMLResponse)
+def delete_global_snapshot(request: Request, snapshot_id: str, session=Depends(require_session)):
+    core.delete_snapshot(snapshot_id, request.app.state.region, session)
+    return RedirectResponse("/snapshots", status_code=303)

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Snapshots — Glow Deploy{% endblock %}
+{% block content %}
+  <h1>Snapshots</h1>
+  {% if not snapshots %}
+  <p>No snapshots found in this account/region.</p>
+  {% else %}
+  <ul class="list-plain">
+    {% for snap in snapshots %}
+    <li class="card">
+      <div class="deployment-row">
+        <strong>{{ snap.domain or "(unknown domain)" }}</strong>
+        <span class="badge">{{ snap.reason }} — {{ snap.state }}</span>
+      </div>
+      <dl>
+        <dt>Snapshot ID</dt><dd>{{ snap.snapshot_id }}</dd>
+        <dt>Created</dt><dd>{{ snap.started_at }}</dd>
+        <dt>Size</dt><dd>{{ snap.size_gb }} GB</dd>
+      </dl>
+      <p class="links">
+        <form method="post" action="/snapshots/{{ snap.snapshot_id }}/delete"
+              onsubmit="return confirm('Delete this snapshot? This cannot be undone.')">
+          <button type="submit" class="button button-danger-ghost">Delete</button>
+        </form>
+      </p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+{% endblock %}

@@ -786,3 +786,57 @@ def test_container_log_tail_route_surfaces_deploy_errors(client, monkeypatch):
     body = response.json()
     assert body["lines"] is None
     assert "Couldn't fetch logs for glow-web-1" in body["error"]
+
+
+# ---------------------------------------------------------------------------
+# Global snapshots page
+# ---------------------------------------------------------------------------
+
+
+def test_snapshots_page_lists_all_snapshots_including_orphans(client, monkeypatch):
+    _sign_in(client)
+    monkeypatch.setattr(
+        core,
+        "list_snapshots",
+        lambda region, session: [
+            {
+                "snapshot_id": "snap-1",
+                "domain": "example.com",
+                "reason": "pre-update",
+                "started_at": "2026-01-01T00:00:00Z",
+                "size_gb": 100,
+                "state": "completed",
+            },
+            {
+                "snapshot_id": "snap-2",
+                "domain": "gone.example.com",
+                "reason": "pre-destroy",
+                "started_at": "2026-01-02T00:00:00Z",
+                "size_gb": 80,
+                "state": "completed",
+            },
+        ],
+    )
+
+    response = client.get("/snapshots")
+
+    assert response.status_code == 200
+    assert "snap-1" in response.text
+    assert "snap-2" in response.text
+    assert "gone.example.com" in response.text
+
+
+def test_snapshots_page_delete_route_redirects_to_snapshots_list(client, monkeypatch):
+    _sign_in(client)
+    delete_calls = []
+    monkeypatch.setattr(
+        core,
+        "delete_snapshot",
+        lambda snapshot_id, region, session: delete_calls.append(snapshot_id),
+    )
+
+    response = client.post("/snapshots/snap-2/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/snapshots"
+    assert delete_calls == ["snap-2"]
