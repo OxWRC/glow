@@ -981,6 +981,16 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
     )
     monkeypatch.setattr(
         core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda volume_id, domain, reason, region, session=None: "snap-1234567890",
+    )
+    monkeypatch.setattr(
+        core,
         "prepare_runner_repository",
         lambda instance_id, region, repo_url, checkout_ref, session=None: calls.append(
             ("prepare", (instance_id, region, repo_url, checkout_ref))
@@ -1035,6 +1045,84 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
                 {"Key": "GlowGUIVersion", "Value": "dev"},
             ],
         }
+    ]
+
+
+def test_update_snapshots_volume_before_preparing_repository(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+    monkeypatch.setattr(
+        core,
+        "run_command",
+        lambda args, check=True, cwd=None, env=None: SimpleNamespace(
+            stdout='{"runner_instance_id": {"value": "i-1234567890"}}'
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "wait_for_ssm_online",
+        lambda instance_id, region, session=None: calls.append(("wait", instance_id)),
+    )
+    monkeypatch.setattr(
+        core,
+        "wait_for_runner_bootstrap_completion",
+        lambda instance_id, region, session=None: calls.append(
+            ("bootstrap", instance_id)
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: calls.append(("find_volume", instance_id))
+        or "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda volume_id, domain, reason, region, session=None: calls.append(
+            ("snapshot", volume_id, domain, reason)
+        )
+        or "snap-1234567890",
+    )
+    monkeypatch.setattr(
+        core,
+        "prepare_runner_repository",
+        lambda instance_id, region, repo_url, checkout_ref, session=None: calls.append(
+            ("prepare", instance_id)
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "rerun_runner_userdata",
+        lambda instance_id, region, domain_name, env=None, session=None: calls.append(
+            ("rerun", instance_id)
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "verify_runner_health",
+        lambda instance_id, region, session=None: calls.append(("verify", instance_id)),
+    )
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.update(_make_config())
+
+    assert calls == [
+        ("wait", "i-1234567890"),
+        ("bootstrap", "i-1234567890"),
+        ("find_volume", "i-1234567890"),
+        ("snapshot", "vol-abc123", "example.com", "pre-update"),
+        ("prepare", "i-1234567890"),
+        ("rerun", "i-1234567890"),
+        ("verify", "i-1234567890"),
     ]
 
 

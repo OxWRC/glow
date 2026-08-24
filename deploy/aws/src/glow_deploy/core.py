@@ -1260,6 +1260,11 @@ def update(config: Config) -> None:
         instance_id, config.aws_region, config.session
     )
 
+    volume_id = find_root_volume_id(instance_id, config.aws_region, config.session)
+    create_snapshot(
+        volume_id, config.domain_name, "pre-update", config.aws_region, config.session
+    )
+
     prepare_runner_repository(
         instance_id,
         config.aws_region,
