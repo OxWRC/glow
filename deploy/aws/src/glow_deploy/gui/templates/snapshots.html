@@ -17,12 +17,12 @@
         <dt>Created</dt><dd>{{ snap.started_at }}</dd>
         <dt>Size</dt><dd>{{ snap.size_gb }} GB</dd>
       </dl>
-      <p class="links">
+      <div class="links">
         <form method="post" action="/snapshots/{{ snap.snapshot_id }}/delete"
               onsubmit="return confirm('Delete this snapshot? This cannot be undone.')">
           <button type="submit" class="button button-danger-ghost">Delete</button>
         </form>
-      </p>
+      </div>
     </li>
     {% endfor %}
   </ul>

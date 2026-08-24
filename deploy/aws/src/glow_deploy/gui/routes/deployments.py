@@ -65,7 +65,6 @@ def home(request: Request, session=Depends(require_session)):
 def new_deployment_form(request: Request, session=Depends(require_session)):
     return templates.TemplateResponse(request, "new_deployment.html", {"error": None,
             "available_versions": _sorted_available_versions(request),
-            "snapshots": core.list_snapshots(request.app.state.region, session),
             "defaults": {
                 "git_repo_url": core.DEFAULT_GIT_REPO_URL,
                 "git_ref": _default_git_ref(request),
@@ -116,7 +115,6 @@ def new_deployment_plan(
     except DeployError as exc:
         return templates.TemplateResponse(request, "new_deployment.html", {"error": str(exc),
                 "available_versions": _sorted_available_versions(request),
-                "snapshots": core.list_snapshots(request.app.state.region, session),
                 "defaults": {
                     "git_repo_url": git_repo_url,
                     "git_ref": resolved_ref,

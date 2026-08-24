@@ -347,32 +347,16 @@ def test_new_deployment_plan_surfaces_git_ref_errors(client, monkeypatch):
     assert "ref not found" in response.text
 
 
-def test_new_deployment_form_lists_snapshots_for_restore_picker(client, monkeypatch):
-    _sign_in(client)
-    monkeypatch.setattr(
-        core,
-        "list_snapshots",
-        lambda region, session: [
-            {
-                "snapshot_id": "snap-1",
-                "domain": "example.com",
-                "reason": "pre-destroy",
-                "started_at": "2026-01-01T00:00:00Z",
-                "size_gb": 100,
-                "state": "completed",
-            }
-        ],
-    )
-
-    response = client.get("/deployments/new")
-
-    assert response.status_code == 200
-    assert "snap-1" in response.text
-
-
 def test_new_deployment_plan_then_apply_threads_restore_snapshot_id(client, monkeypatch):
+    """The visible snapshot-restore picker is gone from new_deployment.html
+    (see core.provision's DeployError gate on restore_from_snapshot_id), but
+    the underlying plan -> hidden-field -> apply config-threading mechanism
+    used by every field on this form is generic and still real plumbing
+    worth covering — this drives it with restore_from_snapshot_id set via a
+    raw form post (as a crafted request could still do) to confirm it still
+    threads through correctly, without asserting the deploy succeeds.
+    """
     _sign_in(client)
-    monkeypatch.setattr(core, "list_snapshots", lambda region, session: [])
     monkeypatch.setattr(
         github_api, "resolve_git_commit_via_github", lambda repo_url, ref: "d" * 40
     )
