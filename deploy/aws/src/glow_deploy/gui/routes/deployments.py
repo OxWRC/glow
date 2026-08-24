@@ -187,7 +187,7 @@ def new_deployment_apply(
 
 
 @router.get("/deployments/{domain}", response_class=HTMLResponse)
-def deployment_detail(request: Request, domain: str, _session=Depends(require_session)):
+def deployment_detail(request: Request, domain: str, session=Depends(require_session)):
     deployment = find_deployment(request, domain)
     available = deps.get_cached_release_tags(request)
     return templates.TemplateResponse(request, "deployment_detail.html", {
@@ -199,8 +199,17 @@ def deployment_detail(request: Request, domain: str, _session=Depends(require_se
             ),
             "default_git_ref": _default_git_ref(request),
             "default_git_repo_url": core.DEFAULT_GIT_REPO_URL,
+            "snapshots": core.list_snapshots(request.app.state.region, session, domain=domain),
         },
     )
+
+
+@router.post("/deployments/{domain}/snapshots/{snapshot_id}/delete", response_class=HTMLResponse)
+def delete_deployment_snapshot(
+    request: Request, domain: str, snapshot_id: str, session=Depends(require_session)
+):
+    core.delete_snapshot(snapshot_id, request.app.state.region, session)
+    return RedirectResponse(f"/deployments/{domain}", status_code=303)
 
 
 @router.post("/deployments/{domain}/update/plan", response_class=HTMLResponse)

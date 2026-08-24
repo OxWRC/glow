@@ -390,6 +390,11 @@ def _stub_deployment(monkeypatch):
             }
         ],
     )
+    monkeypatch.setattr(
+        core,
+        "list_snapshots",
+        lambda region, session, domain=None: [],
+    )
 
 
 def test_deployment_detail_renders_for_known_domain(client, monkeypatch):
@@ -409,6 +414,51 @@ def test_deployment_detail_404s_for_unknown_domain(client, monkeypatch):
     response = client.get("/deployments/does-not-exist.com")
 
     assert response.status_code == 404
+
+
+def test_deployment_detail_lists_snapshots_for_the_domain(client, monkeypatch):
+    _sign_in(client)
+    _stub_deployment(monkeypatch)
+    monkeypatch.setattr(
+        core,
+        "list_snapshots",
+        lambda region, session, domain=None: [
+            {
+                "snapshot_id": "snap-1",
+                "domain": domain,
+                "reason": "pre-update",
+                "started_at": "2026-01-01T00:00:00Z",
+                "size_gb": 100,
+                "state": "completed",
+            }
+        ],
+    )
+
+    response = client.get("/deployments/example.com")
+
+    assert response.status_code == 200
+    assert "snap-1" in response.text
+    assert "pre-update" in response.text
+
+
+def test_deployment_detail_delete_snapshot_route(client, monkeypatch):
+    _sign_in(client)
+    _stub_deployment(monkeypatch)
+    monkeypatch.setattr(core, "list_snapshots", lambda region, session, domain=None: [])
+    delete_calls = []
+    monkeypatch.setattr(
+        core,
+        "delete_snapshot",
+        lambda snapshot_id, region, session: delete_calls.append(snapshot_id),
+    )
+
+    response = client.post(
+        "/deployments/example.com/snapshots/snap-1/delete", follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/deployments/example.com"
+    assert delete_calls == ["snap-1"]
 
 
 def test_update_plan_then_apply_updates(client, monkeypatch):
