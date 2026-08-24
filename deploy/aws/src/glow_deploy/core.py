@@ -1325,6 +1325,10 @@ def destroy(config: Config) -> None:
 
     env = _subprocess_env(config.session)
 
+    outputs = read_terraform_outputs(env=env)
+    instance_id = outputs["runner_instance_id"]
+    volume_id = find_root_volume_id(instance_id, config.aws_region, config.session)
+
     tfvars = {
         "app_name": config.app_name,
         "aws_region": config.aws_region,
@@ -1361,6 +1365,13 @@ def destroy(config: Config) -> None:
     finally:
         os.close(fd)
         Path(tfvars_path).unlink(missing_ok=True)
+
+    create_snapshot(
+        volume_id, config.domain_name, "pre-destroy", config.aws_region, config.session
+    )
+    ec2 = _client(config.session, "ec2", config.aws_region)
+    ec2.delete_volume(VolumeId=volume_id)
+    write_line(f"[deploy] Deleted volume {volume_id}")
 
     write_line(f"[deploy] {config.domain_name} destroyed")
 

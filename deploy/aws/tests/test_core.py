@@ -191,6 +191,7 @@ class _FakeEc2Client:
         self._response = response
         self.describe_instances_calls: list[dict] = []
         self.create_tags_calls: list[dict] = []
+        self.delete_volume_calls: list[dict] = []
 
     def describe_instances(self, **kwargs):
         self.describe_instances_calls.append(kwargs)
@@ -198,6 +199,9 @@ class _FakeEc2Client:
 
     def create_tags(self, **kwargs):
         self.create_tags_calls.append(kwargs)
+
+    def delete_volume(self, **kwargs):
+        self.delete_volume_calls.append(kwargs)
 
 
 def test_list_deployments_maps_tags_from_terraform_managed_instances(monkeypatch):
@@ -931,6 +935,97 @@ def test_get_git_ref_script_reads_runner_environment_file():
 # ---------------------------------------------------------------------------
 # provision() / update() orchestration
 # ---------------------------------------------------------------------------
+
+
+def test_destroy_captures_volume_before_terraform_destroy_then_snapshots_and_deletes_it(
+    monkeypatch,
+):
+    calls: list[tuple] = []
+
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+
+    def fake_run_command(args, check=True, cwd=None, env=None):
+        if "output" in args:
+            return SimpleNamespace(
+                stdout='{"runner_instance_id": {"value": "i-1234567890"}}'
+            )
+        calls.append(("run_command", args))
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(core, "run_command", fake_run_command)
+    monkeypatch.setattr(
+        core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: calls.append(("find_volume", instance_id))
+        or "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda volume_id, domain, reason, region, session=None: calls.append(
+            ("snapshot", volume_id, domain, reason)
+        )
+        or "snap-1234567890",
+    )
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.destroy(_make_config(dry_run=False))
+
+    run_command_calls = [c for c in calls if c[0] == "run_command"]
+    assert len(run_command_calls) == 1
+    assert "destroy" in run_command_calls[0][1]
+
+    assert calls == [
+        ("find_volume", "i-1234567890"),
+        ("run_command", run_command_calls[0][1]),
+        ("snapshot", "vol-abc123", "example.com", "pre-destroy"),
+    ]
+    assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-abc123"}]
+
+
+def test_destroy_dry_run_does_not_snapshot_or_delete_volume(monkeypatch):
+    calls: list[tuple] = []
+
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+
+    def fake_run_command(args, check=True, cwd=None, env=None):
+        if "output" in args:
+            return SimpleNamespace(
+                stdout='{"runner_instance_id": {"value": "i-1234567890"}}'
+            )
+        return SimpleNamespace(stdout="plan output")
+
+    monkeypatch.setattr(core, "run_command", fake_run_command)
+    monkeypatch.setattr(
+        core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda *args, **kwargs: calls.append(("snapshot",)) or "snap-1234567890",
+    )
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.destroy(_make_config(dry_run=True))
+
+    assert calls == []
+    assert fake_ec2.delete_volume_calls == []
 
 
 def _make_config(**overrides) -> core.Config:
