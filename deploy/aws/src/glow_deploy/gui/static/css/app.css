@@ -276,6 +276,36 @@ pre {
   white-space: pre-wrap;
 }
 
+.job-lines {
+  background: var(--color-pending-bg);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 80vh;
+  min-height: 200px;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}
+
+/* A run of tailed sub-log output (e.g. a remote build), folded into its own
+   collapsed block so it doesn't interleave with step lines. */
+.job-lines .log-detail {
+  display: block;
+  margin: var(--space-2) 0;
+  white-space: normal;
+}
+
+.job-lines .log-detail summary {
+  font-size: 0.8rem;
+}
+
+.job-lines .log-detail pre {
+  margin: var(--space-2) 0 0;
+  max-height: 40vh;
+  min-height: 0;
+}
+
 code {
   background: var(--color-pending-bg);
   border-radius: var(--radius);

@@ -10,7 +10,7 @@
 
   <details open>
     <summary>Advanced / raw output</summary>
-    <pre id="job-lines">{{ job.lines | join('\n') | safe }}</pre>
+    <div id="job-lines" class="job-lines">{{ job.lines | join('\n') | safe }}</div>
   </details>
 
   {% if job.error %}<p id="job-error" class="alert" role="alert">{{ job.error | safe }}</p>{% else %}<p id="job-error" hidden></p>{% endif %}

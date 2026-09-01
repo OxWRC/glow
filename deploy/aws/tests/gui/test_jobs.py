@@ -40,6 +40,29 @@ def test_submit_runs_fn_and_records_success_and_meta():
     assert job.lines == ["step 1", "spinner done"]
 
 
+def test_detail_lines_fold_into_one_block_between_step_lines():
+    manager = JobManager()
+
+    def fn():
+        from glow_deploy import core
+
+        core.write_line("step 1")
+        core.write_line("sub-log a", detail=True)
+        core.write_line("sub-log b", detail=True)
+        core.write_line("step 2")
+        return None
+
+    job_id = manager.submit(fn)
+    job = _wait_until_terminal(manager, job_id)
+
+    assert job.status == "succeeded"
+    assert len(job.lines) == 3
+    assert job.lines[0] == "step 1"
+    assert "<details" in job.lines[1]
+    assert "sub-log a" in job.lines[1] and "sub-log b" in job.lines[1]
+    assert job.lines[2] == "step 2"
+
+
 def test_submit_records_deploy_error_as_failure():
     manager = JobManager()
 

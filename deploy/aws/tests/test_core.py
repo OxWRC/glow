@@ -58,17 +58,22 @@ def test_write_line_uses_default_stderr_sink(capsys):
 
 
 def test_set_progress_sink_redirects_write_line_and_write_inline():
-    messages: list[tuple[str, bool]] = []
+    messages: list[tuple[str, bool, bool]] = []
     token = core.set_progress_sink(
-        lambda message, inline: messages.append((message, inline))
+        lambda message, inline, detail: messages.append((message, inline, detail))
     )
     try:
         core.write_line("progress")
+        core.write_line("tailed", detail=True)
         core.write_inline("spinner")
     finally:
         core.reset_progress_sink(token)
 
-    assert messages == [("progress", False), ("spinner", True)]
+    assert messages == [
+        ("progress", False, False),
+        ("tailed", False, True),
+        ("spinner", True, False),
+    ]
 
 
 # ---------------------------------------------------------------------------

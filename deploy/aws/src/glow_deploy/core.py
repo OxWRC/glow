@@ -48,9 +48,11 @@ AMI_ID_PATTERN = re.compile(r"ami-[0-9a-fA-F]{8,17}")
 DEFAULT_GIT_REPO_URL = "https://github.com/OxWRC/glow.git"
 CORE_TAG_PREFIX = "v"
 
-# (message, inline) -> None. `inline` means "overwrite the current line"
-# (spinner-style), matching write_line/write_inline below.
-ProgressSink = Callable[[str, bool], None]
+# (message, inline, detail) -> None. `inline` means "overwrite the current
+# line" (spinner-style); `detail` marks noisy sub-output (e.g. a tailed
+# remote log) that a GUI sink may want to fold into a nested block instead of
+# interleaving with step lines. Matches write_line/write_inline below.
+ProgressSink = Callable[[str, bool, bool], None]
 
 
 @dataclass
@@ -69,7 +71,7 @@ class Config:
     session: boto3.Session | None = None
 
 
-def _stderr_progress_sink(message: str, inline: bool) -> None:
+def _stderr_progress_sink(message: str, inline: bool, detail: bool) -> None:
     terminator = "" if inline else "\n"
     sys.stderr.write(f"\r\033[K{message}{terminator}")
     sys.stderr.flush()
@@ -93,14 +95,19 @@ def reset_progress_sink(token: contextvars.Token) -> None:
     _progress_sink.reset(token)
 
 
-def write_line(message: str) -> None:
-    """Emit a progress line through the active progress sink."""
-    _progress_sink.get()(message, False)
+def write_line(message: str, *, detail: bool = False) -> None:
+    """Emit a progress line through the active progress sink.
+
+    ``detail=True`` marks noisy sub-output (e.g. a tailed remote log) so a
+    GUI sink can fold it into a nested block instead of interleaving it with
+    step lines.
+    """
+    _progress_sink.get()(message, False, detail)
 
 
 def write_inline(message: str) -> None:
     """Emit an in-place progress update (spinner) through the active sink."""
-    _progress_sink.get()(message, True)
+    _progress_sink.get()(message, True, False)
 
 
 def run_command(
@@ -484,7 +491,7 @@ def wait_with_spinner(
     while True:
         if on_tick:
             for line in on_tick():
-                write_line(f"[deploy]   {line}")
+                write_line(f"[deploy]   {line}", detail=True)
 
         elapsed = int(time.time() - start)
         write_inline(f"[deploy] {message} {spinner[idx % len(spinner)]} ({elapsed}s)")

@@ -22,6 +22,20 @@ TOKEN=$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" \
 INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $${TOKEN}" \
   http://169.254.169.254/latest/meta-data/instance-id)
 
+echo "[PROGRESS] Ensure swap"
+# Small instance types (t3.small et al) don't have enough RAM to build the
+# dashboard's vite SSR bundle while the existing stack is still running (an
+# update rebuilds images before swapping them in). A swapfile absorbs that
+# build-time burst instead of the box OOM-thrashing. Idempotent: reruns on
+# every update via rerun_runner_userdata.
+if [[ ! -f /swapfile ]]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+fi
+swapon --show=NAME --noheadings | grep -qx /swapfile || swapon /swapfile
+grep -qx '/swapfile none swap sw 0 0' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
 echo "[PROGRESS] Set up CloudWatch Agent"
 
 cloud_init_config=/opt/aws/amazon-cloudwatch-agent/etc/cloud_init.json
