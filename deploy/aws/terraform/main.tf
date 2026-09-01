@@ -4,10 +4,12 @@ provider "aws" {
 
 locals {
   tags = {
-    ManagedBy    = "Terraform"
-    project-name = var.app_name
-    Domain       = var.domain_name
-    Stack        = "glow"
+    ManagedBy      = "Terraform"
+    project-name   = var.app_name
+    Domain         = var.domain_name
+    Stack          = "glow"
+    GitTag         = var.git_ref
+    GlowGUIVersion = var.gui_version
   }
 
   runner_tags = merge(local.tags, {

@@ -34,6 +34,7 @@ import httpx
 
 from glow_deploy import binaries, github_api
 from glow_deploy.errors import DeployError
+from glow_deploy.gui.version import CURRENT_VERSION as GUI_VERSION
 
 if TYPE_CHECKING:
     import boto3
@@ -68,6 +69,7 @@ class Config:
     dry_run: bool
     force_rebuild_ami: bool
     certificate_arn: str = ""
+    gui_version: str = GUI_VERSION
     session: boto3.Session | None = None
 
 
@@ -199,7 +201,12 @@ def find_ami_in_account(
 
 
 def build_ami_with_packer(
-    region: str, git_commit: str, session: boto3.Session | None = None
+    region: str,
+    git_commit: str,
+    app_name: str,
+    git_ref: str,
+    gui_version: str,
+    session: boto3.Session | None = None,
 ) -> str:
     """Build the runner AMI using Packer."""
     write_line("[deploy] Building runner AMI with Packer")
@@ -209,6 +216,12 @@ def build_ami_with_packer(
         f"aws_region={region}",
         "-var",
         f"git_commit={git_commit}",
+        "-var",
+        f"app_name={app_name}",
+        "-var",
+        f"git_ref={git_ref}",
+        "-var",
+        f"gui_version={gui_version}",
     ]
 
     env = _subprocess_env(session)
@@ -435,6 +448,7 @@ def terraform_apply(config: Config, ami_id: str) -> dict[str, Any]:
         "git_ref": config.git_ref,
         "git_repo_url": config.git_repo_url,
         "git_checkout_ref": config.git_commit,
+        "gui_version": config.gui_version,
         "runner_ami_id": validate_ami_id(ami_id),
         "runner_instance_type": config.runner_instance_type,
         "runner_root_volume_size_gb": config.runner_root_volume_size_gb,
@@ -1041,7 +1055,12 @@ def provision(config: Config) -> dict[str, Any] | None:
         write_line(f"[deploy] Using existing AMI: {ami_id}")
     else:
         ami_id = build_ami_with_packer(
-            config.aws_region, config.git_commit, config.session
+            config.aws_region,
+            config.git_commit,
+            config.app_name,
+            config.git_ref,
+            config.gui_version,
+            config.session,
         )
         write_line(f"[deploy] Built AMI: {ami_id}")
 
@@ -1146,6 +1165,8 @@ def update(config: Config) -> None:
         Tags=[
             {"Key": "GitRef", "Value": config.git_ref},
             {"Key": "GitCommit", "Value": config.git_commit},
+            {"Key": "GitTag", "Value": config.git_ref},
+            {"Key": "GlowGUIVersion", "Value": config.gui_version},
         ],
     )
 

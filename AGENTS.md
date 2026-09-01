@@ -116,6 +116,12 @@ Restarting either should not restart the other.
 
 ## Deployment
 
+### Release Tagging
+
+Two independent tag namespaces, do not conflate:
+- `v*.*.*` (e.g. `v0.1.4`) — the docker compose stack (api, dashboard, ODK). This is what `--git-ref` in the AWS deploy GUI checks out onto the EC2 instance.
+- `gui-v*.*.*` (e.g. `gui-v0.0.2`) — the deploy tool itself (`deploy/aws/`), packaged and released via `.github/workflows/gui-release.yml`, which only triggers on `gui-v*` tags. A `v*.*.*` tag never builds a GUI binary.
+
 ### AWS Deployment (Recommended)
 
 For production deployments on AWS, see `deploy/aws/README.md` and `DEPLOYMENT.md`.

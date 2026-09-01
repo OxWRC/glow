@@ -857,6 +857,8 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
             "Tags": [
                 {"Key": "GitRef", "Value": "main"},
                 {"Key": "GitCommit", "Value": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+                {"Key": "GitTag", "Value": "main"},
+                {"Key": "GlowGUIVersion", "Value": "dev"},
             ],
         }
     ]

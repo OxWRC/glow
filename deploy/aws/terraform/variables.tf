@@ -32,6 +32,11 @@ variable "git_checkout_ref" {
   type = string
 }
 
+variable "gui_version" {
+  type    = string
+  default = "dev"
+}
+
 variable "runner_ami_id" {
   type = string
 }

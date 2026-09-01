@@ -18,6 +18,19 @@ variable "git_commit" {
   type = string
 }
 
+variable "app_name" {
+  type = string
+}
+
+variable "git_ref" {
+  type = string
+}
+
+variable "gui_version" {
+  type    = string
+  default = "dev"
+}
+
 locals {
   ami_name = "glow-runner-${substr(var.git_commit, 0, 8)}-${formatdate("YYYYMMDDhhmmss", timestamp())}"
 }
@@ -47,9 +60,12 @@ source "amazon-ebs" "runner" {
   }
 
   tags = {
-    Name      = local.ami_name
-    Component = "glow-runner"
-    GitCommit = var.git_commit
+    Name           = local.ami_name
+    Component      = "glow-runner"
+    GitCommit      = var.git_commit
+    project-name   = var.app_name
+    GitTag         = var.git_ref
+    GlowGUIVersion = var.gui_version
   }
 }
 
