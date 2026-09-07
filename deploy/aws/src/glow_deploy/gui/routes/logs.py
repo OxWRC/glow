@@ -50,6 +50,23 @@ def logs_status(request: Request, domain: str, session=Depends(require_session))
             f"(Details logged to {log_file()})"
         )
 
+    admin_credentials = None
+    admin_credentials_error = None
+    if status is not None:
+        # Only worth an extra SSM round-trip once the one above proves SSM
+        # is actually reachable on the instance.
+        try:
+            admin_credentials = core.get_admin_credentials(
+                deployment["instance_id"], region, session
+            )
+        except DeployError as exc:
+            logger.error(
+                "Failed to fetch admin credentials for %s: %s", domain, exc, exc_info=exc
+            )
+            admin_credentials_error = (
+                f"Couldn't fetch dashboard admin credentials. (Details logged to {log_file()})"
+            )
+
     try:
         raw_containers = core.get_container_logs(deployment["instance_id"], domain, region, session)
         containers = {
@@ -67,6 +84,8 @@ def logs_status(request: Request, domain: str, session=Depends(require_session))
     return {
         "status": status,
         "error": error,
+        "admin_credentials": admin_credentials,
+        "admin_credentials_error": admin_credentials_error,
         "containers": containers,
         "containers_error": containers_error,
     }

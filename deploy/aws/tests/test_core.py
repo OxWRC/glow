@@ -359,6 +359,31 @@ def test_get_runner_status_aggregates_health_and_git_ref(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# get_admin_credentials
+# ---------------------------------------------------------------------------
+
+
+def test_get_admin_credentials_parses_env_file(monkeypatch):
+    def fake_capture(instance_id, region, commands, comment, timeout=300, session=None):
+        return "ODK_ADMIN_EMAIL=glow-admin@example.com\nODK_ADMIN_PASSWORD=s3cret\n"
+
+    monkeypatch.setattr(core, "run_ssm_command_capturing_output", fake_capture)
+
+    creds = core.get_admin_credentials("i-1234567890", "eu-west-2")
+
+    assert creds == {"email": "glow-admin@example.com", "password": "s3cret"}
+
+
+def test_get_admin_credentials_raises_on_missing_fields(monkeypatch):
+    monkeypatch.setattr(
+        core, "run_ssm_command_capturing_output", lambda *a, **k: "SOME_OTHER_VAR=x\n"
+    )
+
+    with pytest.raises(core.DeployError):
+        core.get_admin_credentials("i-1234567890", "eu-west-2")
+
+
+# ---------------------------------------------------------------------------
 # get_deployed_version
 # ---------------------------------------------------------------------------
 

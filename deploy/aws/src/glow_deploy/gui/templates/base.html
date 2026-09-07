@@ -4,13 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Glow Deploy{% endblock %}</title>
+  <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/img/favicon-32.png">
+  <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png">
   <link rel="stylesheet" href="/static/css/app.css">
   <script type="module" src="/static/js/heartbeat.js"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/deployments">Glow Deploy</a>
+    <a class="brand" href="/deployments">
+      <img src="/static/img/glow-deploy-mark.png" alt="" width="36" height="36" style="display:block">
+      Glow Deploy
+    </a>
     {% if request.app.state.session %}
     <form method="post" action="/signin/out">
       <button type="submit" class="button button-ghost">Sign out</button>

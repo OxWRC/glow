@@ -15,6 +15,8 @@ export interface DomainCheckResult {
 export interface RunnerStatusResult {
   status: { health: string; git_ref: string; git_commit: string } | null;
   error: string | null;
+  admin_credentials: { email: string; password: string } | null;
+  admin_credentials_error: string | null;
   containers: Record<string, string[]> | null;
   containers_error: string | null;
 }

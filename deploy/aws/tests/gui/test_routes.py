@@ -633,10 +633,17 @@ def test_logs_route_surfaces_runner_status(client, monkeypatch):
     assert response.status_code == 200
     assert "Checking server status" in response.text
 
+    monkeypatch.setattr(
+        core,
+        "get_admin_credentials",
+        lambda instance_id, region, session: {"email": "glow-admin@example.com", "password": "s3cret"},
+    )
+
     status_response = client.get("/deployments/example.com/logs/status")
     assert status_response.status_code == 200
     body = status_response.json()
     assert body["status"]["health"] == "ok"
+    assert body["admin_credentials"] == {"email": "glow-admin@example.com", "password": "s3cret"}
     assert body["containers"] == {"glow-web-1": ["line one"]}
 
 
@@ -663,7 +670,38 @@ def test_logs_route_surfaces_deploy_errors(client, monkeypatch):
     assert status_response.status_code == 200
     body = status_response.json()
     assert "Couldn't reach the server" in body["error"]
+    assert body["admin_credentials"] is None
+    assert body["admin_credentials_error"] is None
     assert "Couldn't fetch container logs" in body["containers_error"]
+
+
+def test_logs_route_surfaces_admin_credentials_error(client, monkeypatch):
+    _sign_in(client)
+    _stub_deployment(monkeypatch)
+    monkeypatch.setattr(
+        core,
+        "get_runner_status",
+        lambda instance_id, region, session: {"health": "ok", "git_ref": "main", "git_commit": "a" * 40},
+    )
+    monkeypatch.setattr(
+        core,
+        "get_container_logs",
+        lambda instance_id, domain_name, region, session: {},
+    )
+    monkeypatch.setattr(
+        core,
+        "get_admin_credentials",
+        lambda instance_id, region, session: (_ for _ in ()).throw(
+            DeployError("file not found")
+        ),
+    )
+
+    status_response = client.get("/deployments/example.com/logs/status")
+
+    assert status_response.status_code == 200
+    body = status_response.json()
+    assert body["admin_credentials"] is None
+    assert "Couldn't fetch dashboard admin credentials" in body["admin_credentials_error"]
 
 
 def test_container_log_tail_route_returns_lines(client, monkeypatch):

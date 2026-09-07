@@ -25,6 +25,10 @@
     try {
       const token = await login(username, password);
       const identity = await me(token.access_token);
+      if (identity.kind !== "authenticated") {
+        error = i18n.t('login.invalidCredentials');
+        return;
+      }
       authStore.setIdentity(identity, token.access_token);
       goto(`/${currentLocale}`);
     } catch (e: unknown) {

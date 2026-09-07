@@ -20,6 +20,45 @@ async function fetchTail(domain: string, container: string, pre: HTMLElement): P
   if (result.lines) pre.innerHTML = result.lines.join("\n");
 }
 
+function copyToClipboard(button: HTMLButtonElement, text: string): void {
+  void navigator.clipboard.writeText(text).then(() => {
+    const original = button.textContent;
+    button.textContent = "Copied!";
+    window.setTimeout(() => {
+      button.textContent = original;
+    }, 1500);
+  });
+}
+
+function renderAdminCredentials(email: string, password: string): void {
+  const card = document.getElementById("admin-credentials-card");
+  const emailEl = document.getElementById("admin-credentials-email");
+  const passwordEl = document.getElementById("admin-credentials-password");
+  const toggleButton = document.getElementById("admin-credentials-toggle-password");
+  const copyEmailButton = document.getElementById("admin-credentials-copy-email");
+  const copyPasswordButton = document.getElementById("admin-credentials-copy-password");
+  if (!card || !emailEl || !passwordEl) return;
+
+  emailEl.textContent = email;
+  let revealed = false;
+
+  if (toggleButton instanceof HTMLButtonElement) {
+    toggleButton.addEventListener("click", () => {
+      revealed = !revealed;
+      passwordEl.textContent = revealed ? password : "••••••••";
+      toggleButton.textContent = revealed ? "Hide" : "Show";
+    });
+  }
+  if (copyEmailButton instanceof HTMLButtonElement) {
+    copyEmailButton.addEventListener("click", () => copyToClipboard(copyEmailButton, email));
+  }
+  if (copyPasswordButton instanceof HTMLButtonElement) {
+    copyPasswordButton.addEventListener("click", () => copyToClipboard(copyPasswordButton, password));
+  }
+
+  card.hidden = false;
+}
+
 function stopTail(container: string, button: HTMLButtonElement): void {
   const timer = tailTimers.get(container);
   if (timer !== undefined) window.clearInterval(timer);
@@ -98,6 +137,16 @@ async function load(domain: string): Promise<void> {
     if (gitRefEl) gitRefEl.textContent = result.status.git_ref;
     if (gitCommitEl) gitCommitEl.textContent = result.status.git_commit;
     statusCardEl.hidden = false;
+  }
+
+  const adminCredentialsErrorEl = document.getElementById("admin-credentials-error");
+  if (result.admin_credentials_error) {
+    if (adminCredentialsErrorEl) {
+      adminCredentialsErrorEl.textContent = result.admin_credentials_error;
+      adminCredentialsErrorEl.hidden = false;
+    }
+  } else if (result.admin_credentials) {
+    renderAdminCredentials(result.admin_credentials.email, result.admin_credentials.password);
   }
 
   if (result.containers_error) {

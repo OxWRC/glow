@@ -17,10 +17,30 @@ function setup() {
       <span id="status-git-ref"></span>
       <span id="status-git-commit"></span>
     </div>
+    <p id="admin-credentials-error" hidden></p>
+    <div id="admin-credentials-card" hidden>
+      <code id="admin-credentials-email"></code>
+      <code id="admin-credentials-password">••••••••</code>
+      <button type="button" id="admin-credentials-toggle-password">Show</button>
+      <button type="button" id="admin-credentials-copy-email">Copy</button>
+      <button type="button" id="admin-credentials-copy-password">Copy</button>
+    </div>
     <p id="containers-loading"></p>
     <p id="containers-error" hidden></p>
     <div id="containers-section"></div>
   `;
+}
+
+function baseResult(overrides = {}) {
+  return {
+    status: null,
+    error: null,
+    admin_credentials: null,
+    admin_credentials_error: null,
+    containers: null,
+    containers_error: null,
+    ...overrides,
+  };
 }
 
 test("renders runner status and containers on a successful load", async () => {
@@ -88,6 +108,64 @@ test("shows the status error message instead of the status card", async () => {
   assert.equal(document.getElementById("status-card").hidden, true);
   assert.equal(document.getElementById("status-error").hidden, false);
   assert.equal(document.getElementById("status-error").textContent, "SSM agent unreachable");
+
+  teardown(window);
+});
+
+test("renders admin credentials, password masked until revealed, and copy buttons copy real values", async () => {
+  const window = freshWindow("http://localhost/deployments/example.com/logs");
+  setup();
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () =>
+      baseResult({
+        admin_credentials: { email: "glow-admin@example.com", password: "s3cret" },
+      }),
+  });
+  const copied = [];
+  globalThis.navigator.clipboard.writeText = async (text) => {
+    copied.push(text);
+  };
+
+  init();
+  await wait(window, 50);
+
+  assert.equal(document.getElementById("admin-credentials-card").hidden, false);
+  assert.equal(document.getElementById("admin-credentials-email").textContent, "glow-admin@example.com");
+  assert.equal(document.getElementById("admin-credentials-password").textContent, "••••••••");
+
+  const toggle = document.getElementById("admin-credentials-toggle-password");
+  toggle.dispatchEvent(new window.Event("click"));
+  assert.equal(document.getElementById("admin-credentials-password").textContent, "s3cret");
+  assert.equal(toggle.textContent, "Hide");
+
+  toggle.dispatchEvent(new window.Event("click"));
+  assert.equal(document.getElementById("admin-credentials-password").textContent, "••••••••");
+  assert.equal(toggle.textContent, "Show");
+
+  document.getElementById("admin-credentials-copy-email").dispatchEvent(new window.Event("click"));
+  document.getElementById("admin-credentials-copy-password").dispatchEvent(new window.Event("click"));
+  await null;
+
+  assert.deepEqual(copied, ["glow-admin@example.com", "s3cret"]);
+
+  teardown(window);
+});
+
+test("shows the admin credentials error instead of the credentials card", async () => {
+  const window = freshWindow("http://localhost/deployments/example.com/logs");
+  setup();
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => baseResult({ admin_credentials_error: "SSM offline" }),
+  });
+
+  init();
+  await wait(window, 50);
+
+  assert.equal(document.getElementById("admin-credentials-card").hidden, true);
+  assert.equal(document.getElementById("admin-credentials-error").hidden, false);
+  assert.equal(document.getElementById("admin-credentials-error").textContent, "SSM offline");
 
   teardown(window);
 });

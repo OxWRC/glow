@@ -6,6 +6,51 @@ import { debugLog } from "./debug.js";
 
 const POLL_INTERVAL_MS = 1500;
 
+// Re-assigning innerHTML tears down and recreates every child node, which
+// clears any in-progress text selection inside it — so only write when the
+// rendered HTML actually changed, letting the user select/copy text between
+// polls.
+function setHtmlIfChanged(el: HTMLElement | null, html: string): void {
+  if (el && el.innerHTML !== html) el.innerHTML = html;
+}
+
+function createLine(html: string): HTMLElement {
+  const line = document.createElement("div");
+  line.className = "log-line";
+  line.innerHTML = html;
+  return line;
+}
+
+// job.lines has no id/timestamp of its own, but the backend gives us a
+// stronger guarantee for free: it only ever appends a new line or mutates
+// the current LAST line in place (an inline spinner overwrite, a growing
+// sub-log block) — an earlier line, once superseded, is frozen forever. So
+// only the current last line can ever need re-rendering, and it's the only
+// one that needs a shadow copy (data-html) to detect a real change — every
+// earlier line is written once and never re-touched or re-compared.
+function renderLines(container: HTMLElement | null, htmlLines: string[]): void {
+  if (!container || htmlLines.length === 0) return;
+  const existingCount = container.children.length;
+
+  for (let i = existingCount; i < htmlLines.length - 1; i++) {
+    container.appendChild(createLine(htmlLines[i]));
+  }
+
+  const lastHtml = htmlLines[htmlLines.length - 1];
+  if (htmlLines.length > existingCount) {
+    const line = createLine(lastHtml);
+    line.dataset.html = lastHtml;
+    container.appendChild(line);
+    return;
+  }
+
+  const lastChild = container.lastElementChild as HTMLElement;
+  if (lastChild.dataset.html !== lastHtml) {
+    lastChild.innerHTML = lastHtml;
+    lastChild.dataset.html = lastHtml;
+  }
+}
+
 function startElapsedTimer(): void {
   const el = document.getElementById("job-elapsed");
   if (!el) return;
@@ -40,9 +85,9 @@ async function poll(jobId: string): Promise<void> {
   const errorEl = document.getElementById("job-error");
   if (statusEl) statusEl.textContent = job.status;
   // job.lines is pre-rendered HTML (ANSI colour codes turned into <span>s server-side).
-  if (linesEl) linesEl.innerHTML = job.lines.join("\n");
+  renderLines(linesEl, job.lines);
   // job.error is pre-rendered HTML (ANSI colour codes turned into <span>s server-side).
-  if (errorEl) errorEl.innerHTML = job.error ?? "";
+  setHtmlIfChanged(errorEl, job.error ?? "");
 
   if (job.status === "succeeded" || job.status === "failed") {
     // The terminal-state page (confirm form / "view deployment" link) is

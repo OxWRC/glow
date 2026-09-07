@@ -41,7 +41,7 @@ function createAuthStore() {
         const newState = {
           ...state,
           identity,
-          token: token ?? state.token,
+          token: identity.kind === "authenticated" ? (token ?? state.token) : null,
         };
         localStorage.setItem("auth", JSON.stringify(newState));
         return newState;

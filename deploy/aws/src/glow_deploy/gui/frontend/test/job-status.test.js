@@ -8,11 +8,15 @@ function wait(window, ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function lineTexts() {
+  return [...document.querySelectorAll("#job-lines .log-line")].map((el) => el.textContent);
+}
+
 function setup(status) {
   document.body.innerHTML = `
     <span id="job-status">${status}</span>
     <span id="job-elapsed"></span>
-    <pre id="job-lines"></pre>
+    <div id="job-lines"></div>
     <p id="job-error"></p>
     <a class="button" href="/x">View</a>
   `;
@@ -30,7 +34,7 @@ test("a running job polls the status endpoint and updates the DOM in place", asy
   await wait(window, 50); // let the first poll() round-trip resolve
 
   assert.equal(document.getElementById("job-status").textContent, "running");
-  assert.equal(document.getElementById("job-lines").innerHTML, "line one\nline two");
+  assert.deepEqual(lineTexts(), ["line one", "line two"]);
 
   teardown(window);
 });
@@ -84,7 +88,65 @@ test("retries after a non-ok response instead of giving up", async () => {
   await wait(window, 1700); // past one failed attempt + one 1.5s retry delay
 
   assert.equal(calls, 2);
-  assert.equal(document.getElementById("job-lines").innerHTML, "retried ok");
+  assert.deepEqual(lineTexts(), ["retried ok"]);
+
+  teardown(window);
+});
+
+test("does not touch #job-lines DOM when polled content is unchanged", async () => {
+  const window = freshWindow("http://localhost/jobs/abc123");
+  setup("running");
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({ id: "abc123", status: "running", lines: ["same line"], error: null }),
+  });
+
+  init();
+  await wait(window, 50); // first poll renders "same line"
+
+  const linesEl = document.getElementById("job-lines");
+  const nodeBeforeSecondPoll = linesEl.firstChild;
+
+  await wait(window, 1600); // second poll, identical content
+
+  // Re-assigning innerHTML with the same string still tears down and
+  // recreates child nodes, which would clear any in-progress text selection —
+  // an unchanged poll must leave the existing nodes alone.
+  assert.equal(linesEl.firstChild, nodeBeforeSecondPoll);
+
+  teardown(window);
+});
+
+test("an appended or last-line-mutated poll only touches that one line, not earlier lines", async () => {
+  const window = freshWindow("http://localhost/jobs/abc123");
+  setup("running");
+  const responses = [
+    ["line one"],
+    ["line one", "line two"], // append
+    ["line one", "line two updated"], // mutate the last line in place (spinner/sub-log growth)
+  ];
+  let call = 0;
+  globalThis.fetch = async () => {
+    const lines = responses[Math.min(call, responses.length - 1)];
+    call++;
+    return { ok: true, json: async () => ({ id: "abc123", status: "running", lines, error: null }) };
+  };
+
+  init();
+  await wait(window, 50); // poll 1: ["line one"]
+
+  const linesEl = document.getElementById("job-lines");
+  const firstLineNode = linesEl.children[0];
+
+  await wait(window, 1600); // poll 2: append "line two"
+  assert.equal(linesEl.children.length, 2);
+  assert.equal(linesEl.children[0], firstLineNode, "earlier line's node must survive an append");
+  const secondLineNode = linesEl.children[1];
+
+  await wait(window, 1600); // poll 3: mutate the last line in place
+  assert.equal(linesEl.children[0], firstLineNode, "earlier line's node must survive a last-line mutation");
+  assert.equal(linesEl.children[1], secondLineNode, "the mutated line keeps its node, just new content");
+  assert.equal(linesEl.children[1].textContent, "line two updated");
 
   teardown(window);
 });

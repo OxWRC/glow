@@ -77,7 +77,7 @@ class JobManager:
         if detail:
             job._detail_lines.append(html_message)
             block = (
-                '<details class="log-detail"><summary>Sub-log '
+                '<details class="log-detail" open><summary>Sub-log '
                 f"({len(job._detail_lines)} lines)</summary><pre>"
                 + "\n".join(job._detail_lines)
                 + "</pre></details>"
@@ -90,8 +90,13 @@ class JobManager:
             job._last_inline = False
             return
 
-        job._detail_lines = []
-        job._detail_index = None
+        if not inline:
+            # A genuine new step line ends the current sub-log block. An inline
+            # spinner heartbeat (write_inline, e.g. from wait_with_spinner)
+            # does not — it fires every tick of the same step and must not
+            # fragment an accumulating sub-log into a fresh block each time.
+            job._detail_lines = []
+            job._detail_index = None
         if inline and job.lines and job._last_inline:
             job.lines[-1] = html_message
         else:

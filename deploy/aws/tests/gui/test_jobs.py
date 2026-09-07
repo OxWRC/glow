@@ -59,8 +59,36 @@ def test_detail_lines_fold_into_one_block_between_step_lines():
     assert len(job.lines) == 3
     assert job.lines[0] == "step 1"
     assert "<details" in job.lines[1]
+    assert " open" in job.lines[1]  # expanded by default, no click needed
     assert "sub-log a" in job.lines[1] and "sub-log b" in job.lines[1]
     assert job.lines[2] == "step 2"
+
+
+def test_detail_lines_survive_interleaved_spinner_heartbeats():
+    """Mirrors wait_with_spinner: detail lines from on_tick() interleaved with
+    the spinner's own write_inline() redraw. The heartbeat must not fragment
+    the sub-log into a new block on every tick."""
+    manager = JobManager()
+
+    def fn():
+        from glow_deploy import core
+
+        core.write_line("step 1")
+        core.write_line("sub-log a", detail=True)
+        core.write_inline("step 1 | (1s)")
+        core.write_line("sub-log b", detail=True)
+        core.write_inline("step 1 | (2s)")
+        core.write_line("step 1 done")
+        return None
+
+    job_id = manager.submit(fn)
+    job = _wait_until_terminal(manager, job_id)
+
+    assert job.status == "succeeded"
+    detail_blocks = [line for line in job.lines if "<details" in line]
+    assert len(detail_blocks) == 1
+    assert "sub-log a" in detail_blocks[0]
+    assert "sub-log b" in detail_blocks[0]
 
 
 def test_submit_records_deploy_error_as_failure():

@@ -33,6 +33,8 @@ services:
         condition: service_healthy
       odk-service:
         condition: service_started
+      nginx:
+        condition: service_healthy
     networks:
       - public
       - api_db

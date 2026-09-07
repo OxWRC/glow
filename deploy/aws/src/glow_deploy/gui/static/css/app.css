@@ -43,6 +43,9 @@ body {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -285,6 +288,9 @@ pre {
   max-height: 80vh;
   min-height: 200px;
   font-size: 0.85rem;
+}
+
+.job-lines .log-line {
   white-space: pre-wrap;
 }
 
@@ -441,4 +447,11 @@ details[open] summary {
 
 .capitalize {
   text-transform: capitalize;
+}
+
+.cred-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
 }

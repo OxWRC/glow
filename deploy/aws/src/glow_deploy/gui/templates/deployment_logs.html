@@ -16,6 +16,22 @@
     <p>Deployed git ref: <span id="status-git-ref"></span> (<span id="status-git-commit"></span>)</p>
   </div>
 
+  <p id="admin-credentials-error" class="alert" role="alert" hidden></p>
+  <div id="admin-credentials-card" class="card" hidden>
+    <p>Dashboard admin login (ODK Central)</p>
+    <div class="cred-row">
+      <span>Username:</span>
+      <code id="admin-credentials-email"></code>
+      <button type="button" id="admin-credentials-copy-email" class="button button-ghost">Copy</button>
+    </div>
+    <div class="cred-row">
+      <span>Password:</span>
+      <code id="admin-credentials-password">••••••••</code>
+      <button type="button" id="admin-credentials-toggle-password" class="button button-ghost">Show</button>
+      <button type="button" id="admin-credentials-copy-password" class="button button-ghost">Copy</button>
+    </div>
+  </div>
+
   <h2>Container logs</h2>
   <p id="containers-loading" class="text-muted">Fetching container logs…</p>
   <p id="containers-error" class="alert" role="alert" hidden></p>

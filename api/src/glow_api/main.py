@@ -1,10 +1,13 @@
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from glow_api.data import get_datastore
@@ -49,10 +52,21 @@ app = FastAPI(
     description="Read-only API for GLOW longitudinal questionnaire data",
     version=settings.APP_VERSION,
     lifespan=lifespan,
-    docs_url="/docs",
+    docs_url=None,
     openapi_url="/openapi.json",
     root_path="/api",
 )
+
+app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+
+
+@app.get("/docs", include_in_schema=False)
+def swagger_docs():
+    return get_swagger_ui_html(
+        openapi_url=app.root_path + app.openapi_url,
+        title=f"{app.title} - Swagger UI",
+        swagger_favicon_url=app.root_path + "/static/favicon.png",
+    )
 
 app.add_middleware(
     CORSMiddleware,
