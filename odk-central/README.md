@@ -61,6 +61,10 @@ This directory exists to provide the minimum local files needed for that:
   - Central nginx templates mounted into `ghcr.io/getodk/central-nginx`
 - `redis/`
   - Enketo Redis configs mounted into the Redis containers
+- `postgres/`
+  - local Dockerfile for the `postgres14` service's `base`/`dev` build
+    targets -- see `postgres/README.md` for the `dev` target's baked seed
+    data and fixed credentials
 
 These files are mostly copied from the upstream `getodk/central` repo so that the official images can boot in this repository without vendoring the full Central source tree.
 
@@ -157,9 +161,12 @@ If you need to update ODK Central, check these together:
 
 1. `ODK_CENTRAL_TAG` in `.env.example` and your runtime env
 2. `postgres14` compatibility with that Central release
-3. `pyxform` version expected by upstream compose
-4. `enketo` base image compatibility
-5. local files in:
+3. `odk-central/postgres/seed/dev-seed.dump` -- regenerate via
+   `scripts/odk/generate_seed_dump.sh` if you bump `ODK_CENTRAL_TAG`; the
+   dump is tied to the migration state it was generated against.
+4. `pyxform` version expected by upstream compose
+5. `enketo` base image compatibility
+6. local files in:
    - `enketo/`
    - `nginx/`
    - `redis/`
