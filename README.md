@@ -287,15 +287,16 @@ glow-dummies → glow_base.csv → transform_mock_data.py → mock_seed/*.csv + 
 
 #### Step 1: Generate Synthetic Data
 
-Use [glow-dummies](https://github.com/OxWRC/glow-dummies) to generate realistic base test data:
+Use [glow-dummies](https://github.com/OxfordRSE/glow-dummies) (a Julia CLI, requires Julia ≥ 1.10) to generate realistic base test data. Clone it as a sibling checkout and run it locally — its `examples/glow_model.toml` config is not published anywhere, so point `--config` at the local file:
 
 ```bash
-# Install glow-dummies
-pip install glow-dummies
+# Install glow-dummies (sibling checkout to this repo)
+git clone https://github.com/OxfordRSE/glow-dummies.git ../glow-dummies
+cd ../glow-dummies && julia --project=. -e 'import Pkg; Pkg.instantiate()' && cd -
 
 # Generate canonical base data
-glow_dummies \
-  --config https://raw.githubusercontent.com/OxWRC/glow-dummies/main/examples/glow_model.toml \
+julia ../glow-dummies/bin/glow_dummies \
+  --config ../glow-dummies/examples/glow_model.toml \
   --seed 42 \
   --output csv \
   > data/glow_base.csv
