@@ -1,0 +1,17 @@
+# Isolated overrides for scripts/odk/generate_seed_dump.sh. Never used by
+# normal dev/demo/CI compose runs.
+services:
+  postgres14:
+    build:
+      context: ./odk-central/postgres
+      target: base
+    volumes:
+      - seed_gen_odk_postgres:/var/lib/postgresql/data
+
+  nginx:
+    ports: !override
+      - "18080:80"
+      - "18443:443"
+
+volumes:
+  seed_gen_odk_postgres:

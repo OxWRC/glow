@@ -23,7 +23,11 @@ set -euo pipefail
 
 # ODK Central API base URL (internal Docker network)
 ODK_API_BASE="${ODK_API_BASE:-http://service:8383/v1}"
-ODK_HOST_HEADER="${ODK_DOMAIN:-}"
+# NOTE: must default from itself first -- a caller that exports
+# ODK_HOST_HEADER before sourcing this file (as generate_seed_dump.sh does)
+# needs that value to survive sourcing, not get silently clobbered back to
+# empty because only ODK_DOMAIN was checked.
+ODK_HOST_HEADER="${ODK_HOST_HEADER:-${ODK_DOMAIN:-}}"
 
 # Color output
 RED='\033[0;31m'
@@ -36,12 +40,14 @@ odk_warn()  { echo -e "${YELLOW}[ODK WARN]${RESET} $*" >&2; }
 odk_error() { echo -e "${RED}[ODK ERROR]${RESET} $*" >&2; }
 
 odk_curl() {
+  local -a extra_args=()
   if [[ -n "${ODK_HOST_HEADER}" ]]; then
-    curl -H "Host: ${ODK_HOST_HEADER}" "$@"
-    return
+    extra_args+=(-H "Host: ${ODK_HOST_HEADER}")
   fi
-
-  curl "$@"
+  if [[ -n "${ODK_CURL_INSECURE:-}" ]]; then
+    extra_args+=(-k)
+  fi
+  curl "${extra_args[@]}" "$@"
 }
 
 odk_ping() {

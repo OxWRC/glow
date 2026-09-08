@@ -34,6 +34,22 @@ glow-dummies model, the ODK forms, or the timestamp backdating logic
 changes -- and whenever `ODK_CENTRAL_TAG` is bumped, since the dump is tied
 to that release's migration state.
 
+`generate_seed_dump.sh` needs `data/glow_base.csv` -- the slimmed dataset
+produced by `scripts/odk/slim_mock_data.py` from glow-dummies' raw output
+(see that script and `generate_seed_dump.sh`'s header comment for the exact
+two-stage command). The unfiltered glow-dummies output is ~9,263 students
+across 20 schools, which transforms into ~60,918 ODK submissions -- at ODK's
+throttled HTTP seeding rate (~2.9 submissions/sec) that's a 5-6 hour
+regeneration. `slim_mock_data.py` thins classes-per-school (never dropping a
+school, since each has a distinct test-scenario plan) down to ~12k
+submissions instead.
+
+Measured on the last regeneration: 1,790 students / 5,370 wave-rows / 20
+schools slimmed down from the raw glow-dummies output, transforming into
+12,427 ODK submissions, seeded with 0 failures in 4,293.7s (~71.6 min).
+Total script wall time (stack boot, seeding, timestamp backdating, dump,
+teardown) was ~72.7 min, producing a 2,712,594-byte (~2.6MB) dump.
+
 ## Known limitations
 
 - Enketo's webform survey cache lives in a separate bind mount
