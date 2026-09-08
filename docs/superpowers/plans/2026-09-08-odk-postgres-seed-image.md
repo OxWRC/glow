@@ -284,7 +284,9 @@ git commit -m "feat: add base/dev build targets for ODK's Postgres image"
 **Files:**
 - Create: `scripts/odk/generate_seed_dump.sh`
 - Create: `scripts/odk/seed-gen.compose.yml`
+- Create: `scripts/odk/slim_mock_data.py`
 - Modify: `scripts/odk/odk-api-helper.sh:38-45` (`odk_curl` — add TLS-insecure support)
+- Modify: `scripts/odk/odk-api-helper.sh:26` (`ODK_HOST_HEADER` default — fix a real pre-existing bug, see Step 1a)
 - Create (via running the script): `odk-central/postgres/seed/dev-seed.dump` (committed via Git LFS)
 
 **Interfaces:**
@@ -324,6 +326,24 @@ odk_curl() {
 }
 ```
 
+- [ ] **Step 1a: Fix `ODK_HOST_HEADER`'s default at `scripts/odk/odk-api-helper.sh:26`**
+
+This is a real, independent bug discovered while building this task (not part of the original design): line 26 currently reads
+
+```bash
+ODK_HOST_HEADER="${ODK_DOMAIN:-}"
+```
+
+This unconditionally overwrites `ODK_HOST_HEADER` from a *different* variable (`ODK_DOMAIN`) at source time — it does not default from itself. A caller that does `export ODK_HOST_HEADER="odk.local"` *before* sourcing this file (exactly what `generate_seed_dump.sh` in Step 4 below does) gets it silently reset to empty, because `ODK_DOMAIN` is unset in that context. The practical effect: `odk_curl` sends no `Host:` header, nginx can't route the request, and `odk_login` fails with no useful error.
+
+Fix:
+
+```bash
+ODK_HOST_HEADER="${ODK_HOST_HEADER:-${ODK_DOMAIN:-}}"
+```
+
+This defaults from itself first, falling back to `ODK_DOMAIN` only when `ODK_HOST_HEADER` itself is unset — preserving current behavior for every other caller (`scripts/smoke_compose.sh` sets only `ODK_DOMAIN`, never `ODK_HOST_HEADER`, so it still flows through the fallback unchanged; `dev-init.sh` doesn't use either variable, it uses its own separate curl-wrapper PATH shim).
+
 - [ ] **Step 2: Test the `odk_curl` change in isolation**
 
 ```bash
@@ -342,12 +362,15 @@ Expected: an HTTP status code printed (not a TLS verification error) — confirm
 
 Isolates the scratch stack from anything a developer might already have running: a Docker-managed named volume instead of the usual bind mount (so it can't collide with `docker-mount-data/odk-postgres`, and gets cleaned up by `down -v`), and alternate host ports for `nginx` so port `8080`/`8443` stays free for an active dev stack. Verified during design that Compose's list-merge for `ports:` *appends* rather than replaces by default — the `!override` tag is required to actually replace them.
 
+Note: `compose.yml`'s `postgres14` has no `build:` block until Task 3 lands (right now it's still `image: postgres:14-alpine`), so this override cannot inherit a `build.context` from it yet — an explicit `context:` is required here even though it will duplicate what Task 3 later adds to `compose.yml` itself. Once Task 3 lands, this becomes a harmless no-op collision (same value asserted twice), not a conflict — discovered and confirmed during Task 2's implementation.
+
 ```yaml
 # Isolated overrides for scripts/odk/generate_seed_dump.sh. Never used by
 # normal dev/demo/CI compose runs.
 services:
   postgres14:
     build:
+      context: ./odk-central/postgres
       target: base
     volumes:
       - seed_gen_odk_postgres:/var/lib/postgresql/data
@@ -376,13 +399,25 @@ volumes:
 # timestamp backdating logic changes -- and whenever ODK_CENTRAL_TAG is
 # bumped, since the dump is tied to that release's migration state.
 #
-# Prerequisite: data/glow_base.csv must exist. Generate it with:
+# Prerequisite: data/glow_base.csv must exist -- this is the SLIMMED dataset
+# (see scripts/odk/slim_mock_data.py), not glow-dummies' raw output directly.
+# The unfiltered model produces ~9,263 students / 20 schools / ~60,918 ODK
+# submissions once transformed -- at ODK's HTTP seeding rate (~2.9
+# submissions/sec, throttled), that's ~5-6 hours per regeneration, discovered
+# the hard way while building this task. slim_mock_data.py cuts that down to
+# ~12k submissions while keeping every school's distinct test-scenario plan
+# (transform_mock_data.py assigns each school a unique target_waves/phq_mode/
+# v1-quirk combination -- dropping a school entirely would lose that
+# combination, so this thins classes-per-school instead, never removes a
+# school). Generate the raw CSV from a sibling checkout, then slim it:
 #
-#   uvx glow-dummies \
-#     --config https://raw.githubusercontent.com/OxWRC/glow-dummies/main/examples/glow_model.toml \
-#     --seed 42 \
-#     --output csv \
-#     > data/glow_base.csv
+#   cd ../glow-dummies
+#   julia --project=. -e 'import Pkg; Pkg.instantiate()'
+#   julia --project=. bin/glow_dummies --config examples/glow_model.toml --seed 42 \
+#     > ../glow/data/glow_base_raw.csv
+#   cd ../glow
+#   python scripts/odk/slim_mock_data.py \
+#     --input data/glow_base_raw.csv --output data/glow_base.csv
 #
 # Usage: scripts/odk/generate_seed_dump.sh
 
@@ -414,11 +449,13 @@ trap cleanup EXIT
 if [[ ! -f ./data/glow_base.csv ]]; then
   echo "❌ ./data/glow_base.csv not found. Generate it first:" >&2
   echo "" >&2
-  echo "   uvx glow-dummies \\" >&2
-  echo "     --config https://raw.githubusercontent.com/OxWRC/glow-dummies/main/examples/glow_model.toml \\" >&2
-  echo "     --seed 42 \\" >&2
-  echo "     --output csv \\" >&2
-  echo "     > data/glow_base.csv" >&2
+  echo "   cd ../glow-dummies" >&2
+  echo "   julia --project=. -e 'import Pkg; Pkg.instantiate()'" >&2
+  echo "   julia --project=. bin/glow_dummies --config examples/glow_model.toml --seed 42 \\" >&2
+  echo "     > ../glow/data/glow_base_raw.csv" >&2
+  echo "   cd ../glow" >&2
+  echo "   python scripts/odk/slim_mock_data.py \\" >&2
+  echo "     --input data/glow_base_raw.csv --output data/glow_base.csv" >&2
   exit 1
 fi
 
@@ -452,10 +489,16 @@ if [[ $waited -ge $max_wait ]]; then
 fi
 
 echo "==> Creating ODK admin user: ${ODK_ADMIN_EMAIL}"
-echo "${ODK_ADMIN_PASSWORD}" | ${COMPOSE} exec -T odk-service \
-  node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-create >/dev/null 2>&1 || true
+# Capture output instead of swallowing it (>/dev/null) -- a real auth
+# failure downstream is much easier to diagnose with this visible than
+# silently discarded. Not fatal if this reports "already exists" or similar;
+# only a genuinely broken create should ever surface as a login failure
+# later in this script.
+CREATE_OUTPUT=$(echo "${ODK_ADMIN_PASSWORD}" | ${COMPOSE} exec -T odk-service \
+  node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-create 2>&1) || true
+echo "${CREATE_OUTPUT}"
 ${COMPOSE} exec -T odk-service \
-  node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-promote >/dev/null 2>&1 || true
+  node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-promote 2>&1 || true
 
 export ODK_API_BASE="https://localhost:18443/v1"
 export ODK_HOST_HEADER="odk.local"
@@ -516,15 +559,106 @@ echo "   Rebuild the dev image to pick it up: docker compose build postgres14"
 chmod +x scripts/odk/generate_seed_dump.sh
 ```
 
+- [ ] **Step 4a: Write `scripts/odk/slim_mock_data.py`**
+
+The unfiltered glow-dummies output is 9,263 students across 20 schools, producing ~60,918 ODK submissions once transformed — a ~5-6 hour regeneration at ODK's HTTP seeding rate, discovered while building this task. `transform_mock_data.py` assigns each school a *distinct* test-scenario plan (a unique `target_waves`/`phq_mode`/v1-quirk combination per school — verified via `data/mock_seed/summary.json`'s `plans` array), so dropping schools entirely would silently delete specific boundary-condition coverage. This script preserves all 20 schools but thins students-per-school by keeping only a deterministically-chosen subset of each school's classes (never a partial class — every kept student keeps all their wave-1/2/3 rows intact).
+
+The per-school class counts and a fixed seed were chosen and hand-verified to land close to ~12k submissions, with deliberately uneven (not uniform) retention per school — some schools keep 1 class, others up to 6 — while confirming the two donor-only schools (`transform_mock_data.py`'s alphabetically-last two, which supply "joiner" wave-4/5 data for other schools — see `transform_mock_data.py:375-393`) retain far more than the one student they structurally require:
+
+```python
+#!/usr/bin/env python3
+"""Slim the canonical glow-dummies base CSV down to a manageable seed size.
+
+The full base dataset (~9,263 students across 20 schools) produces ~60,918
+ODK submissions once transformed via transform_mock_data.py -- over 5 hours
+to seed through ODK's throttled HTTP API. This keeps every school's distinct
+test-scenario plan intact (transform_mock_data.py assigns each school a
+unique target_waves/phq_mode/v1-quirk combination) while cutting each school
+down to a small, deterministically-chosen subset of its classes -- entire
+classes only, never partial -- landing the transformed dataset around ~12k
+submissions.
+
+The two donor schools (transform_mock_data.py's alphabetically-last two
+school names, used to supply wave-4/5 "joiner" data for other schools) only
+need >=1 retained student for that role (transform_mock_data.py:375-393
+picks one via a hash modulo the donor pool size -- no other minimum).  This
+script's floor of 1 kept class per school (~28+ students on this dataset)
+clears that by a wide margin.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import random
+from pathlib import Path
+
+SEED = 42
+MAX_CLASSES_PER_SCHOOL = 6
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+
+    with args.input.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    # sorted() matches transform_mock_data.py's own school ordering exactly --
+    # that ordering is what determines which two schools are donor-only, so
+    # this must stay in lockstep with transform_mock_data.py:332.
+    schools = sorted({row["school"] for row in rows})
+    classes_by_school: dict[str, set[str]] = {}
+    for row in rows:
+        classes_by_school.setdefault(row["school"], set()).add(row["class"])
+
+    rng = random.Random(SEED)
+    kept_classes: dict[str, set[str]] = {}
+    for school in schools:
+        available = sorted(classes_by_school[school])
+        n_keep = rng.randint(1, min(MAX_CLASSES_PER_SCHOOL, len(available)))
+        kept_classes[school] = set(available[:n_keep])
+
+    kept_rows = [row for row in rows if row["class"] in kept_classes[row["school"]]]
+
+    with args.output.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(kept_rows)
+
+    kept_students = len({row["uid"] for row in kept_rows})
+    print(f"Kept {kept_students} students ({len(kept_rows)} wave-rows) across {len(schools)} schools")
+    for school in schools:
+        print(f"  {school}: {len(kept_classes[school])}/{len(classes_by_school[school])} classes")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```bash
+chmod +x scripts/odk/slim_mock_data.py
+```
+
+Expected output when run against a fresh `data/glow_base_raw.csv` (Step 5 below): `Kept 1861 students (5583 wave-rows) across 20 schools`, with South Joana Secondary School and West Pamelia College (the two donor-only schools) each retaining well above 1 student. If the printed donor counts come out at 0 for either school, stop — that would mean the school ordering assumption above no longer matches `transform_mock_data.py`, and the wave-4/5 mappings would silently produce fewer rows than expected.
+
 - [ ] **Step 5: Generate `data/glow_base.csv` (prerequisite, not committed — already gitignored)**
 
 ```bash
-uvx glow-dummies \
-  --config https://raw.githubusercontent.com/OxWRC/glow-dummies/main/examples/glow_model.toml \
-  --seed 42 \
-  --output csv \
-  > data/glow_base.csv
+cd ../glow-dummies
+julia --project=. -e 'import Pkg; Pkg.instantiate()'
+julia --project=. bin/glow_dummies --config examples/glow_model.toml --seed 42 \
+  > ../glow/data/glow_base_raw.csv
+cd ../glow
+python scripts/odk/slim_mock_data.py \
+  --input data/glow_base_raw.csv --output data/glow_base.csv
 ```
+
+Note: `glow-dummies` is a Julia CLI tool in a sibling checkout (`../glow-dummies`), not a published package — discovered while building this task that `uvx glow-dummies` (the command this plan originally specified, copied from already-stale instructions elsewhere in this repo) does not work. If `../glow-dummies` isn't present or its `examples/glow_model.toml` config is missing, that's a separate, pre-existing documentation gap outside this task's scope — see this task's report for details rather than trying to fix glow-dummies' own repo from here.
 
 - [ ] **Step 6: Run the script and record timing**
 
@@ -551,7 +685,7 @@ docker network rm odk-pg-real-test
 docker rmi glow-odk-postgres-dev-real
 ```
 
-Expected: boot-to-ready well under a few seconds; `projects` shows at least the one seeded project; `submissions` count is in the thousands, matching `scripts/odk/generate_seed_dump.sh`'s printed totals from Step 6.
+Expected: boot-to-ready well under a few seconds; `projects` shows at least the one seeded project; `submissions` count is around 12,000-13,000 (per Step 4a's slimming, not the unfiltered dataset's ~60,918), matching `scripts/odk/generate_seed_dump.sh`'s printed totals from Step 6.
 
 - [ ] **Step 8: Commit**
 
