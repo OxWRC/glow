@@ -26,5 +26,9 @@ services:
     environment:
       EXTRA_SERVER_NAMES: " localhost 127.0.0.1"
 
+  postgres14:
+    build:
+      target: dev
+
 volumes:
   dashboard_node_modules:
