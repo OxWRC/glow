@@ -299,10 +299,14 @@ julia ../glow-dummies/bin/glow_dummies \
   --config ../glow-dummies/examples/glow_model.toml \
   --seed 42 \
   --output csv \
-  > data/glow_base.csv
+  > data/glow_base_raw.csv
+
+# Slim mock data to ~12k submissions (from ~60k) to reduce seeding time
+python scripts/odk/slim_mock_data.py \
+  --input data/glow_base_raw.csv --output data/glow_base.csv
 ```
 
-This creates a clean wide base CSV with BeeWell v2, demographics, PHQ-9, and a synthetic overlap-control item.
+The first command generates ~60k raw submissions; the slimming step reduces this to ~12k (preserving test diversity per school) to cut ODK seeding time from ~5-6 hours down to ~15-30 minutes. Both outputs are clean wide CSVs with BeeWell v2, demographics, PHQ-9, and a synthetic overlap-control item.
 
 ### Step 2: Transform Base Data Into Per-Form Seed CSVs
 
