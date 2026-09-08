@@ -96,8 +96,8 @@ pattern already used for `dashboard: build: target: dev` in
   diff=lfs merge=lfs -text`). Estimated tens-of-MB scale (~12k submissions);
   regenerated periodically as the model/forms/timestamps change, so plain git
   would otherwise accumulate a full binary blob per regeneration in history.
-  CI checkout must set `lfs: true` (default is `false`) or the build context
-  gets a ~130-byte pointer file instead of the dump.
+  CI does **not** set `lfs: true` on checkout — see "CI caching" below, which
+  avoids pulling the real blob at all on a cache hit.
 - Contains: ODK project id `1`, admin + API user accounts with fixed dev
   passwords (bcrypt hashes baked in — see Credentials), and all four forms
   currently seeded by `dev-init.sh`'s pipeline: `bewell_questionnaire` (v1
@@ -120,6 +120,33 @@ pattern already used for `dashboard: build: target: dev` in
     before finishing, so a truncated or LFS-pointer-only artifact fails
     loudly instead of producing a container that boots healthy with an
     empty-looking (or wrong) dataset.
+
+## CI caching
+
+`.github/workflows/ci.yml` avoids paying an LFS download on every run by
+caching the *built* `postgres14` `dev` image, keyed off content that's
+already present without resolving LFS:
+
+- `actions/checkout@v7` runs with no `lfs` option (default `false`). An
+  LFS-tracked file that isn't pulled still exists as its pointer text (a
+  ~130-byte blob containing the real object's sha256) — that pointer's
+  content changes exactly when the real blob changes, so it's a valid,
+  stable cache-key input on its own.
+- A cache key is computed from `hashFiles('odk-central/postgres/Dockerfile',
+  'odk-central/postgres/seed/dev-seed.dump')` — this hashes the pointer text
+  on a cache miss, not the real dump, since nothing has pulled it yet.
+- `actions/cache` restores a `docker save` tarball of the built image under
+  that key.
+- **Cache hit**: `docker load` the tarball. No LFS pull happens this run.
+- **Cache miss**: `git lfs pull --include odk-central/postgres/seed/dev-seed.dump`
+  (pulling only that one path, not the whole repo's LFS objects), then
+  `docker compose build postgres14`, then `docker save` into the cache path
+  for next time.
+
+This means a normal PR run that doesn't touch the Dockerfile or the seed dump
+never downloads the LFS blob at all — only a seed regeneration or Dockerfile
+change pays that cost, and only once (the next run with the same content
+hits the cache).
 
 ## Credentials
 
@@ -198,8 +225,10 @@ unifying to one dataset, not a regression to guard against.
 - Full `dev-init.sh` run end-to-end, confirming the shrunk script still
   produces a working Glow admin + schools sync against the pre-seeded ODK
   data.
-- `scripts/smoke_compose.sh` run in CI with `lfs: true` on checkout,
-  confirming `/dimensions` reflects the full seeded dataset.
+- `scripts/smoke_compose.sh` run in CI, confirming `/dimensions` reflects the
+  full seeded dataset. Verify both cache-hit (image tarball restored, no LFS
+  pull) and cache-miss (Dockerfile/dump change forces an `lfs pull` + rebuild)
+  paths in the workflow.
 - Confirm `base` target still builds and boots exactly as `postgres:14-alpine`
   does today (blank cluster, env-var credentials, bind-mount persistence) —
   no regression for production.
