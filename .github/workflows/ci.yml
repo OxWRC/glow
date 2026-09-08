@@ -9,6 +9,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Compute ODK postgres dev image cache key
+        id: odk-image-key
+        run: |
+          echo "key=odk-postgres-dev-${{ hashFiles('odk-central/postgres/Dockerfile', 'odk-central/postgres/bake-seed.sh', 'odk-central/postgres/seed/dev-seed.dump') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached ODK postgres dev image
+        id: odk-image-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/odk-postgres-dev.tar
+          key: ${{ steps.odk-image-key.outputs.key }}
+
+      - name: Pull seed dump (cache miss only)
+        if: steps.odk-image-cache.outputs.cache-hit != 'true'
+        run: git lfs pull --include odk-central/postgres/seed/dev-seed.dump
+
+      - name: Build ODK postgres dev image (cache miss only)
+        if: steps.odk-image-cache.outputs.cache-hit != 'true'
+        run: |
+          docker compose -f compose.yml -f compose.test.yml build postgres14
+          docker save "$(docker compose -f compose.yml -f compose.test.yml config --images postgres14)" -o /tmp/odk-postgres-dev.tar
+
+      - name: Load cached ODK postgres dev image (cache hit only)
+        if: steps.odk-image-cache.outputs.cache-hit == 'true'
+        run: docker load -i /tmp/odk-postgres-dev.tar
+
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
