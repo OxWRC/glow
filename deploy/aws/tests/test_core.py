@@ -760,9 +760,9 @@ def test_odk_api_helper_supports_optional_host_header_and_ping():
     script_path = REPO_ROOT / "scripts" / "odk" / "odk-api-helper.sh"
     script = script_path.read_text()
 
-    assert 'ODK_HOST_HEADER="${ODK_DOMAIN:-}"' in script
+    assert 'ODK_HOST_HEADER="${ODK_HOST_HEADER:-${ODK_DOMAIN:-}}"' in script
     assert 'odk_curl() {' in script
-    assert 'curl -H "Host: ${ODK_HOST_HEADER}" "$@"' in script
+    assert 'extra_args+=(-H "Host: ${ODK_HOST_HEADER}")' in script
     assert 'odk_ping() {' in script
     assert 'local root_url="${ODK_API_BASE%/v1}/"' in script
     assert 'odk_curl -fsS "${root_url}"' in script
