@@ -27,6 +27,7 @@ def get_schools(
                 name=s.name,
                 size=s.size,
                 category=s.category,
+                odk_school_id=s.odk_school_id,
                 geographical_neighbor_ids=[n.id for n in s.geographical_neighbors],
                 statistical_neighbor_ids=[n.id for n in s.statistical_neighbors],
             )
@@ -43,6 +44,7 @@ def get_schools(
             name=s.name,
             size=s.size,
             category=s.category,
+            odk_school_id=s.odk_school_id,
             geographical_neighbor_ids=[n.id for n in s.geographical_neighbors],
             statistical_neighbor_ids=[n.id for n in s.statistical_neighbors],
         )

@@ -50,6 +50,8 @@ jobs:
         working-directory: dashboard
         run: npx playwright install --with-deps chromium
       - name: Bring up compose stack and run API smoke checks
+        env:
+          PLAYWRIGHT_SCOPED_SCHOOL: Beahanberg High School
         run: bash scripts/smoke_compose.sh
       - name: Run dashboard browser smoke tests
         working-directory: dashboard
@@ -59,7 +61,7 @@ jobs:
           PLAYWRIGHT_ADMIN_PASSWORD: admin
           PLAYWRIGHT_SCOPED_USER: alpha-user
           PLAYWRIGHT_SCOPED_PASSWORD: alpha-user
-          PLAYWRIGHT_SCOPED_SCHOOL: Focus School Academy
+          PLAYWRIGHT_SCOPED_SCHOOL: Beahanberg High School
         run: npm run test:e2e
       - name: Tear down compose stack
         if: always()

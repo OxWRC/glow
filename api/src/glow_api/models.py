@@ -45,6 +45,7 @@ class SchoolCreate(BaseModel):
     name: str
     size: Optional[str] = None
     category: Optional[str] = None
+    odk_school_id: Optional[str] = None
 
 
 class SchoolRead(BaseModel):
@@ -52,6 +53,7 @@ class SchoolRead(BaseModel):
     name: str
     size: Optional[str] = None
     category: Optional[str] = None
+    odk_school_id: Optional[str] = None
     geographical_neighbor_ids: list[int] = Field(default_factory=list)
     statistical_neighbor_ids: list[int] = Field(default_factory=list)
     model_config = {"from_attributes": True}
@@ -67,6 +69,7 @@ class SchoolUpdate(BaseModel):
     name: Optional[str] = None
     size: Optional[str] = None
     category: Optional[str] = None
+    odk_school_id: Optional[str] = None
     geographical_neighbor_ids: Optional[list[int]] = None
     statistical_neighbor_ids: Optional[list[int]] = None
 

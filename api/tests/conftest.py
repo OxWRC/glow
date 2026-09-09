@@ -87,10 +87,18 @@ def db_session(db_engine):
 def sample_schools(db_session):
     """Create sample schools in the test DB."""
     alpha = create_school(
-        db_session, name="Focus School Academy", size="medium", category="comprehensive"
+        db_session,
+        name="Focus School Academy",
+        size="medium",
+        category="comprehensive",
+        odk_school_id="Focus School Academy",
     )
     beta = create_school(
-        db_session, name="Neighbouring School", size="large", category="academy"
+        db_session,
+        name="Neighbouring School",
+        size="large",
+        category="academy",
+        odk_school_id="Neighbouring School",
     )
     return {"Focus School Academy": alpha, "Neighbouring School": beta}
 

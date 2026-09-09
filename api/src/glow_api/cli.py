@@ -257,14 +257,24 @@ def schools_list() -> None:
 @click.option(
     "--category", default=None, help="School category (e.g., comprehensive, academy)"
 )
-def schools_create(name: str, size: str | None, category: str | None) -> None:
+@click.option(
+    "--odk-school-id",
+    default=None,
+    help="Raw ODK 'school' submission value to link this school to (leave unset "
+    "for a school not yet connected to ODK data).",
+)
+def schools_create(
+    name: str, size: str | None, category: str | None, odk_school_id: str | None
+) -> None:
     """Create a new school."""
     with SessionLocal() as db:
         existing = get_school_by_name(db, name)
         if existing is not None:
             click.echo(f"School '{name}' already exists.", err=True)
             sys.exit(1)
-        school = create_school(db, name=name, size=size, category=category)
+        school = create_school(
+            db, name=name, size=size, category=category, odk_school_id=odk_school_id
+        )
 
     click.echo(f"School '{school.name}' created (id={school.id}).")
 

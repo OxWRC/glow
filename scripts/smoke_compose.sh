@@ -11,21 +11,9 @@ docker compose -f compose.yml -f compose.test.yml down -v --remove-orphans
 docker compose -f compose.yml -f compose.test.yml build api dashboard
 docker compose -f compose.yml -f compose.test.yml up -d --wait
 
-# Healthcheck now guarantees API is ready, so seed users immediately.
 # The DB is bind-mounted on the host and survives `down -v`, so schools/users
 # may already exist from a previous run - tolerate that and upsert instead.
 COMPOSE="docker compose -f compose.yml -f compose.test.yml exec -T api glow-api"
-
-$COMPOSE schools create "Focus School Academy" || true
-$COMPOSE schools create "Neighbouring School" || true
-
-if ! $COMPOSE users create --admin --password admin --schools 'Focus School Academy,Neighbouring School' admin; then
-  $COMPOSE users update --password admin --schools 'Focus School Academy,Neighbouring School' --active admin
-fi
-
-if ! $COMPOSE users create --password alpha-user --schools 'Focus School Academy' alpha-user; then
-  $COMPOSE users update --password alpha-user --schools 'Focus School Academy' --active alpha-user
-fi
 
 # compose.yml's default GLOW_ODK_API_URL (http://odk-service:8383, internal
 # plain HTTP) is rejected by ODK Central for Basic Auth ("This authentication
@@ -58,6 +46,32 @@ for i in $(seq 1 60); do
   fi
   sleep 1
 done
+
+# Link real School records to the ODK-seeded data (creates one School per
+# distinct raw "school" value the submissions carry, keyed by odk_school_id).
+$COMPOSE schools sync
+
+# Focus School Academy / Neighbouring School are deliberately *not* linked to
+# any ODK data (no --odk-school-id) - they exercise the "school onboarded in
+# GLOW but not yet connected to ODK" path (empty query results, not an error).
+$COMPOSE schools create "Focus School Academy" || true
+$COMPOSE schools create "Neighbouring School" || true
+
+# /me returns exactly a user's assigned schools (no implicit "admin sees
+# everything" expansion), so admin needs the connected school assigned too
+# for the dashboard's school picker to offer it.
+CONNECTED_SCHOOL="${PLAYWRIGHT_SCOPED_SCHOOL:-Beahanberg High School}"
+ADMIN_SCHOOLS="Focus School Academy,Neighbouring School,${CONNECTED_SCHOOL}"
+
+if ! $COMPOSE users create --admin --password admin --schools "$ADMIN_SCHOOLS" admin; then
+  $COMPOSE users update --password admin --schools "$ADMIN_SCHOOLS" --active admin
+fi
+
+# alpha-user is scoped to a real, ODK-connected school so its query smoke
+# test exercises actual data, not just auth plumbing.
+if ! $COMPOSE users create --password alpha-user --schools "$CONNECTED_SCHOOL" alpha-user; then
+  $COMPOSE users update --password alpha-user --schools "$CONNECTED_SCHOOL" --active alpha-user
+fi
 
 python3 - <<'PY'
 import json

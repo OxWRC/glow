@@ -9,7 +9,7 @@ const adminPassword = process.env.PLAYWRIGHT_ADMIN_PASSWORD ?? "admin";
 const scopedUser = process.env.PLAYWRIGHT_SCOPED_USER ?? "alpha-user";
 const scopedPassword = process.env.PLAYWRIGHT_SCOPED_PASSWORD ?? "alpha-user";
 const scopedSchool =
-  process.env.PLAYWRIGHT_SCOPED_SCHOOL ?? "Focus School Academy";
+  process.env.PLAYWRIGHT_SCOPED_SCHOOL ?? "Beahanberg High School";
 
 async function login(page: Page, username: string, password: string) {
   await page.goto("/login");
@@ -29,11 +29,24 @@ test("admin can log in, run a query, and use the admin screen", async ({
 
   // Admin defaults to whichever school comes first alphabetically, which may
   // have no seeded data - select the school we actually seeded explicitly.
-  await page.getByLabel("School").selectOption({ label: scopedSchool });
+  await page.getByLabel("School", { exact: true }).selectOption({ label: scopedSchool });
 
-  // Test dashboard query functionality - phq9_1 is guaranteed to have data;
-  // other variables (e.g. bw_wbeing_1) exist in the form but were never seeded.
-  await page.getByRole("checkbox", { name: /phq9_1/ }).check();
+  // The app auto-selects a default variable on load (whichever sorts first
+  // alphabetically), which may belong to a different form version than the
+  // one we're about to select - querying both together trips the
+  // incompatible-versions suppression guard. Clear it first.
+  for (const box of await page.getByRole("checkbox", { checked: true }).all()) {
+    await box.uncheck();
+  }
+
+  // Test dashboard query functionality - phq9_questionnaire__phq9_1 is
+  // guaranteed to have data; other variables (e.g. bw_wbeing_1) exist in the
+  // form but were never seeded. Target the full namespaced key: bewell also
+  // has a raw_key "phq9_1" (namespace-collision fixture), so a loose
+  // /phq9_1/ match resolves to two checkboxes.
+  await page
+    .getByRole("checkbox", { name: /\[phq9_questionnaire__phq9_1\]$/ })
+    .check();
   await expect(page.getByRole("button", { name: "Run Query" })).toBeEnabled();
   await page.getByRole("button", { name: "Run Query" }).click();
 
@@ -63,9 +76,22 @@ test("scoped user can log in and run queries", async ({ page }) => {
     page.getByRole("heading", { name: "Explore Data" }),
   ).toBeVisible();
 
-  // Test dashboard query functionality - phq9_1 is guaranteed to have data;
-  // other variables (e.g. bw_wbeing_1) exist in the form but were never seeded.
-  await page.getByRole("checkbox", { name: /phq9_1/ }).check();
+  // The app auto-selects a default variable on load (whichever sorts first
+  // alphabetically), which may belong to a different form version than the
+  // one we're about to select - querying both together trips the
+  // incompatible-versions suppression guard. Clear it first.
+  for (const box of await page.getByRole("checkbox", { checked: true }).all()) {
+    await box.uncheck();
+  }
+
+  // Test dashboard query functionality - phq9_questionnaire__phq9_1 is
+  // guaranteed to have data; other variables (e.g. bw_wbeing_1) exist in the
+  // form but were never seeded. Target the full namespaced key: bewell also
+  // has a raw_key "phq9_1" (namespace-collision fixture), so a loose
+  // /phq9_1/ match resolves to two checkboxes.
+  await page
+    .getByRole("checkbox", { name: /\[phq9_questionnaire__phq9_1\]$/ })
+    .check();
   await expect(page.getByRole("button", { name: "Run Query" })).toBeEnabled();
   await page.getByRole("button", { name: "Run Query" }).click();
 

@@ -51,10 +51,10 @@ def get_dimensions(
         # Get data scoped to this school
         dfwl = datastore.to_frozen()
         df = dfwl.df
-        if "school" in df.columns:
-            df = df[df["school"] == school.name]
+        if "school" in df.columns and school.odk_school_id is not None:
+            df = df[df["school"] == school.odk_school_id]
         else:
-            df = df.iloc[0:0]  # no data loaded yet; nothing belongs to any school
+            df = df.iloc[0:0]  # no data loaded yet, or school not linked to ODK data
     else:
         request_context.record_event("auth_assessed", outcome="anonymous", success=None, school_id=None)
         # Dataset-scoped query - use full dataset

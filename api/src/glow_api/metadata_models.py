@@ -58,6 +58,12 @@ class School(Base):
     name = Column(String, nullable=False, unique=True, index=True)
     size = Column(String, nullable=True)  # e.g., "Small", "Medium", "Large"
     category = Column(String, nullable=True)  # e.g., "Academy", "Comprehensive"
+    # Raw ODK submission "school" field value this school is linked to. Join
+    # key for matching submission data - kept separate from `name` so an
+    # admin can rename a school for display without breaking the link, and
+    # so a school with no ODK data yet (not onboarded) can exist with this
+    # left null.
+    odk_school_id = Column(String, nullable=True, unique=True, index=True)
 
     # Many-to-many with users
     users = relationship(

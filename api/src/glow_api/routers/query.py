@@ -84,13 +84,15 @@ def query_get(
     if school_id is not None:
         _user, school = get_optional_school_user(credentials, db, school_id)
 
-        # Filter data to this school
+        # Filter data to this school, joining on the raw ODK "school" value
+        # (odk_school_id), not the admin-facing display name. A school not
+        # yet linked to ODK data (odk_school_id is None) matches nothing.
         df = dfwl.df
-        if "school" in df.columns:
-            df = df[df["school"] == school.name]
+        if "school" in df.columns and school.odk_school_id is not None:
+            df = df[df["school"] == school.odk_school_id]
         else:
-            df = df.iloc[0:0]  # no data loaded yet; nothing belongs to any school
-        school_name = school.name
+            df = df.iloc[0:0]  # no data loaded yet, or school not linked to ODK data
+        school_name = school.odk_school_id
     else:
         request_context.record_event("auth_assessed", outcome="anonymous", success=None, school_id=None)
         # Dataset-scoped query

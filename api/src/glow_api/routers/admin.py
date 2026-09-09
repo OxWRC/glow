@@ -193,6 +193,7 @@ def list_all_schools(
             name=s.name,
             size=s.size,
             category=s.category,
+            odk_school_id=s.odk_school_id,
             geographical_neighbor_ids=[n.id for n in s.geographical_neighbors],
             statistical_neighbor_ids=[n.id for n in s.statistical_neighbors],
         )
@@ -219,6 +220,7 @@ def create_new_school(
         name=payload.name,
         size=payload.size,
         category=payload.category,
+        odk_school_id=payload.odk_school_id,
     )
     request_context.record_event(
         "admin_mutation",
@@ -233,6 +235,7 @@ def create_new_school(
         name=school.name,
         size=school.size,
         category=school.category,
+        odk_school_id=school.odk_school_id,
         geographical_neighbor_ids=[],
         statistical_neighbor_ids=[],
     )
@@ -257,6 +260,7 @@ def update_existing_school(
         name=payload.name,
         size=payload.size,
         category=payload.category,
+        odk_school_id=payload.odk_school_id,
     )
 
     # Update neighbors if provided
@@ -282,6 +286,7 @@ def update_existing_school(
         name=updated.name,
         size=updated.size,
         category=updated.category,
+        odk_school_id=updated.odk_school_id,
         geographical_neighbor_ids=[n.id for n in updated.geographical_neighbors],
         statistical_neighbor_ids=[n.id for n in updated.statistical_neighbors],
     )

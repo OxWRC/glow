@@ -163,6 +163,10 @@ def get_school_by_name(db: Session, name: str) -> School | None:
     return db.query(School).filter(School.name == name).first()
 
 
+def get_school_by_odk_school_id(db: Session, odk_school_id: str) -> School | None:
+    return db.query(School).filter(School.odk_school_id == odk_school_id).first()
+
+
 def get_school_by_id(db: Session, school_id: int) -> School | None:
     return db.query(School).filter(School.id == school_id).first()
 
@@ -172,8 +176,11 @@ def create_school(
     name: str,
     size: str | None = None,
     category: str | None = None,
+    odk_school_id: str | None = None,
 ) -> School:
-    school = School(name=name, size=size, category=category)
+    school = School(
+        name=name, size=size, category=category, odk_school_id=odk_school_id
+    )
     db.add(school)
     db.commit()
     db.refresh(school)
@@ -186,6 +193,7 @@ def update_school(
     name: str | None = None,
     size: str | None = None,
     category: str | None = None,
+    odk_school_id: str | None = None,
 ) -> School:
     if name is not None:
         school.name = name
@@ -193,6 +201,8 @@ def update_school(
         school.size = size
     if category is not None:
         school.category = category
+    if odk_school_id is not None:
+        school.odk_school_id = odk_school_id
     db.commit()
     db.refresh(school)
     return school
@@ -242,7 +252,14 @@ def set_statistical_neighbors(
 
 
 def extract_schools_from_dataframe(db: Session, df) -> list[School]:
-    """Extract unique school names from a DataFrame and create School records.
+    """Extract unique ODK school values from a DataFrame and create School records.
+
+    Matches/links by odk_school_id (the raw ODK "school" field value), not by
+    display name, so a school already renamed by an admin doesn't get
+    re-created as a duplicate. Falls back to matching by name for schools
+    created before odk_school_id existed (name == the raw ODK value back
+    then) and backfills their odk_school_id, rather than colliding with
+    them on the name uniqueness constraint.
 
     Returns list of created/existing schools.
     """
@@ -252,10 +269,18 @@ def extract_schools_from_dataframe(db: Session, df) -> list[School]:
     unique_schools = df["school"].dropna().unique()
     created_schools = []
 
-    for school_name in sorted(unique_schools):
-        existing = get_school_by_name(db, school_name)
+    for odk_school_id in sorted(unique_schools):
+        existing = get_school_by_odk_school_id(db, odk_school_id)
         if existing is None:
-            school = create_school(db, name=school_name)
+            legacy = get_school_by_name(db, odk_school_id)
+            if legacy is not None and legacy.odk_school_id is None:
+                created_schools.append(
+                    update_school(db, legacy, odk_school_id=odk_school_id)
+                )
+                continue
+            school = create_school(
+                db, name=odk_school_id, odk_school_id=odk_school_id
+            )
             created_schools.append(school)
         else:
             created_schools.append(existing)
