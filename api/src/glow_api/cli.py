@@ -291,10 +291,12 @@ def schools_create(
     help="Minimum number of statistical neighbors per school (default: 2)",
 )
 @click.option(
-    "--no-create-users", is_flag=True, help="Create new users for each school."
+    "--create-users/--no-create-users",
+    default=False,
+    help="Create a per-school login user for each synced school (default: off).",
 )
 def schools_sync(
-    min_geographical: int, min_statistical: int, no_create_users: bool = True
+    min_geographical: int, min_statistical: int, create_users: bool = False
 ) -> None:
     """Extract schools from loaded data, create neighbor relationships, and grant admin access.
 
@@ -429,9 +431,11 @@ def schools_sync(
         updated_count = grant_admins_all_schools(db)
         click.echo(f"   Updated {updated_count} admin user(s)")
 
-        if not no_create_users:
+        if create_users:
             click.echo("   Creating users for schools...")
-            for school in schools:
+            # Re-fetch: `schools` was bound to the Step 2 session, which has
+            # since closed - using it here raises DetachedInstanceError.
+            for school in list_schools(db):
                 username = "".join(c for c in school.name if c.isupper())
                 user = db.execute(
                     select(User).where(User.username == username)
