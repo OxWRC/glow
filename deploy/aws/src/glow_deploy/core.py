@@ -70,6 +70,7 @@ class Config:
     force_rebuild_ami: bool
     certificate_arn: str = ""
     gui_version: str = GUI_VERSION
+    restore_from_snapshot_id: str = ""
     session: boto3.Session | None = None
 
 
@@ -1018,6 +1019,203 @@ def list_deployments(
     return deployments
 
 
+def find_root_volume_id(
+    instance_id: str, region: str, session: boto3.Session | None = None
+) -> str:
+    """Find the EBS volume ID backing an instance's root device.
+
+    Must be called while the instance is still running/attached — both
+    ``update()``'s pre-update hook and ``destroy()``'s pre-destroy hook need
+    this before the instance terminates and the volume becomes hard to find.
+    """
+    ec2 = _client(session, "ec2", region)
+    response = ec2.describe_instances(InstanceIds=[instance_id])
+    instance = response["Reservations"][0]["Instances"][0]
+    root_device_name = instance["RootDeviceName"]
+    for mapping in instance.get("BlockDeviceMappings", []):
+        if mapping["DeviceName"] == root_device_name:
+            return mapping["Ebs"]["VolumeId"]
+    raise DeployError(f"no root volume found for instance {instance_id}")
+
+
+def create_snapshot(
+    volume_id: str,
+    domain: str,
+    reason: str,
+    region: str,
+    session: boto3.Session | None = None,
+    wait: bool = True,
+) -> str:
+    """Snapshot an EBS volume and tag it.
+
+    An EBS snapshot is point-in-time as soon as ``create_snapshot`` returns —
+    later writes to the source volume don't affect it — so waiting for
+    ``"completed"`` is only needed when the caller is about to delete the
+    source volume right after (``destroy()``'s pre-destroy hook: this never
+    races an in-progress snapshot against the volume disappearing). Callers
+    that aren't deleting the volume (``update()``'s pre-update hook) should
+    pass ``wait=False`` to avoid blocking on the whole snapshot duration.
+    """
+    ec2 = _client(session, "ec2", region)
+    write_line(f"[deploy] Snapshotting volume {volume_id} ({reason})")
+    response = ec2.create_snapshot(
+        VolumeId=volume_id,
+        Description=f"glow-deploy {reason} snapshot for {domain}",
+        TagSpecifications=[
+            {
+                "ResourceType": "snapshot",
+                "Tags": [
+                    {"Key": "Domain", "Value": domain},
+                    {"Key": "Component", "Value": "glow-runner-snapshot"},
+                    {"Key": "Reason", "Value": reason},
+                ],
+            }
+        ],
+    )
+    snapshot_id = response["SnapshotId"]
+
+    if not wait:
+        return snapshot_id
+
+    def check() -> bool:
+        state = ec2.describe_snapshots(SnapshotIds=[snapshot_id])["Snapshots"][0]["State"]
+        return state == "completed"
+
+    wait_with_spinner(f"Waiting for snapshot {snapshot_id}", check, timeout=1800)
+    write_line(f"[deploy] Snapshot {snapshot_id} complete")
+    return snapshot_id
+
+
+def list_snapshots(
+    region: str, session: boto3.Session | None = None, domain: str | None = None
+) -> list[dict[str, Any]]:
+    """List glow-runner snapshots, optionally scoped to one domain.
+
+    Omitting ``domain`` returns every snapshot this tool created, including
+    ones tagged for a domain that no longer has a live deployment — the
+    snapshot carries its own Domain tag independent of the instance.
+    """
+    ec2 = _client(session, "ec2", region)
+    filters = [{"Name": "tag:Component", "Values": ["glow-runner-snapshot"]}]
+    if domain:
+        filters.append({"Name": "tag:Domain", "Values": [domain]})
+    response = ec2.describe_snapshots(Filters=filters, OwnerIds=["self"])
+
+    snapshots = []
+    for snap in response.get("Snapshots", []):
+        tags = {tag["Key"]: tag["Value"] for tag in snap.get("Tags", [])}
+        snapshots.append(
+            {
+                "snapshot_id": snap["SnapshotId"],
+                "domain": tags.get("Domain"),
+                "reason": tags.get("Reason"),
+                "started_at": snap.get("StartTime"),
+                "size_gb": snap.get("VolumeSize"),
+                "state": snap.get("State"),
+            }
+        )
+    return snapshots
+
+
+def delete_snapshot(
+    snapshot_id: str, region: str, session: boto3.Session | None = None
+) -> None:
+    ec2 = _client(session, "ec2", region)
+    ec2.delete_snapshot(SnapshotId=snapshot_id)
+    write_line(f"[deploy] Deleted snapshot {snapshot_id}")
+
+
+_RESTORE_SNAPSHOT_DATA_SCRIPT = """set -euo pipefail
+by_id_name=$(ls /dev/disk/by-id/ | grep {volume_suffix} | head -n1)
+device="/dev/disk/by-id/${{by_id_name}}"
+mount_point=/mnt/glow-restore
+mkdir -p "${{mount_point}}"
+
+partition="${{device}}-part1"
+if [[ -e "${{partition}}" ]]; then
+  mount "${{partition}}" "${{mount_point}}"
+else
+  mount "${{device}}" "${{mount_point}}"
+fi
+
+cd /opt/glow
+docker compose --profile odk --env-file /var/lib/glow/.deploy/share/.env.runtime -f compose.yml down
+trap 'docker compose --profile odk --env-file /var/lib/glow/.deploy/share/.env.runtime -f compose.yml up -d' EXIT
+
+rsync -a --delete "${{mount_point}}/var/lib/glow/glow-postgres/" /var/lib/glow/glow-postgres/
+rsync -a --delete "${{mount_point}}/var/lib/glow/odk-postgres/" /var/lib/glow/odk-postgres/
+
+umount "${{mount_point}}"
+"""
+
+
+def restore_snapshot_data(
+    instance_id: str,
+    snapshot_id: str,
+    region: str,
+    domain: str = "",
+    session: boto3.Session | None = None,
+) -> None:
+    """Copy glow-postgres/odk-postgres out of a snapshot into a running
+    instance's live data directories — data-only restore, not a whole-volume
+    swap (see "Restore semantics" in the spec for why).
+    """
+    ec2 = _client(session, "ec2", region)
+    instance = ec2.describe_instances(InstanceIds=[instance_id])["Reservations"][0]["Instances"][0]
+    az = instance["Placement"]["AvailabilityZone"]
+
+    write_line(f"[deploy] Creating restore volume from snapshot {snapshot_id}")
+    volume_id = ec2.create_volume(
+        SnapshotId=snapshot_id,
+        AvailabilityZone=az,
+        TagSpecifications=[
+            {
+                "ResourceType": "volume",
+                "Tags": [
+                    {"Key": "Component", "Value": "glow-restore-temp"},
+                    {"Key": "Domain", "Value": domain},
+                ],
+            }
+        ],
+    )["VolumeId"]
+
+    def volume_available() -> bool:
+        return ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"] == "available"
+
+    wait_with_spinner(f"Waiting for volume {volume_id}", volume_available, timeout=300)
+
+    device = "/dev/sdf"
+
+    def volume_attached() -> bool:
+        return ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"] == "in-use"
+
+    try:
+        ec2.attach_volume(VolumeId=volume_id, InstanceId=instance_id, Device=device)
+        wait_with_spinner(f"Attaching volume {volume_id}", volume_attached, timeout=300)
+
+        script = _RESTORE_SNAPSHOT_DATA_SCRIPT.format(volume_suffix=volume_id.replace("-", ""))
+        run_ssm_command(
+            instance_id,
+            region,
+            [f"sudo bash -lc {shlex.quote(script)}"],
+            "restore Postgres data from snapshot",
+            timeout=900,
+            session=session,
+        )
+    finally:
+        write_line(f"[deploy] Detaching and deleting restore volume {volume_id}")
+        try:
+            ec2.detach_volume(VolumeId=volume_id, InstanceId=instance_id, Force=True)
+            wait_with_spinner(f"Detaching volume {volume_id}", volume_available, timeout=300)
+        except Exception:
+            write_line(
+                f"[deploy] Could not confirm detach of volume {volume_id} — attempting delete anyway"
+            )
+        ec2.delete_volume(VolumeId=volume_id)
+
+    write_line("[deploy] Restore complete")
+
+
 def get_cpu_utilization(
     instance_ids: list[str], region: str, session: boto3.Session | None = None
 ) -> dict[str, float | None]:
@@ -1128,6 +1326,16 @@ def provision(config: Config) -> dict[str, Any] | None:
     )
     verify_runner_health(instance_id, config.aws_region, config.session)
 
+    if config.restore_from_snapshot_id:
+        raise DeployError(
+            "Restoring data from a snapshot is not yet supported — restoring "
+            "Postgres data overwrites the target instance's freshly generated "
+            "database credentials, breaking authentication. See "
+            "docs/superpowers/specs/2026-08-24-ebs-snapshots-design.md for the "
+            "restore mechanism design; a credential-handling plan is needed "
+            "before this can be wired up safely."
+        )
+
     write_line("[deploy] Deployment complete!")
     write_line(f"[deploy] Instance ID: {instance_id}")
     write_line(f"[deploy] ALB DNS: {alb_dns}")
@@ -1160,6 +1368,12 @@ def update(config: Config) -> None:
     wait_for_ssm_online(instance_id, config.aws_region, config.session)
     wait_for_runner_bootstrap_completion(
         instance_id, config.aws_region, config.session
+    )
+
+    volume_id = find_root_volume_id(instance_id, config.aws_region, config.session)
+    create_snapshot(
+        volume_id, config.domain_name, "pre-update", config.aws_region, config.session,
+        wait=False,
     )
 
     prepare_runner_repository(
@@ -1222,6 +1436,17 @@ def destroy(config: Config) -> None:
 
     env = _subprocess_env(config.session)
 
+    volume_id = None
+    try:
+        outputs = read_terraform_outputs(env=env)
+        instance_id = outputs["runner_instance_id"]
+        volume_id = find_root_volume_id(instance_id, config.aws_region, config.session)
+    except (KeyError, DeployError):
+        write_line(
+            "[deploy] Could not determine the root volume before destroying — "
+            "skipping pre-destroy snapshot"
+        )
+
     tfvars = {
         "app_name": config.app_name,
         "aws_region": config.aws_region,
@@ -1258,6 +1483,14 @@ def destroy(config: Config) -> None:
     finally:
         os.close(fd)
         Path(tfvars_path).unlink(missing_ok=True)
+
+    if volume_id:
+        create_snapshot(
+            volume_id, config.domain_name, "pre-destroy", config.aws_region, config.session
+        )
+        ec2 = _client(config.session, "ec2", config.aws_region)
+        ec2.delete_volume(VolumeId=volume_id)
+        write_line(f"[deploy] Deleted volume {volume_id}")
 
     write_line(f"[deploy] {config.domain_name} destroyed")
 

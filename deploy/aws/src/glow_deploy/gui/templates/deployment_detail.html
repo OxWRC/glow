@@ -56,4 +56,25 @@
       <button type="submit" class="button">Review update</button>
     </form>
   </details>
+
+  <details>
+    <summary>Snapshots</summary>
+    <div class="card">
+      {% if not snapshots %}
+      <p class="text-muted">No snapshots for this deployment yet.</p>
+      {% else %}
+      <ul class="list-plain">
+        {% for snap in snapshots %}
+        <li>
+          <span>{{ snap.started_at }} — {{ snap.reason }} ({{ snap.size_gb }} GB, {{ snap.state }})</span>
+          <form method="post" action="/deployments/{{ deployment.domain }}/snapshots/{{ snap.snapshot_id }}/delete"
+                onsubmit="return confirm('Delete this snapshot? This cannot be undone.')">
+            <button type="submit" class="button button-danger-ghost">Delete</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </details>
 {% endblock %}

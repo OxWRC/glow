@@ -62,7 +62,7 @@ def home(request: Request, session=Depends(require_session)):
 
 
 @router.get("/deployments/new", response_class=HTMLResponse)
-def new_deployment_form(request: Request, _session=Depends(require_session)):
+def new_deployment_form(request: Request, session=Depends(require_session)):
     return templates.TemplateResponse(request, "new_deployment.html", {"error": None,
             "available_versions": _sorted_available_versions(request),
             "defaults": {
@@ -107,6 +107,7 @@ def new_deployment_plan(
     runner_instance_type: str = Form("t3.medium"),
     runner_root_volume_size_gb: int = Form(100),
     force_rebuild_ami: bool = Form(False),
+    restore_from_snapshot_id: str = Form(""),
 ):
     resolved_ref = git_ref_override.strip() or git_ref or _default_git_ref(request)
     try:
@@ -136,6 +137,7 @@ def new_deployment_plan(
         runner_instance_type=runner_instance_type,
         runner_root_volume_size_gb=runner_root_volume_size_gb,
         force_rebuild_ami=force_rebuild_ami,
+        restore_from_snapshot_id=restore_from_snapshot_id,
     )
     config = core.Config(session=session, dry_run=True, **config_fields)
     job_id = request.app.state.job_manager.submit(
@@ -164,6 +166,7 @@ def new_deployment_apply(
     runner_instance_type: str = Form(...),
     runner_root_volume_size_gb: int = Form(...),
     force_rebuild_ami: bool = Form(False),
+    restore_from_snapshot_id: str = Form(""),
 ):
     config = core.Config(
         session=session,
@@ -178,6 +181,7 @@ def new_deployment_apply(
         runner_instance_type=runner_instance_type,
         runner_root_volume_size_gb=runner_root_volume_size_gb,
         force_rebuild_ami=force_rebuild_ami,
+        restore_from_snapshot_id=restore_from_snapshot_id,
     )
     job_id = request.app.state.job_manager.submit(
         lambda: core.provision(config),
@@ -187,7 +191,7 @@ def new_deployment_apply(
 
 
 @router.get("/deployments/{domain}", response_class=HTMLResponse)
-def deployment_detail(request: Request, domain: str, _session=Depends(require_session)):
+def deployment_detail(request: Request, domain: str, session=Depends(require_session)):
     deployment = find_deployment(request, domain)
     available = deps.get_cached_release_tags(request)
     return templates.TemplateResponse(request, "deployment_detail.html", {
@@ -199,8 +203,17 @@ def deployment_detail(request: Request, domain: str, _session=Depends(require_se
             ),
             "default_git_ref": _default_git_ref(request),
             "default_git_repo_url": core.DEFAULT_GIT_REPO_URL,
+            "snapshots": core.list_snapshots(request.app.state.region, session, domain=domain),
         },
     )
+
+
+@router.post("/deployments/{domain}/snapshots/{snapshot_id}/delete", response_class=HTMLResponse)
+def delete_deployment_snapshot(
+    request: Request, domain: str, snapshot_id: str, session=Depends(require_session)
+):
+    core.delete_snapshot(snapshot_id, request.app.state.region, session)
+    return RedirectResponse(f"/deployments/{domain}", status_code=303)
 
 
 @router.post("/deployments/{domain}/update/plan", response_class=HTMLResponse)
@@ -313,3 +326,15 @@ def destroy(request: Request, domain: str, session=Depends(require_session)):
         meta={"kind": "destroy_apply", "domain": domain},
     )
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+
+@router.get("/snapshots", response_class=HTMLResponse)
+def all_snapshots(request: Request, session=Depends(require_session)):
+    snapshots = core.list_snapshots(request.app.state.region, session)
+    return templates.TemplateResponse(request, "snapshots.html", {"snapshots": snapshots})
+
+
+@router.post("/snapshots/{snapshot_id}/delete", response_class=HTMLResponse)
+def delete_global_snapshot(request: Request, snapshot_id: str, session=Depends(require_session)):
+    core.delete_snapshot(snapshot_id, request.app.state.region, session)
+    return RedirectResponse("/snapshots", status_code=303)

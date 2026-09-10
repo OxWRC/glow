@@ -28,6 +28,7 @@ def _no_network_version_checks(monkeypatch):
     with their own monkeypatch as needed."""
     monkeypatch.setattr(deps, "get_cached_release_tags", lambda request: [])
     monkeypatch.setattr(core, "get_deployed_version", lambda domain_name, timeout=5.0: None)
+    monkeypatch.setattr(core, "list_snapshots", lambda region, session, domain=None: [])
 
 
 @pytest.fixture
@@ -346,6 +347,68 @@ def test_new_deployment_plan_surfaces_git_ref_errors(client, monkeypatch):
     assert "ref not found" in response.text
 
 
+def test_new_deployment_plan_then_apply_threads_restore_snapshot_id(client, monkeypatch):
+    """The visible snapshot-restore picker is gone from new_deployment.html
+    (see core.provision's DeployError gate on restore_from_snapshot_id), but
+    the underlying plan -> hidden-field -> apply config-threading mechanism
+    used by every field on this form is generic and still real plumbing
+    worth covering — this drives it with restore_from_snapshot_id set via a
+    raw form post (as a crafted request could still do) to confirm it still
+    threads through correctly, without asserting the deploy succeeds.
+    """
+    _sign_in(client)
+    monkeypatch.setattr(
+        github_api, "resolve_git_commit_via_github", lambda repo_url, ref: "d" * 40
+    )
+    monkeypatch.setattr(
+        core,
+        "provision",
+        lambda config: {"runner_instance_id": "i-123", "alb_dns_name": "alb.example.com"},
+    )
+
+    plan_response = client.post(
+        "/deployments/new/plan",
+        data={
+            "domain": "example.com",
+            "git_ref": "v2",
+            "aws_region": "eu-west-2",
+            "restore_from_snapshot_id": "snap-1",
+        },
+        follow_redirects=False,
+    )
+    assert plan_response.status_code == 303
+    plan_job_id = plan_response.headers["location"].removeprefix("/jobs/")
+    _wait_for_job(client, plan_job_id)
+
+    apply_page = client.get(f"/jobs/{plan_job_id}")
+    assert 'name="restore_from_snapshot_id" value="snap-1"' in apply_page.text
+
+    apply_calls = []
+    monkeypatch.setattr(
+        core, "provision", lambda config: apply_calls.append(config) or None
+    )
+    apply_response = client.post(
+        "/deployments/new/apply",
+        data={
+            "domain_name": "example.com",
+            "git_repo_url": "https://github.com/OxWRC/glow.git",
+            "git_ref": "v2",
+            "git_commit": "d" * 40,
+            "aws_region": "eu-west-2",
+            "app_name": "glow-core",
+            "runner_instance_type": "t3.medium",
+            "runner_root_volume_size_gb": "100",
+            "restore_from_snapshot_id": "snap-1",
+        },
+        follow_redirects=False,
+    )
+    assert apply_response.status_code == 303
+    apply_job_id = apply_response.headers["location"].removeprefix("/jobs/")
+    _wait_for_job(client, apply_job_id)
+
+    assert apply_calls[0].restore_from_snapshot_id == "snap-1"
+
+
 def test_check_domain_reports_true_when_a_hosted_zone_is_found(client, monkeypatch):
     _sign_in(client)
     monkeypatch.setattr(
@@ -390,6 +453,11 @@ def _stub_deployment(monkeypatch):
             }
         ],
     )
+    monkeypatch.setattr(
+        core,
+        "list_snapshots",
+        lambda region, session, domain=None: [],
+    )
 
 
 def test_deployment_detail_renders_for_known_domain(client, monkeypatch):
@@ -409,6 +477,51 @@ def test_deployment_detail_404s_for_unknown_domain(client, monkeypatch):
     response = client.get("/deployments/does-not-exist.com")
 
     assert response.status_code == 404
+
+
+def test_deployment_detail_lists_snapshots_for_the_domain(client, monkeypatch):
+    _sign_in(client)
+    _stub_deployment(monkeypatch)
+    monkeypatch.setattr(
+        core,
+        "list_snapshots",
+        lambda region, session, domain=None: [
+            {
+                "snapshot_id": "snap-1",
+                "domain": domain,
+                "reason": "pre-update",
+                "started_at": "2026-01-01T00:00:00Z",
+                "size_gb": 100,
+                "state": "completed",
+            }
+        ],
+    )
+
+    response = client.get("/deployments/example.com")
+
+    assert response.status_code == 200
+    assert "snap-1" in response.text
+    assert "pre-update" in response.text
+
+
+def test_deployment_detail_delete_snapshot_route(client, monkeypatch):
+    _sign_in(client)
+    _stub_deployment(monkeypatch)
+    monkeypatch.setattr(core, "list_snapshots", lambda region, session, domain=None: [])
+    delete_calls = []
+    monkeypatch.setattr(
+        core,
+        "delete_snapshot",
+        lambda snapshot_id, region, session: delete_calls.append(snapshot_id),
+    )
+
+    response = client.post(
+        "/deployments/example.com/snapshots/snap-1/delete", follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/deployments/example.com"
+    assert delete_calls == ["snap-1"]
 
 
 def test_update_plan_then_apply_updates(client, monkeypatch):
@@ -736,3 +849,57 @@ def test_container_log_tail_route_surfaces_deploy_errors(client, monkeypatch):
     body = response.json()
     assert body["lines"] is None
     assert "Couldn't fetch logs for glow-web-1" in body["error"]
+
+
+# ---------------------------------------------------------------------------
+# Global snapshots page
+# ---------------------------------------------------------------------------
+
+
+def test_snapshots_page_lists_all_snapshots_including_orphans(client, monkeypatch):
+    _sign_in(client)
+    monkeypatch.setattr(
+        core,
+        "list_snapshots",
+        lambda region, session: [
+            {
+                "snapshot_id": "snap-1",
+                "domain": "example.com",
+                "reason": "pre-update",
+                "started_at": "2026-01-01T00:00:00Z",
+                "size_gb": 100,
+                "state": "completed",
+            },
+            {
+                "snapshot_id": "snap-2",
+                "domain": "gone.example.com",
+                "reason": "pre-destroy",
+                "started_at": "2026-01-02T00:00:00Z",
+                "size_gb": 80,
+                "state": "completed",
+            },
+        ],
+    )
+
+    response = client.get("/snapshots")
+
+    assert response.status_code == 200
+    assert "snap-1" in response.text
+    assert "snap-2" in response.text
+    assert "gone.example.com" in response.text
+
+
+def test_snapshots_page_delete_route_redirects_to_snapshots_list(client, monkeypatch):
+    _sign_in(client)
+    delete_calls = []
+    monkeypatch.setattr(
+        core,
+        "delete_snapshot",
+        lambda snapshot_id, region, session: delete_calls.append(snapshot_id),
+    )
+
+    response = client.post("/snapshots/snap-2/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/snapshots"
+    assert delete_calls == ["snap-2"]

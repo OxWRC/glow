@@ -18,6 +18,7 @@
       Glow Deploy
     </a>
     {% if request.app.state.session %}
+    <a href="/snapshots" class="button button-ghost">Snapshots</a>
     <form method="post" action="/signin/out">
       <button type="submit" class="button button-ghost">Sign out</button>
     </form>

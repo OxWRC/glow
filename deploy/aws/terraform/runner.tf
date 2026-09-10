@@ -68,6 +68,11 @@ resource "aws_instance" "runner" {
 
   tags = local.runner_tags
 
+  volume_tags = merge(local.tags, {
+    Name      = "${var.app_name}-runner-root"
+    Component = "glow-runner"
+  })
+
   lifecycle {
     ignore_changes = [ami, user_data]
   }

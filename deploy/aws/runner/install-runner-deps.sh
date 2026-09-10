@@ -19,6 +19,7 @@ dnf install -y \
   docker \
   git \
   jq \
+  rsync \
   amazon-cloudwatch-agent \
   amazon-ssm-agent
 

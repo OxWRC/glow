@@ -191,6 +191,7 @@ class _FakeEc2Client:
         self._response = response
         self.describe_instances_calls: list[dict] = []
         self.create_tags_calls: list[dict] = []
+        self.delete_volume_calls: list[dict] = []
 
     def describe_instances(self, **kwargs):
         self.describe_instances_calls.append(kwargs)
@@ -198,6 +199,9 @@ class _FakeEc2Client:
 
     def create_tags(self, **kwargs):
         self.create_tags_calls.append(kwargs)
+
+    def delete_volume(self, **kwargs):
+        self.delete_volume_calls.append(kwargs)
 
 
 def test_list_deployments_maps_tags_from_terraform_managed_instances(monkeypatch):
@@ -239,6 +243,391 @@ def test_list_deployments_maps_tags_from_terraform_managed_instances(monkeypatch
         "Name": "tag:Component",
         "Values": ["glow-runner"],
     }
+
+
+class _FakeEc2ClientForSnapshots:
+    def __init__(self):
+        self.describe_instances_response = None
+        self.create_snapshot_calls: list[dict] = []
+        self.describe_snapshots_calls: list[dict] = []
+        self.describe_snapshots_response = {"Snapshots": []}
+        self.delete_snapshot_calls: list[dict] = []
+        self._snapshot_state = "completed"
+
+    def describe_instances(self, **kwargs):
+        return self.describe_instances_response
+
+    def create_snapshot(self, **kwargs):
+        self.create_snapshot_calls.append(kwargs)
+        return {"SnapshotId": "snap-1234567890"}
+
+    def describe_snapshots(self, **kwargs):
+        self.describe_snapshots_calls.append(kwargs)
+        if kwargs.get("SnapshotIds"):
+            return {
+                "Snapshots": [
+                    {"SnapshotId": kwargs["SnapshotIds"][0], "State": self._snapshot_state}
+                ]
+            }
+        return self.describe_snapshots_response
+
+    def delete_snapshot(self, **kwargs):
+        self.delete_snapshot_calls.append(kwargs)
+
+
+def test_find_root_volume_id_reads_root_device_mapping(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    fake_ec2.describe_instances_response = {
+        "Reservations": [
+            {
+                "Instances": [
+                    {
+                        "InstanceId": "i-1234567890",
+                        "RootDeviceName": "/dev/xvda",
+                        "BlockDeviceMappings": [
+                            {"DeviceName": "/dev/xvda", "Ebs": {"VolumeId": "vol-abc123"}},
+                            {"DeviceName": "/dev/xvdf", "Ebs": {"VolumeId": "vol-other"}},
+                        ],
+                    }
+                ]
+            }
+        ]
+    }
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    volume_id = core.find_root_volume_id("i-1234567890", "eu-west-2", session=None)
+
+    assert volume_id == "vol-abc123"
+
+
+def test_find_root_volume_id_raises_when_root_mapping_missing(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    fake_ec2.describe_instances_response = {
+        "Reservations": [
+            {
+                "Instances": [
+                    {
+                        "InstanceId": "i-1234567890",
+                        "RootDeviceName": "/dev/xvda",
+                        "BlockDeviceMappings": [],
+                    }
+                ]
+            }
+        ]
+    }
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    with pytest.raises(core.DeployError):
+        core.find_root_volume_id("i-1234567890", "eu-west-2", session=None)
+
+
+def test_create_snapshot_tags_and_waits_for_completion(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    snapshot_id = core.create_snapshot(
+        "vol-abc123", "eu.glow-project.org", "pre-update", "eu-west-2", session=None
+    )
+
+    assert snapshot_id == "snap-1234567890"
+    assert fake_ec2.create_snapshot_calls[0]["VolumeId"] == "vol-abc123"
+    tag_spec = fake_ec2.create_snapshot_calls[0]["TagSpecifications"][0]
+    assert tag_spec["ResourceType"] == "snapshot"
+    assert {"Key": "Domain", "Value": "eu.glow-project.org"} in tag_spec["Tags"]
+    assert {"Key": "Component", "Value": "glow-runner-snapshot"} in tag_spec["Tags"]
+    assert {"Key": "Reason", "Value": "pre-update"} in tag_spec["Tags"]
+    assert fake_ec2.describe_snapshots_calls[0]["SnapshotIds"] == ["snap-1234567890"]
+
+
+def test_create_snapshot_skips_wait_when_wait_is_false(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    snapshot_id = core.create_snapshot(
+        "vol-abc123", "eu.glow-project.org", "pre-update", "eu-west-2", session=None, wait=False
+    )
+
+    assert snapshot_id == "snap-1234567890"
+    assert fake_ec2.create_snapshot_calls[0]["VolumeId"] == "vol-abc123"
+    assert fake_ec2.describe_snapshots_calls == []
+
+
+def test_list_snapshots_maps_tags_and_filters_by_domain(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    fake_ec2.describe_snapshots_response = {
+        "Snapshots": [
+            {
+                "SnapshotId": "snap-1",
+                "StartTime": "2026-01-01T00:00:00Z",
+                "VolumeSize": 100,
+                "State": "completed",
+                "Tags": [
+                    {"Key": "Domain", "Value": "eu.glow-project.org"},
+                    {"Key": "Component", "Value": "glow-runner-snapshot"},
+                    {"Key": "Reason", "Value": "pre-update"},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    snapshots = core.list_snapshots("eu-west-2", session=None, domain="eu.glow-project.org")
+
+    assert snapshots == [
+        {
+            "snapshot_id": "snap-1",
+            "domain": "eu.glow-project.org",
+            "reason": "pre-update",
+            "started_at": "2026-01-01T00:00:00Z",
+            "size_gb": 100,
+            "state": "completed",
+        }
+    ]
+    filters = fake_ec2.describe_snapshots_calls[0]["Filters"]
+    assert {"Name": "tag:Component", "Values": ["glow-runner-snapshot"]} in filters
+    assert {"Name": "tag:Domain", "Values": ["eu.glow-project.org"]} in filters
+
+
+def test_list_snapshots_without_domain_returns_global_list(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.list_snapshots("eu-west-2", session=None)
+
+    filters = fake_ec2.describe_snapshots_calls[0]["Filters"]
+    assert all(f["Name"] != "tag:Domain" for f in filters)
+
+
+def test_delete_snapshot_calls_ec2(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.delete_snapshot("snap-1234567890", "eu-west-2", session=None)
+
+    assert fake_ec2.delete_snapshot_calls == [{"SnapshotId": "snap-1234567890"}]
+
+
+class _FakeEc2ClientForRestore:
+    def __init__(self, fail_detach: bool = False):
+        self.create_volume_calls: list[dict] = []
+        self.attach_volume_calls: list[dict] = []
+        self.detach_volume_calls: list[dict] = []
+        self.delete_volume_calls: list[dict] = []
+        self._volume_state = "available"
+        self._fail_detach = fail_detach
+
+    def describe_instances(self, **kwargs):
+        return {
+            "Reservations": [
+                {"Instances": [{"Placement": {"AvailabilityZone": "eu-west-2a"}}]}
+            ]
+        }
+
+    def create_volume(self, **kwargs):
+        self.create_volume_calls.append(kwargs)
+        return {"VolumeId": "vol-restore123"}
+
+    def describe_volumes(self, **kwargs):
+        return {"Volumes": [{"State": self._volume_state}]}
+
+    def attach_volume(self, **kwargs):
+        self.attach_volume_calls.append(kwargs)
+        self._volume_state = "in-use"
+
+    def detach_volume(self, **kwargs):
+        self.detach_volume_calls.append(kwargs)
+        if self._fail_detach:
+            raise RuntimeError("detach failed: volume not attached")
+        self._volume_state = "available"
+
+    def delete_volume(self, **kwargs):
+        self.delete_volume_calls.append(kwargs)
+
+
+def test_restore_snapshot_data_creates_attaches_and_cleans_up_volume(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForRestore()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+    ssm_calls = []
+    monkeypatch.setattr(
+        core,
+        "run_ssm_command",
+        lambda instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None: ssm_calls.append(
+            (instance_id, commands, comment)
+        ),
+    )
+
+    core.restore_snapshot_data(
+        "i-1234567890", "snap-1234567890", "eu-west-2", domain="example.com", session=None
+    )
+
+    assert fake_ec2.create_volume_calls == [
+        {
+            "SnapshotId": "snap-1234567890",
+            "AvailabilityZone": "eu-west-2a",
+            "TagSpecifications": [
+                {
+                    "ResourceType": "volume",
+                    "Tags": [
+                        {"Key": "Component", "Value": "glow-restore-temp"},
+                        {"Key": "Domain", "Value": "example.com"},
+                    ],
+                }
+            ],
+        }
+    ]
+    assert fake_ec2.attach_volume_calls == [
+        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890", "Device": "/dev/sdf"}
+    ]
+    assert len(ssm_calls) == 1
+    assert ssm_calls[0][0] == "i-1234567890"
+    assert "volrestore123" in ssm_calls[0][1][0]
+    assert "/var/lib/glow/glow-postgres" in ssm_calls[0][1][0]
+    assert "/var/lib/glow/odk-postgres" in ssm_calls[0][1][0]
+    assert fake_ec2.detach_volume_calls == [
+        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890", "Force": True}
+    ]
+    assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-restore123"}]
+
+
+def test_restore_snapshot_data_cleans_up_volume_even_when_ssm_command_fails(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForRestore()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+    monkeypatch.setattr(
+        core,
+        "run_ssm_command",
+        lambda instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None: (
+            _ for _ in ()
+        ).throw(core.DeployError("ssm failed")),
+    )
+
+    with pytest.raises(core.DeployError, match="ssm failed"):
+        core.restore_snapshot_data(
+            "i-1234567890", "snap-1234567890", "eu-west-2", domain="example.com", session=None
+        )
+
+    assert fake_ec2.detach_volume_calls == [
+        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890", "Force": True}
+    ]
+    assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-restore123"}]
+
+
+def test_restore_snapshot_data_deletes_volume_and_preserves_original_error_when_detach_fails(
+    monkeypatch,
+):
+    fake_ec2 = _FakeEc2ClientForRestore(fail_detach=True)
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+    monkeypatch.setattr(
+        core,
+        "run_ssm_command",
+        lambda instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None: (
+            _ for _ in ()
+        ).throw(core.DeployError("ssm failed")),
+    )
+
+    with pytest.raises(core.DeployError, match="ssm failed"):
+        core.restore_snapshot_data(
+            "i-1234567890", "snap-1234567890", "eu-west-2", domain="example.com", session=None
+        )
+
+    assert fake_ec2.detach_volume_calls == [
+        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890", "Force": True}
+    ]
+    assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-restore123"}]
+
+
+def test_provision_restores_snapshot_data_when_requested(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "find_ami_in_account", lambda region, commit, session=None: "ami-12345678"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(
+        core,
+        "terraform_apply",
+        lambda config, ami_id: {
+            "runner_instance_id": "i-1234567890",
+            "alb_dns_name": "alb.example.com",
+        },
+    )
+    for name in (
+        "wait_for_ssm_online",
+        "wait_for_runner_bootstrap_completion",
+        "verify_runner_health",
+    ):
+        monkeypatch.setattr(core, name, lambda instance_id, region, session=None: None)
+    monkeypatch.setattr(
+        core,
+        "prepare_runner_repository",
+        lambda instance_id, region, repo_url, checkout_ref, session=None: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "rerun_runner_userdata",
+        lambda instance_id, region, domain_name, env=None, session=None: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "restore_snapshot_data",
+        lambda instance_id, snapshot_id, region, domain="", session=None: calls.append(
+            (instance_id, snapshot_id)
+        ),
+    )
+
+    with pytest.raises(core.DeployError, match="not yet supported"):
+        core.provision(_make_config(restore_from_snapshot_id="snap-1234567890"))
+
+    assert calls == []
+
+
+def test_provision_skips_restore_when_no_snapshot_requested(monkeypatch):
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "find_ami_in_account", lambda region, commit, session=None: "ami-12345678"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(
+        core,
+        "terraform_apply",
+        lambda config, ami_id: {
+            "runner_instance_id": "i-1234567890",
+            "alb_dns_name": "alb.example.com",
+        },
+    )
+    for name in (
+        "wait_for_ssm_online",
+        "wait_for_runner_bootstrap_completion",
+        "verify_runner_health",
+    ):
+        monkeypatch.setattr(core, name, lambda instance_id, region, session=None: None)
+    monkeypatch.setattr(
+        core,
+        "prepare_runner_repository",
+        lambda instance_id, region, repo_url, checkout_ref, session=None: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "rerun_runner_userdata",
+        lambda instance_id, region, domain_name, env=None, session=None: None,
+    )
+    monkeypatch.setattr(
+        core,
+        "restore_snapshot_data",
+        lambda *args, **kwargs: calls.append("called"),
+    )
+
+    core.provision(_make_config())
+
+    assert calls == []
 
 
 class _FakeRoute53Client:
@@ -779,9 +1168,223 @@ def test_get_git_ref_script_reads_runner_environment_file():
     assert 'printf "%s\\n" "${GIT_COMMIT:-}"' in script
 
 
+def test_install_runner_deps_installs_rsync():
+    script_path = AWS_DEPLOY_DIR / "runner" / "install-runner-deps.sh"
+    script = script_path.read_text()
+
+    assert "rsync" in script.split("dnf install -y")[1].split("\n\n")[0]
+
+
+def test_restore_snapshot_data_script_always_restarts_the_stack_on_exit():
+    """C2: a trap on EXIT must bring the compose stack back up even if the
+    script aborts (under `set -euo pipefail`) between `down` and `up -d` —
+    e.g. a failing rsync — so a snapshot restore never leaves the stack
+    permanently stopped."""
+    assert (
+        "trap 'docker compose --profile odk --env-file "
+        "/var/lib/glow/.deploy/share/.env.runtime -f compose.yml up -d' EXIT"
+        in core._RESTORE_SNAPSHOT_DATA_SCRIPT
+    )
+    # The trap must be registered after `down` and before the rsyncs, so a
+    # failure during either rsync is still covered by it.
+    down_index = core._RESTORE_SNAPSHOT_DATA_SCRIPT.index("compose.yml down")
+    trap_index = core._RESTORE_SNAPSHOT_DATA_SCRIPT.index("trap '")
+    rsync_index = core._RESTORE_SNAPSHOT_DATA_SCRIPT.index("rsync")
+    assert down_index < trap_index < rsync_index
+
+
 # ---------------------------------------------------------------------------
 # provision() / update() orchestration
 # ---------------------------------------------------------------------------
+
+
+def test_destroy_captures_volume_before_terraform_destroy_then_snapshots_and_deletes_it(
+    monkeypatch,
+):
+    calls: list[tuple] = []
+
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+
+    def fake_run_command(args, check=True, cwd=None, env=None):
+        if "output" in args:
+            return SimpleNamespace(
+                stdout='{"runner_instance_id": {"value": "i-1234567890"}}'
+            )
+        calls.append(("run_command", args))
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(core, "run_command", fake_run_command)
+    monkeypatch.setattr(
+        core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: calls.append(("find_volume", instance_id))
+        or "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda volume_id, domain, reason, region, session=None: calls.append(
+            ("snapshot", volume_id, domain, reason)
+        )
+        or "snap-1234567890",
+    )
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.destroy(_make_config(dry_run=False))
+
+    run_command_calls = [c for c in calls if c[0] == "run_command"]
+    assert len(run_command_calls) == 1
+    assert "destroy" in run_command_calls[0][1]
+
+    assert calls == [
+        ("find_volume", "i-1234567890"),
+        ("run_command", run_command_calls[0][1]),
+        ("snapshot", "vol-abc123", "example.com", "pre-destroy"),
+    ]
+    assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-abc123"}]
+
+
+def test_destroy_still_runs_terraform_destroy_when_root_volume_cannot_be_determined(
+    monkeypatch,
+):
+    """A previously-failed destroy (empty terraform state) or a manually
+    terminated instance must not block destroy() from running at all — the
+    pre-destroy snapshot is best-effort, not a precondition for cleanup."""
+    calls: list[tuple] = []
+
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+
+    def fake_run_command(args, check=True, cwd=None, env=None):
+        if "output" in args:
+            # Empty terraform state: no "runner_instance_id" output at all.
+            return SimpleNamespace(stdout="{}")
+        calls.append(("run_command", args))
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(core, "run_command", fake_run_command)
+    monkeypatch.setattr(
+        core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: calls.append(("find_volume", instance_id))
+        or "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda *args, **kwargs: calls.append(("snapshot",)) or "snap-1234567890",
+    )
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.destroy(_make_config(dry_run=False))
+
+    run_command_calls = [c for c in calls if c[0] == "run_command"]
+    assert len(run_command_calls) == 1
+    assert "destroy" in run_command_calls[0][1]
+
+    assert all(c[0] != "find_volume" for c in calls)
+    assert all(c[0] != "snapshot" for c in calls)
+    assert fake_ec2.delete_volume_calls == []
+
+
+def test_destroy_still_runs_terraform_destroy_when_instance_was_manually_terminated(
+    monkeypatch,
+):
+    """Second arm of the same I1 fix: terraform outputs resolve fine (a valid
+    ``runner_instance_id``), but the instance itself is gone — so
+    ``find_root_volume_id`` raises ``DeployError`` instead of ``KeyError``.
+    Destroy must still proceed and must not attempt a pre-destroy snapshot."""
+    calls: list[tuple] = []
+
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+
+    def fake_run_command(args, check=True, cwd=None, env=None):
+        if "output" in args:
+            return SimpleNamespace(
+                stdout='{"runner_instance_id": {"value": "i-1234567890"}}'
+            )
+        calls.append(("run_command", args))
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(core, "run_command", fake_run_command)
+
+    def raise_deploy_error(instance_id, region, session=None):
+        raise core.DeployError(f"instance {instance_id} not found")
+
+    monkeypatch.setattr(core, "find_root_volume_id", raise_deploy_error)
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda *args, **kwargs: calls.append(("snapshot",)) or "snap-1234567890",
+    )
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.destroy(_make_config(dry_run=False))
+
+    run_command_calls = [c for c in calls if c[0] == "run_command"]
+    assert len(run_command_calls) == 1
+    assert "destroy" in run_command_calls[0][1]
+
+    assert all(c[0] != "snapshot" for c in calls)
+    assert fake_ec2.delete_volume_calls == []
+
+
+def test_destroy_dry_run_does_not_snapshot_or_delete_volume(monkeypatch):
+    calls: list[tuple] = []
+
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+
+    def fake_run_command(args, check=True, cwd=None, env=None):
+        if "output" in args:
+            return SimpleNamespace(
+                stdout='{"runner_instance_id": {"value": "i-1234567890"}}'
+            )
+        return SimpleNamespace(stdout="plan output")
+
+    monkeypatch.setattr(core, "run_command", fake_run_command)
+    monkeypatch.setattr(
+        core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda *args, **kwargs: calls.append(("snapshot",)) or "snap-1234567890",
+    )
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.destroy(_make_config(dry_run=True))
+
+    assert calls == []
+    assert fake_ec2.delete_volume_calls == []
 
 
 def _make_config(**overrides) -> core.Config:
@@ -829,6 +1432,16 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
         lambda instance_id, region, session=None: calls.append(
             ("bootstrap", instance_id)
         ),
+    )
+    monkeypatch.setattr(
+        core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda volume_id, domain, reason, region, session=None, wait=True: "snap-1234567890",
     )
     monkeypatch.setattr(
         core,
@@ -886,6 +1499,84 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
                 {"Key": "GlowGUIVersion", "Value": "dev"},
             ],
         }
+    ]
+
+
+def test_update_snapshots_volume_before_preparing_repository(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
+    )
+    monkeypatch.setattr(
+        core, "terraform_init", lambda bucket, region, session=None: None
+    )
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+    monkeypatch.setattr(
+        core,
+        "run_command",
+        lambda args, check=True, cwd=None, env=None: SimpleNamespace(
+            stdout='{"runner_instance_id": {"value": "i-1234567890"}}'
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "wait_for_ssm_online",
+        lambda instance_id, region, session=None: calls.append(("wait", instance_id)),
+    )
+    monkeypatch.setattr(
+        core,
+        "wait_for_runner_bootstrap_completion",
+        lambda instance_id, region, session=None: calls.append(
+            ("bootstrap", instance_id)
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "find_root_volume_id",
+        lambda instance_id, region, session=None: calls.append(("find_volume", instance_id))
+        or "vol-abc123",
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda volume_id, domain, reason, region, session=None, wait=True: calls.append(
+            ("snapshot", volume_id, domain, reason, wait)
+        )
+        or "snap-1234567890",
+    )
+    monkeypatch.setattr(
+        core,
+        "prepare_runner_repository",
+        lambda instance_id, region, repo_url, checkout_ref, session=None: calls.append(
+            ("prepare", instance_id)
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "rerun_runner_userdata",
+        lambda instance_id, region, domain_name, env=None, session=None: calls.append(
+            ("rerun", instance_id)
+        ),
+    )
+    monkeypatch.setattr(
+        core,
+        "verify_runner_health",
+        lambda instance_id, region, session=None: calls.append(("verify", instance_id)),
+    )
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.update(_make_config())
+
+    assert calls == [
+        ("wait", "i-1234567890"),
+        ("bootstrap", "i-1234567890"),
+        ("find_volume", "i-1234567890"),
+        ("snapshot", "vol-abc123", "example.com", "pre-update", False),
+        ("prepare", "i-1234567890"),
+        ("rerun", "i-1234567890"),
+        ("verify", "i-1234567890"),
     ]
 
 
