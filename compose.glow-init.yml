@@ -1,0 +1,26 @@
+# Base glow-init service -- shared by compose.override.yml (dev) and
+# compose.test.yml (CI) via `extends`. Never applied directly with `-f`,
+# only referenced through `extends.file`.
+#
+# glow-init creates the Glow admin user and syncs schools from the ODK-seeded
+# data once `api` is healthy, then exits. Each extending file supplies its
+# own `depends_on`, `networks`, and `command` -- `extends` does not carry
+# `depends_on` across files, and list fields like `command` are replaced
+# wholesale rather than merged, so each environment writes its own full
+# command.
+
+services:
+  glow-init:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      # Fixed dev-only ODK creds -- match the admin/API users baked into
+      # postgres14's dev image (see odk-central/postgres/README.md). Basic
+      # Auth requires HTTPS, so this goes through nginx, not odk-service
+      # directly.
+      GLOW_ODK_API_URL: https://nginx
+      GLOW_ODK_API_EMAIL: api@glow.local
+      GLOW_ODK_API_PASSWORD: devpassword
+      GLOW_ODK_VERIFY_SSL: "false"

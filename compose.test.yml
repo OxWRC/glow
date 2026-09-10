@@ -6,6 +6,21 @@ services:
     environment:
       GLOW_SECRET_KEY: smoke-test-secret
       GLOW_CORS_ORIGINS: '["http://127.0.0.1:3000"]'
+      # compose.yml's default GLOW_ODK_API_URL (http://odk-service:8383,
+      # internal plain HTTP) is rejected by ODK Central for Basic Auth
+      # ("This authentication method is only available over HTTPS", 401.3) --
+      # go through nginx's TLS termination instead, matching dev.
+      GLOW_ODK_API_URL: https://nginx
+      GLOW_ODK_API_EMAIL: api@glow.local
+      GLOW_ODK_API_PASSWORD: devpassword
+      GLOW_ODK_VERIFY_SSL: "false"
+      # Shared with glow-init below so its own fresh DataStore can pick up
+      # this container's already-fetched data instead of racing its own ODK
+      # fetch (neither container has a bind-mounted source tree in CI to
+      # share it "for free" the way compose.override.yml's dev glow-init does).
+      GLOW_DATA_CACHE_PATH: /cache/data.parquet
+    volumes:
+      - glow_cache:/cache
     healthcheck:
       interval: 5s
       timeout: 5s
@@ -20,8 +35,65 @@ services:
     environment:
       PUBLIC_API_BASE: http://127.0.0.1:8000
     restart: "no"
+    depends_on:
+      glow-init:
+        condition: service_completed_successfully
 
   postgres14:
     build:
       target: dev
     restart: "no"
+
+  glow-init:
+    extends:
+      file: compose.glow-init.yml
+      service: glow-init
+    environment:
+      GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
+      GLOW_CONNECTED_SCHOOL: ${PLAYWRIGHT_SCOPED_SCHOOL:-Beahanberg High School}
+      GLOW_DATA_CACHE_PATH: /cache/data.parquet
+    volumes:
+      - glow_cache:/cache
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - api_db
+      - public
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        echo "Waiting for api's ODK data to reach cache..."
+        for i in $$(seq 1 60); do
+          [ -s "$$GLOW_DATA_CACHE_PATH" ] && break
+          if [ "$$i" -eq 60 ]; then
+            echo "Timed out waiting for $$GLOW_DATA_CACHE_PATH" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+        # Link real School records to the ODK-seeded data (creates one School
+        # per distinct raw "school" value the submissions carry, keyed by
+        # odk_school_id).
+        glow-api schools sync
+        # Focus School Academy / Neighbouring School are deliberately *not*
+        # linked to any ODK data -- they exercise the "school onboarded in
+        # GLOW but not yet connected to ODK" path (empty query results, not
+        # an error).
+        glow-api schools create "Focus School Academy" || true
+        glow-api schools create "Neighbouring School" || true
+        # /me returns exactly a user's assigned schools (no implicit "admin
+        # sees everything" expansion), so admin needs the connected school
+        # assigned too for the dashboard's school picker to offer it.
+        ADMIN_SCHOOLS="Focus School Academy,Neighbouring School,$$GLOW_CONNECTED_SCHOOL"
+        glow-api users create --admin --password admin --schools "$$ADMIN_SCHOOLS" admin || \
+          glow-api users update --password admin --schools "$$ADMIN_SCHOOLS" --active admin
+        # alpha-user is scoped to a real, ODK-connected school so its query
+        # smoke test exercises actual data, not just auth plumbing.
+        glow-api users create --password alpha-user --schools "$$GLOW_CONNECTED_SCHOOL" alpha-user || \
+          glow-api users update --password alpha-user --schools "$$GLOW_CONNECTED_SCHOOL" --active alpha-user
+
+volumes:
+  glow_cache:

@@ -8,6 +8,46 @@ services:
       - ./api:/app
     environment:
       GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+      # Fixed dev-only ODK creds -- match the admin/API users baked into
+      # postgres14's dev image (see odk-central/postgres/README.md). Basic
+      # Auth requires HTTPS, so this goes through nginx, not odk-service
+      # directly.
+      GLOW_ODK_API_URL: https://nginx
+      GLOW_ODK_API_EMAIL: api@glow.local
+      GLOW_ODK_API_PASSWORD: devpassword
+      GLOW_ODK_VERIFY_SSL: "false"
+
+  glow-init:
+    extends:
+      file: compose.glow-init.yml
+      service: glow-init
+    working_dir: /app
+    volumes:
+      - ./api:/app
+    environment:
+      GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
+      # Same cache file api itself writes to (shared via the /app bind mount
+      # above) -- lets schools_sync's own fresh DataStore pick up api's
+      # already-fetched data instead of racing its own ODK fetch.
+      GLOW_DATA_CACHE_PATH: ${GLOW_DATA_CACHE_PATH:-.cache.parquet}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - api_db
+      - public
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - |
+        echo "Waiting for api's ODK data to reach cache..."
+        for i in $$(seq 1 60); do
+          [ -s "$$GLOW_DATA_CACHE_PATH" ] && break
+          sleep 2
+        done
+        glow-api users create admin --password admin --admin || echo "(admin already exists)"
+        glow-api schools sync --no-create-users
 
   dashboard:
     build:

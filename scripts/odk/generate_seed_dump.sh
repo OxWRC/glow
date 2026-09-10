@@ -2,9 +2,8 @@
 # generate_seed_dump.sh - Regenerate odk-central/postgres/seed/dev-seed.dump
 #
 # Boots an isolated scratch ODK Central stack (never touching a normal dev
-# stack you might already have running), replays the same bootstrap +
-# mock-data-seeding + timestamp-backdating pipeline dev-init.sh used to run
-# on every fresh environment, then pg_dump's the result.
+# stack you might already have running), replays the mock-data-seeding +
+# timestamp-backdating pipeline against it, then pg_dump's the result.
 #
 # Run this whenever the glow-dummies model, the ODK forms, or the
 # timestamp backdating logic changes -- and whenever ODK_CENTRAL_TAG is
