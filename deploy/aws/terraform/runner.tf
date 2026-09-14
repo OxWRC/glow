@@ -27,6 +27,32 @@ resource "aws_iam_role_policy_attachment" "runner_cloudwatch" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
+resource "aws_iam_policy" "runner_cognito" {
+  name = "${var.app_name}-runner-cognito"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminSetUserPassword",
+          "cognito-idp:AdminGetUser",
+        ]
+        Resource = aws_cognito_user_pool.main.arn
+      }
+    ]
+  })
+
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "runner_cognito" {
+  role       = aws_iam_role.runner.name
+  policy_arn = aws_iam_policy.runner_cognito.arn
+}
+
 resource "aws_iam_instance_profile" "runner" {
   name = "${var.app_name}-runner-profile"
   role = aws_iam_role.runner.name
