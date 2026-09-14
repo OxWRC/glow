@@ -20,6 +20,16 @@
   onMount(async () => {
     const params = $page.url.searchParams;
 
+    // Verify state before anything else, including the error branch below -
+    // Cognito echoes state back on both success and error redirects.
+    const returnedState = params.get('state');
+    const expectedState = sessionStorage.getItem('oauth_state');
+    sessionStorage.removeItem('oauth_state');
+    if (!expectedState || returnedState !== expectedState) {
+      error = i18n.t('login.loginFailed');
+      return;
+    }
+
     const oauthError = params.get('error');
     if (oauthError) {
       error = params.get('error_description') ?? oauthError;

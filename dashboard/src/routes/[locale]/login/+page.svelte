@@ -24,7 +24,9 @@
     return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  function generateCodeVerifier(): string {
+  // Shared by the PKCE verifier and the CSRF `state` value - both are just
+  // "a random, unguessable token", no need for two generators.
+  function randomToken(): string {
     return base64url(crypto.getRandomValues(new Uint8Array(32)));
   }
 
@@ -38,8 +40,10 @@
       error = i18n.t('login.configError');
       return;
     }
-    const verifier = generateCodeVerifier();
+    const verifier = randomToken();
     sessionStorage.setItem('pkce_code_verifier', verifier);
+    const state = randomToken();
+    sessionStorage.setItem('oauth_state', state);
     const challenge = await generateCodeChallenge(verifier);
     const redirectUri = `${window.location.origin}/${currentLocale}/auth/callback`;
     const params = new URLSearchParams({
@@ -49,6 +53,7 @@
       redirect_uri: redirectUri,
       code_challenge: challenge,
       code_challenge_method: 'S256',
+      state,
     });
     window.location.href = `https://${COGNITO_DOMAIN}/oauth2/authorize?${params.toString()}`;
   }

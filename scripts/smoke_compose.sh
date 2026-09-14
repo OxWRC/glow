@@ -16,14 +16,16 @@ docker compose -f compose.yml -f compose.test.yml up -d --wait
 
 python3 - <<'PY'
 import json
-import urllib.parse
 import urllib.request
 
 base = "http://127.0.0.1:8000"
+# Password-based /auth/login was removed with Cognito auth (Task 2); this
+# stack has no real Cognito pool, so use the dev-bypass login instead
+# (compose.test.yml sets GLOW_DEV_AUTH_BYPASS for exactly this).
 login_req = urllib.request.Request(
-    base + "/auth/login",
-    data=urllib.parse.urlencode({"username": "admin", "password": "admin"}).encode(),
-    headers={"Content-Type": "application/x-www-form-urlencoded"},
+    base + "/auth/dev-login",
+    data=json.dumps({"role": "admin"}).encode(),
+    headers={"Content-Type": "application/json"},
     method="POST",
 )
 with urllib.request.urlopen(login_req) as response:

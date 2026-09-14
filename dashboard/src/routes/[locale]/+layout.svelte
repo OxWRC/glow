@@ -5,7 +5,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount, onDestroy } from 'svelte';
-  import { checkHealth, me } from '$lib/api';
+  import { checkHealth, me, COGNITO_DOMAIN, COGNITO_CLIENT_ID, DEV_AUTH_BYPASS } from '$lib/api';
   import { createI18n, initializeLocale, locale, setLocale, type Locale } from '$lib/i18n';
 
   interface Props {
@@ -82,7 +82,24 @@
 
   function logout() {
     authStore.logout();
-    goto(`/${currentLocale}/login`);
+
+    // Dev-bypass has no real Cognito session to end. With a real pool,
+    // navigating straight to /login isn't a real sign-out: Cognito's own
+    // hosted-UI SSO cookie survives, so the redirect-to-authorize that
+    // /login's onMount does immediately re-authenticates the same user
+    // without ever showing a login screen. Hit Cognito's hosted /logout
+    // first (its logout_urls already allow /{locale}/login - see
+    // deploy/aws/terraform/cognito.tf) so the next login actually prompts.
+    if (DEV_AUTH_BYPASS || !COGNITO_DOMAIN || !COGNITO_CLIENT_ID) {
+      goto(`/${currentLocale}/login`);
+      return;
+    }
+    const logoutUri = `${window.location.origin}/${currentLocale}/login`;
+    const params = new URLSearchParams({
+      client_id: COGNITO_CLIENT_ID,
+      logout_uri: logoutUri,
+    });
+    window.location.href = `https://${COGNITO_DOMAIN}/logout?${params.toString()}`;
   }
 
   let mobileMenuOpen = $state(false);

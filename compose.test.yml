@@ -14,6 +14,11 @@ services:
       GLOW_ODK_API_EMAIL: api@glow.local
       GLOW_ODK_API_PASSWORD: devpassword
       GLOW_ODK_VERIFY_SSL: "false"
+      # No real Cognito pool in CI: without this, _build_verifier() raises
+      # at import time (neither a pool nor the bypass is configured) and the
+      # api container never boots. smoke_compose.sh and smoke.spec.ts both
+      # log in via /auth/dev-login, which only exists when this is set.
+      GLOW_DEV_AUTH_BYPASS: "true"
       # Shared with glow-init below so its own fresh DataStore can pick up
       # this container's already-fetched data instead of racing its own ODK
       # fetch (neither container has a bind-mounted source tree in CI to
@@ -34,6 +39,9 @@ services:
   dashboard:
     environment:
       PUBLIC_API_BASE: http://127.0.0.1:8000
+      # Login form is gone (Cognito hosted UI replaced it); CI has no real
+      # pool, so smoke.spec.ts drives the dev-bypass role picker instead.
+      PUBLIC_DEV_AUTH_BYPASS: "true"
     restart: "no"
     depends_on:
       glow-init:
