@@ -3,6 +3,18 @@ import { env } from "$env/dynamic/public";
 
 const API_BASE = env.PUBLIC_API_BASE ?? "/api";
 
+// Cognito hosted-UI config, same $env/dynamic/public passthrough as
+// PUBLIC_API_BASE above (see compose.yml's dashboard.environment).
+// PUBLIC_COGNITO_DOMAIN is a bare host (no scheme), e.g.
+// "<prefix>.auth.<region>.amazoncognito.com" - see
+// deploy/aws/terraform/outputs.tf's cognito_hosted_ui_domain.
+export const COGNITO_DOMAIN = env.PUBLIC_COGNITO_DOMAIN ?? "";
+export const COGNITO_CLIENT_ID = env.PUBLIC_COGNITO_CLIENT_ID ?? "";
+
+// Dev-only: shows the role-picker login instead of redirecting to Cognito's
+// hosted UI. Mirrors the api service's GLOW_DEV_AUTH_BYPASS (compose.override.yml).
+export const DEV_AUTH_BYPASS = env.PUBLIC_DEV_AUTH_BYPASS === "true";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -177,27 +189,71 @@ export interface UserUpdate {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
-export async function login(
-  username: string,
-  password: string,
+/**
+ * Dev-bypass login (only reachable when the API has GLOW_DEV_AUTH_BYPASS on).
+ * Mints a local HS256 token for the given role without a real Cognito pool.
+ */
+export async function devLogin(
+  role: "admin" | "wrc" | "school",
+  schoolId?: number,
 ): Promise<Token> {
-  const body = new URLSearchParams({ username, password });
-  const res = await fetch(`${API_BASE}/auth/login`, {
+  return apiFetch<Token>("/auth/dev-login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, school_id: schoolId ?? null }),
+  });
+}
+
+/**
+ * Token response from Cognito's own /oauth2/token endpoint (not our API -
+ * apiFetch/API_BASE don't apply here). Note the API's Cognito token
+ * verifier (glow_api.auth._CognitoVerifier) checks the `aud` claim and reads
+ * `cognito:username`/`email` - all ID-token claims, absent from an access
+ * token - so callers must send `id_token` as the bearer token to our API,
+ * not `access_token`.
+ */
+export interface CognitoTokens {
+  id_token: string;
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export async function exchangeCodeForToken(
+  code: string,
+  redirectUri: string,
+  codeVerifier: string,
+): Promise<CognitoTokens> {
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    client_id: COGNITO_CLIENT_ID,
+    code,
+    redirect_uri: redirectUri,
+    code_verifier: codeVerifier,
+  });
+  const res = await fetch(`https://${COGNITO_DOMAIN}/oauth2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
   });
   if (!res.ok) {
+    let detail: string | undefined;
     try {
-      const j = (await res.json()) as { detail?: string };
-      throw new ApiError(res.status, j.detail ?? res.statusText);
-    } catch (parseError) {
-      // If JSON parsing fails, throw a generic authentication error
-      if (parseError instanceof ApiError) throw parseError;
-      throw new ApiError(res.status, "Authentication failed");
+      const j = (await res.json()) as {
+        error?: string;
+        error_description?: string;
+      };
+      detail = j.error_description ?? j.error;
+    } catch {
+      // ignore - fall through to generic message below
     }
+    throw new ApiError(
+      res.status,
+      detail ?? "Failed to exchange authorization code",
+      detail,
+    );
   }
-  return res.json() as Promise<Token>;
+  return res.json() as Promise<CognitoTokens>;
 }
 
 export async function getMe(token: string): Promise<User> {

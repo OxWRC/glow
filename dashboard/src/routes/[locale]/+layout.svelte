@@ -97,7 +97,7 @@
   });
 </script>
 
-{#if $page.url.pathname.endsWith('/login')}
+{#if $page.url.pathname.endsWith('/login') || $page.url.pathname.includes('/auth/callback')}
   {@render children()}
 {:else}
   <div class="min-h-screen bg-gray-50">

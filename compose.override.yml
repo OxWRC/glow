@@ -64,6 +64,10 @@ services:
       NODE_ENV: development
       CHOKIDAR_USEPOLLING: "true"
       PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
+      # Dev-only: shows the role-picker login instead of redirecting to a
+      # (likely unconfigured) real Cognito hosted UI. Pairs with the api
+      # service's GLOW_DEV_AUTH_BYPASS above.
+      PUBLIC_DEV_AUTH_BYPASS: "true"
 
   nginx:
     environment:
