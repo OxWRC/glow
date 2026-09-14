@@ -22,6 +22,14 @@ resource "aws_cognito_user_pool" "main" {
   # is already a standard attribute on every pool (non-required by
   # default), and reaches the API's token verifier (Task 2) via the
   # "email" OAuth scope below once a user has one set.
+
+  # This migration has no self-registration flow anywhere in the plan -
+  # users are only ever created via Task 5's admin/CLI bootstrap path. Block
+  # Cognito's own hosted-UI self-service sign-up page accordingly.
+  admin_create_user_config {
+    allow_admin_create_user_only = true
+  }
+
   tags = local.tags
 }
 
