@@ -39,9 +39,11 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     username = Column(String, nullable=False, unique=True, index=True)
-    hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
     is_admin = Column(Boolean, nullable=False, default=False)
+    cognito_sub = Column(String, nullable=True, unique=True, index=True)
+    is_wrc = Column(Boolean, nullable=False, default=False)
+    email = Column(String, nullable=True)
 
     # Many-to-many with schools
     schools = relationship(
