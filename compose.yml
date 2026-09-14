@@ -20,11 +20,20 @@ services:
       GLOW_DATA_REFRESH_HOURS: ${GLOW_DATA_REFRESH_HOURS:-1}
       GLOW_MIN_N: ${GLOW_MIN_N:-5}
       GLOW_SECRET_KEY: ${GLOW_SECRET_KEY:-change-me-in-production}
-      # No Cognito pool is configured for local dev/CI; auth.py refuses to
-      # start in dev-mode auth unless this is explicit, rather than silently
-      # falling back to it. Set to a real pool's config (and unset this) once
-      # Cognito is wired up for this environment.
-      GLOW_DEV_AUTH_BYPASS: ${GLOW_DEV_AUTH_BYPASS:-true}
+      # Safe-by-default: this is the base/production compose file, so an
+      # unset GLOW_DEV_AUTH_BYPASS must NOT enable dev-mode auth. Local dev
+      # opts in via compose.override.yml, which is never applied on a real
+      # deploy (see deploy/aws/runtime/activate-stack.sh).
+      GLOW_DEV_AUTH_BYPASS: ${GLOW_DEV_AUTH_BYPASS:-false}
+      # Passthrough only - no `:-` default. An empty-string default would be
+      # just as falsy as unset at auth.py's _build_verifier() check, but it
+      # would also swallow Compose's own "variable is not set" warning, the
+      # one operator-visible signal that these were left out of a real
+      # deploy's .env.runtime. Populating .env.runtime with real values is a
+      # separate, later task; this just gives them a path into the container.
+      GLOW_COGNITO_USER_POOL_ID: ${GLOW_COGNITO_USER_POOL_ID}
+      GLOW_COGNITO_CLIENT_ID: ${GLOW_COGNITO_CLIENT_ID}
+      GLOW_COGNITO_REGION: ${GLOW_COGNITO_REGION}
       GLOW_APP_VERSION: ${APP_VERSION:-dev}
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
       GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
