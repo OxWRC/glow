@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
 
+    # Cognito / auth mode
+    COGNITO_USER_POOL_ID: Optional[str] = None
+    COGNITO_CLIENT_ID: Optional[str] = None
+    COGNITO_REGION: Optional[str] = None
+    DEV_AUTH_BYPASS: bool = False
+
     # Database
     METADATA_DATABASE_URL: str = "sqlite:///./metadata.db"
     CORS_ORIGINS: List[str] = ["*"]
@@ -84,6 +90,15 @@ class Settings(BaseSettings):
                 "Set GLOW_SECRET_KEY to a strong random secret before deploying.",
                 UserWarning,
                 stacklevel=2,
+            )
+
+    def validate_auth_config(self) -> None:
+        """Raise if the dev auth bypass and real Cognito verification are both configured."""
+        if self.DEV_AUTH_BYPASS and self.COGNITO_USER_POOL_ID:
+            raise RuntimeError(
+                "GLOW_DEV_AUTH_BYPASS is enabled but GLOW_COGNITO_USER_POOL_ID is also "
+                "set. Use Cognito verification in any environment with real user data; "
+                "enable the dev bypass only when no Cognito pool is configured."
             )
 
 

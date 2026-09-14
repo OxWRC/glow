@@ -17,7 +17,6 @@ import sys
 import click
 from sqlalchemy import select
 
-from glow_api.auth import get_password_hash
 from glow_api.database import (
     SessionLocal,
     create_user,
@@ -112,8 +111,6 @@ def users_list() -> None:
 )
 def users_create(username: str, password: str, schools: str, is_admin: bool) -> None:
     """Create a new user."""
-    hashed = get_password_hash(password)
-
     with SessionLocal() as db:
         existing = get_user_by_username(db, username)
         if existing is not None:
@@ -137,7 +134,6 @@ def users_create(username: str, password: str, schools: str, is_admin: bool) -> 
         user = create_user(
             db,
             username=username,
-            hashed_password=hashed,
             school_ids=school_ids,
             is_admin=is_admin,
         )
@@ -181,10 +177,6 @@ def users_update(
         )
         return
 
-    hashed: str | None = None
-    if password is not None:
-        hashed = get_password_hash(password)
-
     school_ids: list[int] | None = None
     if schools is not None:
         school_ids = []
@@ -205,9 +197,7 @@ def users_update(
         if user is None:
             click.echo(f"User '{username}' not found.", err=True)
             sys.exit(1)
-        update_user(
-            db, user, hashed_password=hashed, school_ids=school_ids, is_active=active
-        )
+        update_user(db, user, school_ids=school_ids, is_active=active)
 
     click.echo(f"User '{username}' updated.")
 
@@ -444,12 +434,11 @@ def schools_sync(
                     create_user(
                         db=db,
                         username=username,
-                        hashed_password=get_password_hash(username),
                         is_active=True,
                         is_admin=False,
                         school_ids=[school.id],
                     )
-                    click.echo(f"      {school.name} -> {username}:{username}")
+                    click.echo(f"      {school.name} -> {username}")
 
     # Step 4: Verification
     click.echo("\n4. Verification:")

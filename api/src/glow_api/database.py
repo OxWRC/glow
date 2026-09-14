@@ -100,6 +100,10 @@ def get_user_by_username(db: Session, username: str) -> User | None:
     return db.query(User).filter(User.username == username).first()
 
 
+def get_user_by_sub(db: Session, cognito_sub: str) -> User | None:
+    return db.query(User).filter(User.cognito_sub == cognito_sub).first()
+
+
 def get_user_by_id(db: Session, user_id: int) -> User | None:
     return db.query(User).filter(User.id == user_id).first()
 
@@ -107,14 +111,12 @@ def get_user_by_id(db: Session, user_id: int) -> User | None:
 def create_user(
     db: Session,
     username: str,
-    hashed_password: str,
     is_active: bool = True,
     is_admin: bool = False,
     school_ids: list[int] | None = None,
 ) -> User:
     user = User(
         username=username,
-        hashed_password=hashed_password,
         is_active=is_active,
         is_admin=is_admin,
     )
@@ -130,13 +132,10 @@ def create_user(
 def update_user(
     db: Session,
     user: User,
-    hashed_password: str | None = None,
     is_active: bool | None = None,
     is_admin: bool | None = None,
     school_ids: list[int] | None = None,
 ) -> User:
-    if hashed_password is not None:
-        user.hashed_password = hashed_password
     if is_active is not None:
         user.is_active = is_active
     if is_admin is not None:

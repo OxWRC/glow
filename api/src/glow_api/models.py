@@ -31,6 +31,8 @@ class UserRead(BaseModel):
     school_names: list[str] = Field(default_factory=list)
     is_active: bool
     is_admin: bool = False
+    is_wrc: bool = False
+    email: Optional[str] = None
     model_config = {"from_attributes": True}
 
 
@@ -99,6 +101,8 @@ class MeAuthenticated(BaseModel):
     id: int
     username: str
     is_admin: bool
+    is_wrc: bool = False
+    email: Optional[str] = None
     schools: list[SchoolSummary]
 
 

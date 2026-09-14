@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
-from glow_api.auth import get_current_user, get_password_hash
+from glow_api.auth import get_current_user
 from glow_api.database import (
     create_school,
     create_user,
@@ -84,11 +84,9 @@ def create_new_user(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Username '{payload.username}' already exists",
         )
-    hashed = get_password_hash(payload.password)
     user = create_user(
         db,
         username=payload.username,
-        hashed_password=hashed,
         school_ids=payload.school_ids,
         is_admin=payload.is_admin,
     )
@@ -123,11 +121,9 @@ def update_existing_user(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
-    hashed = get_password_hash(payload.password) if payload.password else None
     updated = update_user(
         db,
         user,
-        hashed_password=hashed,
         school_ids=payload.school_ids,
         is_active=payload.is_active,
         is_admin=payload.is_admin,

@@ -3,17 +3,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.orm import Session
 
 from glow_api.data import get_datastore
-from glow_api.database import run_migrations, get_db
+from glow_api.database import run_migrations
 from glow_api.logging_config import configure_logging
-from glow_api.models import Token
 from glow_api.request_logging import RequestLoggingMiddleware
 from glow_api.routers import admin, auth, dimensions, me, query, schools
 from glow_api.settings import settings
@@ -27,6 +24,7 @@ logger = structlog.get_logger("glow_api")
 async def lifespan(app: FastAPI):
     logger.info("Starting application lifespan...")
     settings.warn_insecure_defaults()
+    settings.validate_auth_config()
 
     logger.info("Running migrations...")
     run_migrations()
@@ -93,15 +91,6 @@ app.include_router(query.router)
 @app.get("/health", tags=["health"])
 def health() -> dict:
     return {"status": "ok", "version": settings.APP_VERSION}
-
-
-@app.post("/token", response_model=Token, tags=["auth"])
-def token_alias(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
-) -> Token:
-    """Alias for /auth/login for backward compatibility."""
-    return auth.login(form_data=form_data, db=db)
 
 
 @app.get("/")

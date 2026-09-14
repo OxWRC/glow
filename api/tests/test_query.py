@@ -3,7 +3,6 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from glow_api.auth import get_password_hash
 from glow_api.database import create_user
 from glow_api.metadata_models import School
 
@@ -14,7 +13,6 @@ def alpha_user(db_session: Session, sample_schools: dict[str, School]) -> dict:
     user = create_user(
         db_session,
         username="alpha_test",
-        hashed_password=get_password_hash("test_password"),
         school_ids=[sample_schools["Focus School Academy"].id],
         is_admin=False,
     )
@@ -31,7 +29,6 @@ def beta_user(db_session: Session, sample_schools: dict[str, School]) -> dict:
     user = create_user(
         db_session,
         username="beta_test",
-        hashed_password=get_password_hash("test_password"),
         school_ids=[sample_schools["Neighbouring School"].id],
         is_admin=False,
     )

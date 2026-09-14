@@ -1,49 +1,108 @@
-"""Authentication and authorization logic."""
+"""Authentication and authorization logic.
+
+Token verification is Cognito-backed in any environment with a configured
+user pool; a local HS256 "dev" mode is available for development and
+testing when no pool is configured (see settings.validate_auth_config for
+the guard that keeps the two modes from being enabled together).
+"""
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, OAuth2PasswordBearer
 import jwt
-from passlib.context import CryptContext
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
-from glow_api.database import get_db, get_school_by_id, get_user_by_username
+from glow_api.database import get_db, get_school_by_id, get_user_by_sub
 from glow_api.metadata_models import School, User
-from glow_api.models import TokenData, UserRead
+from glow_api.models import UserRead
 from glow_api.settings import settings
 
-pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+DEV_ISSUER = "glow-dev"
 
 
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+class _CognitoVerifier:
+    """Verifies RS256 tokens issued by an AWS Cognito user pool via its JWKS endpoint."""
+
+    def __init__(self, user_pool_id: str, client_id: str | None, region: str):
+        self._issuer = f"https://cognito-idp.{region}.amazonaws.com/{user_pool_id}"
+        self._client_id = client_id
+        self._jwks_client = jwt.PyJWKClient(f"{self._issuer}/.well-known/jwks.json")
+
+    def decode(self, token: str) -> dict[str, Any]:
+        signing_key = self._jwks_client.get_signing_key_from_jwt(token)
+        return jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            issuer=self._issuer,
+            audience=self._client_id,
+        )
+
+
+class _DevVerifier:
+    """HS256 verifier against SECRET_KEY, for local dev / tests when Cognito isn't configured."""
+
+    def decode(self, token: str) -> dict[str, Any]:
+        return jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            issuer=DEV_ISSUER,
+        )
+
+
+def _build_verifier() -> _CognitoVerifier | _DevVerifier:
+    if settings.COGNITO_USER_POOL_ID:
+        return _CognitoVerifier(
+            settings.COGNITO_USER_POOL_ID,
+            settings.COGNITO_CLIENT_ID,
+            settings.COGNITO_REGION,
+        )
+    return _DevVerifier()
+
+
+verifier = _build_verifier()
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    """Mint an HS256 dev-mode token (used by the dev-bypass login path)."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     to_encode["exp"] = expire
+    to_encode.setdefault("iss", DEV_ISSUER)
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def authenticate_user(db: Session, username: str, password: str) -> User | None:
-    user = get_user_by_username(db, username)
-    if user is None:
-        return None
-    if not verify_password(password, user.hashed_password):
-        return None
-    if not user.is_active:
-        return None
-    return user
+def sync_user_claims(db: Session, user: User, claims: dict[str, Any]) -> None:
+    """Update the local row if the token's username/email claims have drifted.
+
+    No extra network call - reuses the claims already returned with the
+    verified token. Best-effort: a username collision rolls back rather than
+    breaking the auth path.
+    """
+    changed = False
+    token_username = claims.get("cognito:username")
+    if token_username and token_username != user.username:
+        user.username = token_username
+        changed = True
+    token_email = claims.get("email")
+    if token_email and token_email != user.email:
+        user.email = token_email
+        changed = True
+    if not changed:
+        return
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
 
 
 def _user_model_to_read(user: User) -> UserRead:
@@ -54,6 +113,8 @@ def _user_model_to_read(user: User) -> UserRead:
         school_names=[s.name for s in user.schools],
         is_active=user.is_active,
         is_admin=user.is_admin,
+        is_wrc=user.is_wrc,
+        email=user.email,
     )
 
 
@@ -67,19 +128,18 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
-        username: str | None = payload.get("sub")
-        if username is None:
+        claims = verifier.decode(token)
+        sub: str | None = claims.get("sub")
+        if sub is None:
             raise credentials_exception
-        token_data = TokenData(username=username)
     except jwt.PyJWTError:
         raise credentials_exception
 
-    user = get_user_by_username(db, token_data.username)
+    user = get_user_by_sub(db, sub)
     if user is None or not user.is_active:
         raise credentials_exception
+
+    sync_user_claims(db, user, claims)
 
     return _user_model_to_read(user)
 
@@ -104,11 +164,9 @@ def get_optional_school_user(
         )
 
     try:
-        payload = jwt.decode(
-            credentials.credentials, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
-        username: str | None = payload.get("sub")
-        if username is None:
+        claims = verifier.decode(credentials.credentials)
+        sub: str | None = claims.get("sub")
+        if sub is None:
             request_context.record_event(
                 "auth_assessed", outcome="invalid_token", success=False, school_id=school_id
             )
@@ -125,13 +183,13 @@ def get_optional_school_user(
             detail="Could not validate credentials",
         )
 
-    user = get_user_by_username(db, username)
+    user = get_user_by_sub(db, sub)
     if user is None or not user.is_active:
         request_context.record_event(
             "auth_assessed",
             outcome="unknown_or_inactive_user",
             success=False,
-            username=username,
+            username=claims.get("cognito:username", sub),
             school_id=school_id,
         )
         raise HTTPException(
@@ -139,13 +197,15 @@ def get_optional_school_user(
             detail="Could not validate credentials",
         )
 
+    sync_user_claims(db, user, claims)
+
     user_school_ids = [s.id for s in user.schools]
     if not user.is_admin and school_id not in user_school_ids:
         request_context.record_event(
             "auth_assessed",
             outcome="forbidden",
             success=False,
-            username=username,
+            username=user.username,
             is_admin=user.is_admin,
             school_id=school_id,
         )
@@ -160,7 +220,7 @@ def get_optional_school_user(
             "auth_assessed",
             outcome="school_not_found",
             success=False,
-            username=username,
+            username=user.username,
             school_id=school_id,
         )
         raise HTTPException(
@@ -172,7 +232,7 @@ def get_optional_school_user(
         "auth_assessed",
         outcome="success",
         success=True,
-        username=username,
+        username=user.username,
         is_admin=user.is_admin,
         school_id=school_id,
     )

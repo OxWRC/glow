@@ -6,9 +6,9 @@ import jwt
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from glow_api.database import get_db, get_user_by_username
+from glow_api.auth import sync_user_claims, verifier
+from glow_api.database import get_db, get_user_by_sub
 from glow_api.models import MeResponse, MeAnonymous, MeAuthenticated, SchoolSummary
-from glow_api.settings import settings
 
 router = APIRouter(tags=["identity"])
 
@@ -34,13 +34,9 @@ def get_me(
 
     # Try to decode token
     try:
-        payload = jwt.decode(
-            credentials.credentials,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM],
-        )
-        username: str | None = payload.get("sub")
-        if username is None:
+        claims = verifier.decode(credentials.credentials)
+        sub: str | None = claims.get("sub")
+        if sub is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Could not validate credentials",
@@ -52,12 +48,14 @@ def get_me(
         )
 
     # Get user from database
-    user = get_user_by_username(db, username)
+    user = get_user_by_sub(db, sub)
     if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
+
+    sync_user_claims(db, user, claims)
 
     # Return authenticated response
     schools = [SchoolSummary(id=school.id, name=school.name) for school in user.schools]
@@ -66,5 +64,7 @@ def get_me(
         id=user.id,
         username=user.username,
         is_admin=user.is_admin,
+        is_wrc=user.is_wrc,
+        email=user.email,
         schools=schools,
     )

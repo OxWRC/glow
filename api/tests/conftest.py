@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from glow_api.auth import get_current_user, get_password_hash
+from glow_api.auth import get_current_user
 from glow_api.data import DataStore
 from glow_api.database import create_user, create_school, get_db
 from glow_api.metadata_models import Base
@@ -109,7 +109,6 @@ def sample_user(db_session, sample_schools):
     user = create_user(
         db_session,
         username="testuser",
-        hashed_password=get_password_hash("testpass"),
         school_ids=[sample_schools["Focus School Academy"].id],
     )
     return user
@@ -121,7 +120,6 @@ def admin_user(db_session, sample_schools):
     user = create_user(
         db_session,
         username="adminuser",
-        hashed_password=get_password_hash("adminpass"),
         school_ids=[
             sample_schools["Focus School Academy"].id,
             sample_schools["Neighbouring School"].id,
