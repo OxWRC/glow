@@ -35,7 +35,17 @@ def dev_login(
 ) -> DevLoginResponse:
     if payload.role == "admin":
         sub = "dev-admin"
-        user = upsert_user_by_sub(db, sub, username=sub, is_admin=True)
+        # /me returns exactly a user's assigned schools (no implicit "admin
+        # sees everything" expansion - see routers/me.py), so without this
+        # dev-admin gets schools: [] on a fresh DB and the dashboard's school
+        # picker never renders (nothing to admin-query against).
+        user = upsert_user_by_sub(
+            db,
+            sub,
+            username=sub,
+            is_admin=True,
+            school_ids=[s.id for s in list_schools(db)],
+        )
     elif payload.role == "wrc":
         sub = "dev-wrc"
         user = upsert_user_by_sub(db, sub, username=sub, is_wrc=True)

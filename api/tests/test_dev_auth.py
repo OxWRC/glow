@@ -13,7 +13,7 @@ import textwrap
 
 
 class TestDevLogin:
-    def test_admin_role_logs_in_as_admin(self, auth_client):
+    def test_admin_role_logs_in_as_admin(self, auth_client, sample_schools):
         resp = auth_client.post("/auth/dev-login", json={"role": "admin"})
         assert resp.status_code == 200
         token = resp.json()["access_token"]
@@ -24,6 +24,13 @@ class TestDevLogin:
         assert body["username"] == "dev-admin"
         assert body["is_admin"] is True
         assert body["is_wrc"] is False
+        # /me returns exactly a user's assigned schools, no implicit
+        # admin-sees-everything expansion - dev-admin must be assigned every
+        # currently-seeded school itself, or the dashboard's school picker
+        # has nothing to render for it (see dev_auth.py's admin branch).
+        assert {s["id"] for s in body["schools"]} == {
+            school.id for school in sample_schools.values()
+        }
 
     def test_wrc_role_logs_in_as_wrc(self, auth_client):
         resp = auth_client.post("/auth/dev-login", json={"role": "wrc"})
