@@ -205,6 +205,7 @@ def test_me_authenticated(auth_client, sample_schools):
     data = response.json()
 
     assert data["kind"] == "authenticated"
+    assert data["username"] == f"dev-school-{school.id}"
     assert data["is_admin"] is False
     assert len(data["schools"]) == 1
     assert data["schools"][0]["id"] == school.id
@@ -223,6 +224,7 @@ def test_me_authenticated_admin(auth_client, sample_schools):
     data = response.json()
 
     assert data["kind"] == "authenticated"
+    assert data["username"] == "dev-admin"
     assert data["is_admin"] is True
     assert len(data["schools"]) == 2
     school_names = {s["name"] for s in data["schools"]}

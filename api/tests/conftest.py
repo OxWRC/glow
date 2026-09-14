@@ -359,8 +359,17 @@ def wrc_client(db_session, wrc_user, sample_schools, sample_df):
 
 @pytest.fixture(scope="function")
 def login_as_user(auth_client, db_session):
-    """Helper to mint a JWT for a specific user via the real /auth/dev-login
-    + verifier path (no password grant exists anymore - see Task 2/4)."""
+    """Helper to mint a JWT for a role-equivalent dev-login identity, via the
+    real /auth/dev-login + verifier path (no password grant exists anymore -
+    see Task 2/4).
+
+    NOTE: dev-login always logs in as one of its own fixed identities
+    (dev-admin / dev-wrc / dev-school-<id>) - see routers/dev_auth.py - so
+    the returned token's `sub`/username will NOT match `username` unless it
+    happens to already be one of those. This mints a token for a user with
+    the *same role and school scope* as `username`, not literally `username`
+    itself; assert on role/scope, not identity, when using it.
+    """
 
     def _login(username: str) -> str:
         from glow_api.database import get_user_by_username
@@ -373,9 +382,16 @@ def login_as_user(auth_client, db_session):
             payload = {"role": "admin"}
         elif user.is_wrc:
             payload = {"role": "wrc"}
+        elif user.schools:
+            payload = {"role": "school", "school_id": user.schools[0].id}
         else:
-            school_id = user.schools[0].id if user.schools else None
-            payload = {"role": "school", "school_id": school_id}
+            # dev-login's "school" role silently defaults an omitted
+            # school_id to the first seeded school - that would grant a
+            # scope this user doesn't actually have, so refuse instead.
+            raise ValueError(
+                f"User {username} has no schools and is not admin/wrc - "
+                "cannot map to a dev-login role"
+            )
 
         response = auth_client.post("/auth/dev-login", json=payload)
         if response.status_code != 200:
