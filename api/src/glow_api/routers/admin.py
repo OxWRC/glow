@@ -120,6 +120,11 @@ def update_existing_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
+    if user.is_wrc and payload.school_ids is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot assign schools to a WRC user",
+        )
 
     updated = update_user(
         db,

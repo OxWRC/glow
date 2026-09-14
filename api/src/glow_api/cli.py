@@ -109,7 +109,16 @@ def users_list() -> None:
 @click.option(
     "--admin", "is_admin", is_flag=True, default=False, help="Grant admin privileges."
 )
-def users_create(username: str, password: str, schools: str, is_admin: bool) -> None:
+@click.option(
+    "--wrc",
+    "is_wrc",
+    is_flag=True,
+    default=False,
+    help="Grant WRC privileges (clears any schools).",
+)
+def users_create(
+    username: str, password: str, schools: str, is_admin: bool, is_wrc: bool
+) -> None:
     """Create a new user."""
     with SessionLocal() as db:
         existing = get_user_by_username(db, username)
@@ -136,16 +145,19 @@ def users_create(username: str, password: str, schools: str, is_admin: bool) -> 
             username=username,
             school_ids=school_ids,
             is_admin=is_admin,
+            is_wrc=is_wrc,
         )
         # Eagerly load school names before session closes
         school_names = [s.name for s in user.schools]
         user_id = user.id
         user_username = user.username
         user_is_admin = user.is_admin
+        user_is_wrc = user.is_wrc
 
     admin_flag = " [ADMIN]" if user_is_admin else ""
+    wrc_flag = " [WRC]" if user_is_wrc else ""
     click.echo(
-        f"User '{user_username}' created (id={user_id}){admin_flag}. Schools: {school_names}"
+        f"User '{user_username}' created (id={user_id}){admin_flag}{wrc_flag}. Schools: {school_names}"
     )
 
 
@@ -164,16 +176,24 @@ def users_create(username: str, password: str, schools: str, is_admin: bool) -> 
     default=None,
     help="Set user active or inactive.",
 )
+@click.option(
+    "--wrc/--no-wrc",
+    "is_wrc",
+    default=None,
+    help="Grant or revoke WRC privileges (clears schools when granted).",
+)
 def users_update(
     username: str,
     password: str | None,
     schools: str | None,
     active: bool | None,
+    is_wrc: bool | None,
 ) -> None:
-    """Update a user's password, schools, or active status."""
-    if password is None and schools is None and active is None:
+    """Update a user's password, schools, active status, or WRC flag."""
+    if password is None and schools is None and active is None and is_wrc is None:
         click.echo(
-            "Nothing to update. Provide --password, --schools, or --active/--inactive."
+            "Nothing to update. Provide --password, --schools, --active/--inactive, "
+            "or --wrc/--no-wrc."
         )
         return
 
@@ -197,7 +217,7 @@ def users_update(
         if user is None:
             click.echo(f"User '{username}' not found.", err=True)
             sys.exit(1)
-        update_user(db, user, school_ids=school_ids, is_active=active)
+        update_user(db, user, school_ids=school_ids, is_active=active, is_wrc=is_wrc)
 
     click.echo(f"User '{username}' updated.")
 

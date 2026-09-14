@@ -183,6 +183,19 @@ def test_admin_delete_user(admin_client, sample_schools):
     assert "analyst" not in usernames
 
 
+def test_admin_update_user_rejects_schools_for_wrc_user(admin_client, db_session, sample_schools):
+    from glow_api import database
+
+    alpha_id = sample_schools["Focus School Academy"].id
+    wrc_user = database.create_user(db_session, username="wrcuser", is_wrc=True)
+
+    response = admin_client.put(
+        f"/admin/users/{wrc_user.id}",
+        json={"school_ids": [alpha_id]},
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 def test_admin_me_endpoint(admin_client):
     response = admin_client.get("/admin/me")
     assert response.status_code == status.HTTP_200_OK
@@ -646,3 +659,20 @@ def test_query_get_school_scope_no_data_loaded(auth_client_empty_data, sample_sc
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == status.HTTP_200_OK
+
+
+# ---------------------------------------------------------------------------
+# /wrc Router Tests
+# ---------------------------------------------------------------------------
+
+
+def test_wrc_ping_requires_wrc_flag(client):
+    """A non-WRC authenticated user is refused."""
+    response = client.get("/wrc/ping")
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_wrc_ping_allows_wrc_user(wrc_client):
+    response = wrc_client.get("/wrc/ping")
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"status": "ok"}

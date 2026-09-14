@@ -113,12 +113,18 @@ def create_user(
     username: str,
     is_active: bool = True,
     is_admin: bool = False,
+    is_wrc: bool = False,
     school_ids: list[int] | None = None,
 ) -> User:
+    if is_wrc:
+        # WRC users never have direct school access, regardless of what
+        # was passed for schools.
+        school_ids = []
     user = User(
         username=username,
         is_active=is_active,
         is_admin=is_admin,
+        is_wrc=is_wrc,
     )
     if school_ids:
         schools = db.query(School).filter(School.id.in_(school_ids)).all()
@@ -134,13 +140,20 @@ def update_user(
     user: User,
     is_active: bool | None = None,
     is_admin: bool | None = None,
+    is_wrc: bool | None = None,
     school_ids: list[int] | None = None,
 ) -> User:
     if is_active is not None:
         user.is_active = is_active
     if is_admin is not None:
         user.is_admin = is_admin
+    if is_wrc is not None:
+        user.is_wrc = is_wrc
     if school_ids is not None:
+        if user.is_wrc:
+            # WRC users never have direct school access, regardless of
+            # what was passed for schools.
+            school_ids = []
         schools = db.query(School).filter(School.id.in_(school_ids)).all()
         user.schools = schools
     db.commit()

@@ -59,6 +59,55 @@ def test_users_create_and_list(monkeypatch, db_engine, sample_schools):
     assert "alice" in list_result.output
 
 
+def test_users_create_wrc_clears_schools(monkeypatch, db_engine, sample_schools):
+    Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
+    monkeypatch.setattr(cli_module, "SessionLocal", Session)
+
+    runner = CliRunner()
+    create_result = runner.invoke(
+        cli_module.cli,
+        [
+            "users",
+            "create",
+            "wrcalice",
+            "--password",
+            "secret-pass",
+            "--schools",
+            "Focus School Academy",
+            "--wrc",
+        ],
+    )
+
+    assert create_result.exit_code == 0
+    assert "[WRC]" in create_result.output
+
+    with Session() as session:
+        user = session.query(User).filter_by(username="wrcalice").one()
+        assert user.is_wrc is True
+        assert user.schools == []
+
+
+def test_users_update_wrc_flag(monkeypatch, db_engine, sample_schools):
+    Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
+    monkeypatch.setattr(cli_module, "SessionLocal", Session)
+
+    runner = CliRunner()
+    runner.invoke(
+        cli_module.cli,
+        ["users", "create", "bob", "--password", "secret-pass"],
+    )
+
+    update_result = runner.invoke(
+        cli_module.cli,
+        ["users", "update", "bob", "--wrc"],
+    )
+    assert update_result.exit_code == 0
+
+    with Session() as session:
+        user = session.query(User).filter_by(username="bob").one()
+        assert user.is_wrc is True
+
+
 def test_users_delete(monkeypatch, db_engine, sample_schools):
     Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
     monkeypatch.setattr(cli_module, "SessionLocal", Session)
