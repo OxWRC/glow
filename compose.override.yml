@@ -16,6 +16,9 @@ services:
       GLOW_ODK_API_EMAIL: api@glow.local
       GLOW_ODK_API_PASSWORD: devpassword
       GLOW_ODK_VERIFY_SSL: "false"
+      # Dev-only: mints local tokens via /auth/dev-login instead of requiring
+      # a real Cognito pool for local dev/demo.
+      GLOW_DEV_AUTH_BYPASS: "true"
 
   glow-init:
     extends:

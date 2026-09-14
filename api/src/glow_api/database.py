@@ -108,6 +108,48 @@ def get_user_by_id(db: Session, user_id: int) -> User | None:
     return db.query(User).filter(User.id == user_id).first()
 
 
+def upsert_user_by_sub(
+    db: Session,
+    cognito_sub: str,
+    username: str | None = None,
+    is_admin: bool = False,
+    is_wrc: bool = False,
+    school_ids: list[int] | None = None,
+) -> User:
+    """Find or create the local User row for a given Cognito `sub`, syncing
+    is_admin/is_wrc/school_ids to the given values on every call.
+
+    Used by the dev-bypass login (Task 4) and by real-Cognito bootstrap
+    (Task 5) to link a local row to an identity that only exists as a token
+    claim - `get_user_by_sub` then finds a real row for the rest of the auth
+    stack. `username` defaults to `cognito_sub` when creating a new row (only
+    used then; an existing row's username is left alone here - that's
+    `sync_user_claims`'s job).
+    """
+    if is_wrc:
+        # WRC users never have direct school access, regardless of what was
+        # passed for schools (mirrors create_user/update_user).
+        school_ids = []
+    user = get_user_by_sub(db, cognito_sub)
+    if user is None:
+        user = User(
+            username=username or cognito_sub,
+            cognito_sub=cognito_sub,
+            is_admin=is_admin,
+            is_wrc=is_wrc,
+        )
+        db.add(user)
+    else:
+        user.is_admin = is_admin
+        user.is_wrc = is_wrc
+    if school_ids is not None:
+        schools = db.query(School).filter(School.id.in_(school_ids)).all()
+        user.schools = schools
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def create_user(
     db: Session,
     username: str,

@@ -88,6 +88,14 @@ app.include_router(schools.router)
 app.include_router(query.router)
 app.include_router(wrc.router)
 
+if settings.DEV_AUTH_BYPASS:
+    # Only mounted in dev-bypass mode - kept out of the route table entirely
+    # (not just guarded at request time) when it's off, so /auth/dev-login
+    # 404s rather than existing as a disabled handler.
+    from glow_api.routers import dev_auth
+
+    app.include_router(dev_auth.router)
+
 
 @app.get("/health", tags=["health"])
 def health() -> dict:
