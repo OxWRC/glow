@@ -224,9 +224,7 @@ def users_create(
     if not bootstrap and password is not None:
         click.echo("--password only applies with --bootstrap; ignoring.", err=True)
     if bootstrap and password is None:
-        password = click.prompt(
-            "Password", hide_input=True, confirmation_prompt=True
-        )
+        password = click.prompt("Password", hide_input=True, confirmation_prompt=True)
 
     with SessionLocal() as db:
         # Parse school names and get IDs

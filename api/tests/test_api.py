@@ -84,6 +84,22 @@ def test_admin_list_users(admin_client):
     assert users[0]["is_admin"] is True
 
 
+def test_admin_list_users_reports_is_wrc_and_email(admin_client, wrc_user, db_session):
+    wrc_user.email = "wrc@example.com"
+    db_session.commit()
+
+    response = admin_client.get("/admin/users")
+    assert response.status_code == status.HTTP_200_OK
+    users = response.json()
+
+    admin_row = next(u for u in users if u["username"] == "adminuser")
+    assert admin_row["is_wrc"] is False
+
+    wrc_row = next(u for u in users if u["username"] == "wrcuser")
+    assert wrc_row["is_wrc"] is True
+    assert wrc_row["email"] == "wrc@example.com"
+
+
 def test_admin_create_user(admin_client, sample_schools):
     # Get school ID for Focus School Academy
     alpha_id = sample_schools["Focus School Academy"].id

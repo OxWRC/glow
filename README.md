@@ -133,7 +133,9 @@ glow-api users create alice
 glow-api users create --admin bob
 
 # Bootstrap the first admin against a real Cognito pool (provisions the user
-# in Cognito too; requires GLOW_COGNITO_USER_POOL_ID to be configured)
+# in Cognito too; requires GLOW_COGNITO_USER_POOL_ID to be configured).
+# --password is optional with --bootstrap: omit it and you're prompted
+# interactively instead of putting a password on the command line.
 glow-api users create carol --bootstrap --admin --password 'TempPass123!'
 
 # Update a user
