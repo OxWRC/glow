@@ -105,6 +105,31 @@ EOF
   chmod 600 "${RUNTIME_ENV}"
 }
 
+sync_cognito_env() {
+  # Unlike generate_runtime_env(), this runs on every activation (fresh
+  # deploy or update): the Cognito values come from Terraform outputs, not
+  # generated secrets, so refreshing them here carries none of the
+  # credential-rotation risk that keeps generate_runtime_env() guarded to a
+  # one-time run. Dedupe-and-append keeps this idempotent without touching
+  # any other line (in particular, the generated secrets) already in
+  # RUNTIME_ENV.
+  step "Syncing Cognito config into runtime environment"
+  local tmp
+  tmp="$(mktemp)"
+  grep -vE '^(GLOW_COGNITO_USER_POOL_ID|GLOW_COGNITO_CLIENT_ID|GLOW_COGNITO_REGION|PUBLIC_COGNITO_CLIENT_ID|PUBLIC_COGNITO_DOMAIN|PUBLIC_COGNITO_REGION)=' \
+    "${RUNTIME_ENV}" > "${tmp}" || true
+  cat >> "${tmp}" <<EOF
+GLOW_COGNITO_USER_POOL_ID=${GLOW_COGNITO_USER_POOL_ID:-}
+GLOW_COGNITO_CLIENT_ID=${GLOW_COGNITO_CLIENT_ID:-}
+GLOW_COGNITO_REGION=${GLOW_COGNITO_REGION:-}
+PUBLIC_COGNITO_CLIENT_ID=${GLOW_COGNITO_CLIENT_ID:-}
+PUBLIC_COGNITO_DOMAIN=${GLOW_COGNITO_DOMAIN:-}
+PUBLIC_COGNITO_REGION=${GLOW_COGNITO_REGION:-}
+EOF
+  install -m 0600 "${tmp}" "${RUNTIME_ENV}"
+  rm -f "${tmp}"
+}
+
 compose() {
   docker compose --profile odk --env-file "${RUNTIME_ENV}" -f "$WORK_DIR/compose.yml" "$@"
 }
@@ -246,6 +271,7 @@ main() {
   step "Starting Glow stack activation"
   prepare_data_layout
   generate_runtime_env
+  sync_cognito_env
   compute_app_version
   start_stack
   wait_for_odk

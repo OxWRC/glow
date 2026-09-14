@@ -1417,6 +1417,10 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
     monkeypatch.setattr(
         core,
         "run_command",
+        # Deliberately no cognito_* outputs here: exercises update()'s
+        # outputs.get(..., "") fallback for a deployment whose state
+        # predates Task 6's Cognito outputs (a bare outputs[...] would
+        # raise KeyError instead).
         lambda args, check=True, cwd=None, env=None: SimpleNamespace(
             stdout='{"runner_instance_id": {"value": "i-1234567890"}}'
         ),
@@ -1485,6 +1489,10 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
                 "GIT_REPO_URL": "https://example.com/glow.git",
                 "GIT_REF": "main",
                 "GIT_COMMIT": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                "GLOW_COGNITO_USER_POOL_ID": "",
+                "GLOW_COGNITO_CLIENT_ID": "",
+                "GLOW_COGNITO_REGION": "",
+                "GLOW_COGNITO_DOMAIN": "",
             },
         ),
         ("verify", "i-1234567890"),
@@ -1600,6 +1608,10 @@ def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
         lambda config, ami_id: {
             "runner_instance_id": "i-1234567890",
             "alb_dns_name": "alb.example.com",
+            "cognito_user_pool_id": "eu-west-2_abc123",
+            "cognito_client_id": "client-abc123",
+            "cognito_region": "eu-west-2",
+            "cognito_hosted_ui_domain": "example.auth.eu-west-2.amazoncognito.com",
         },
     )
     monkeypatch.setattr(
@@ -1654,6 +1666,10 @@ def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
                 "GIT_REPO_URL": "https://example.com/glow.git",
                 "GIT_REF": "main",
                 "GIT_COMMIT": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                "GLOW_COGNITO_USER_POOL_ID": "eu-west-2_abc123",
+                "GLOW_COGNITO_CLIENT_ID": "client-abc123",
+                "GLOW_COGNITO_REGION": "eu-west-2",
+                "GLOW_COGNITO_DOMAIN": "example.auth.eu-west-2.amazoncognito.com",
             },
         ),
         ("verify", "i-1234567890"),

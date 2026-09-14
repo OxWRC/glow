@@ -1321,6 +1321,10 @@ def provision(config: Config) -> dict[str, Any] | None:
             "GIT_REPO_URL": config.git_repo_url,
             "GIT_REF": config.git_ref,
             "GIT_COMMIT": config.git_commit,
+            "GLOW_COGNITO_USER_POOL_ID": outputs.get("cognito_user_pool_id", ""),
+            "GLOW_COGNITO_CLIENT_ID": outputs.get("cognito_client_id", ""),
+            "GLOW_COGNITO_REGION": outputs.get("cognito_region", ""),
+            "GLOW_COGNITO_DOMAIN": outputs.get("cognito_hosted_ui_domain", ""),
         },
         config.session,
     )
@@ -1391,6 +1395,10 @@ def update(config: Config) -> None:
             "GIT_REPO_URL": config.git_repo_url,
             "GIT_REF": config.git_ref,
             "GIT_COMMIT": config.git_commit,
+            "GLOW_COGNITO_USER_POOL_ID": outputs.get("cognito_user_pool_id", ""),
+            "GLOW_COGNITO_CLIENT_ID": outputs.get("cognito_client_id", ""),
+            "GLOW_COGNITO_REGION": outputs.get("cognito_region", ""),
+            "GLOW_COGNITO_DOMAIN": outputs.get("cognito_hosted_ui_domain", ""),
         },
         config.session,
     )

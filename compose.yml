@@ -95,6 +95,13 @@ services:
     environment:
       NODE_ENV: production
       PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
+      # Passthrough only - no `:-` default, same reasoning as the api
+      # service's GLOW_COGNITO_* vars above: there is no working default
+      # Cognito client/domain, so an empty-string default would just
+      # silently swallow Compose's own "variable is not set" warning.
+      PUBLIC_COGNITO_CLIENT_ID: ${PUBLIC_COGNITO_CLIENT_ID}
+      PUBLIC_COGNITO_DOMAIN: ${PUBLIC_COGNITO_DOMAIN}
+      PUBLIC_COGNITO_REGION: ${PUBLIC_COGNITO_REGION}
     depends_on:
       api:
         condition: service_healthy
