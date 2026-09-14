@@ -108,6 +108,45 @@ def test_users_update_wrc_flag(monkeypatch, db_engine, sample_schools):
         assert user.is_wrc is True
 
 
+def test_users_update_wrc_flag_clears_existing_schools_without_schools_flag(
+    monkeypatch, db_engine, sample_schools
+):
+    """`users update USERNAME --wrc` with no `--schools` must still clear any
+    schools the user already had (regression: the core enforcement guard
+    used to only fire when --schools was also passed in the same call)."""
+    Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
+    monkeypatch.setattr(cli_module, "SessionLocal", Session)
+
+    runner = CliRunner()
+    runner.invoke(
+        cli_module.cli,
+        [
+            "users",
+            "create",
+            "carol",
+            "--password",
+            "secret-pass",
+            "--schools",
+            "Focus School Academy",
+        ],
+    )
+
+    with Session() as session:
+        user = session.query(User).filter_by(username="carol").one()
+        assert len(user.schools) == 1
+
+    update_result = runner.invoke(
+        cli_module.cli,
+        ["users", "update", "carol", "--wrc"],
+    )
+    assert update_result.exit_code == 0
+
+    with Session() as session:
+        user = session.query(User).filter_by(username="carol").one()
+        assert user.is_wrc is True
+        assert user.schools == []
+
+
 def test_users_delete(monkeypatch, db_engine, sample_schools):
     Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
     monkeypatch.setattr(cli_module, "SessionLocal", Session)

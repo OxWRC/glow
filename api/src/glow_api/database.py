@@ -149,11 +149,12 @@ def update_user(
         user.is_admin = is_admin
     if is_wrc is not None:
         user.is_wrc = is_wrc
+    if user.is_wrc:
+        # WRC users never have direct school access, regardless of what
+        # was passed for schools (including nothing at all - flipping
+        # is_wrc=True must clear any schools the user already had).
+        school_ids = []
     if school_ids is not None:
-        if user.is_wrc:
-            # WRC users never have direct school access, regardless of
-            # what was passed for schools.
-            school_ids = []
         schools = db.query(School).filter(School.id.in_(school_ids)).all()
         user.schools = schools
     db.commit()

@@ -73,6 +73,21 @@ def test_update_user_already_wrc_rejects_new_schools(db_session):
     assert updated.schools == []
 
 
+def test_update_user_flip_to_wrc_clears_existing_schools_no_school_ids_arg(db_session):
+    """Promoting an existing user to is_wrc=True must clear their schools
+    even when the update call doesn't touch school_ids at all - e.g. `users
+    update USERNAME --wrc` with no `--schools`."""
+    school = database.create_school(db_session, name="Some School")
+    user = database.create_user(
+        db_session, username="plainuser", school_ids=[school.id]
+    )
+    assert user.schools != []
+
+    updated = database.update_user(db_session, user, is_wrc=True)
+    assert updated.is_wrc is True
+    assert updated.schools == []
+
+
 def test_create_metadata_engine_uses_sqlite_thread_check(monkeypatch):
     captured = {}
 
