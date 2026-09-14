@@ -93,12 +93,26 @@ class Settings(BaseSettings):
             )
 
     def validate_auth_config(self) -> None:
-        """Raise if the dev auth bypass and real Cognito verification are both configured."""
+        """Raise if the auth configuration is ambiguous or incomplete.
+
+        Two things must hold:
+        - DEV_AUTH_BYPASS and a Cognito pool are never both configured.
+        - A configured Cognito pool always comes with the client id and
+          region PyJWT needs to actually verify `aud`/build the JWKS URL -
+          without them, verification would silently degrade (no audience
+          check, or a garbage issuer/JWKS URL).
+        """
         if self.DEV_AUTH_BYPASS and self.COGNITO_USER_POOL_ID:
             raise RuntimeError(
                 "GLOW_DEV_AUTH_BYPASS is enabled but GLOW_COGNITO_USER_POOL_ID is also "
                 "set. Use Cognito verification in any environment with real user data; "
                 "enable the dev bypass only when no Cognito pool is configured."
+            )
+        if self.COGNITO_USER_POOL_ID and not (self.COGNITO_CLIENT_ID and self.COGNITO_REGION):
+            raise RuntimeError(
+                "GLOW_COGNITO_USER_POOL_ID is set but GLOW_COGNITO_CLIENT_ID and/or "
+                "GLOW_COGNITO_REGION are not. Both are required to verify Cognito "
+                "tokens (audience check, JWKS endpoint URL)."
             )
 
 

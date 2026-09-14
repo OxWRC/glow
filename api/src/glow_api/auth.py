@@ -29,7 +29,7 @@ DEV_ISSUER = "glow-dev"
 class _CognitoVerifier:
     """Verifies RS256 tokens issued by an AWS Cognito user pool via its JWKS endpoint."""
 
-    def __init__(self, user_pool_id: str, client_id: str | None, region: str):
+    def __init__(self, user_pool_id: str, client_id: str, region: str):
         self._issuer = f"https://cognito-idp.{region}.amazonaws.com/{user_pool_id}"
         self._client_id = client_id
         self._jwks_client = jwt.PyJWKClient(f"{self._issuer}/.well-known/jwks.json")
@@ -58,11 +58,19 @@ class _DevVerifier:
 
 
 def _build_verifier() -> _CognitoVerifier | _DevVerifier:
+    # Fail closed, not open: refuse to pick a verifier at all if the config
+    # is ambiguous or incomplete (see validate_auth_config's docstring).
+    settings.validate_auth_config()
     if settings.COGNITO_USER_POOL_ID:
         return _CognitoVerifier(
             settings.COGNITO_USER_POOL_ID,
             settings.COGNITO_CLIENT_ID,
             settings.COGNITO_REGION,
+        )
+    if not settings.DEV_AUTH_BYPASS:
+        raise RuntimeError(
+            "No Cognito pool configured (GLOW_COGNITO_USER_POOL_ID) and "
+            "GLOW_DEV_AUTH_BYPASS is off - refusing to start with dev-mode auth."
         )
     return _DevVerifier()
 
