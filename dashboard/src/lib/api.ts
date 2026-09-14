@@ -175,13 +175,11 @@ export interface User {
 
 export interface UserCreate {
   username: string;
-  password: string;
   school_ids: number[];
   is_admin?: boolean;
 }
 
 export interface UserUpdate {
-  password?: string;
   school_ids?: number[];
   is_active?: boolean;
   is_admin?: boolean;

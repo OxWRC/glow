@@ -61,6 +61,8 @@ def list_all_users(
                 school_names=[s.name for s in u.schools],
                 is_active=u.is_active,
                 is_admin=u.is_admin,
+                is_wrc=u.is_wrc,
+                email=u.email,
             )
         )
     return result
@@ -105,6 +107,8 @@ def create_new_user(
         school_names=[s.name for s in user.schools],
         is_active=user.is_active,
         is_admin=user.is_admin,
+        is_wrc=user.is_wrc,
+        email=user.email,
     )
 
 
@@ -148,6 +152,8 @@ def update_existing_user(
         school_names=[s.name for s in updated.schools],
         is_active=updated.is_active,
         is_admin=updated.is_admin,
+        is_wrc=updated.is_wrc,
+        email=updated.email,
     )
 
 

@@ -19,7 +19,6 @@ class TokenData(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
-    password: str
     school_ids: list[int] = Field(default_factory=list)
     is_admin: bool = False
 
@@ -37,7 +36,6 @@ class UserRead(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    password: Optional[str] = None
     school_ids: Optional[list[int]] = None
     is_active: Optional[bool] = None
     is_admin: Optional[bool] = None

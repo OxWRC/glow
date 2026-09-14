@@ -90,7 +90,6 @@ def test_admin_create_user(admin_client, sample_schools):
 
     payload = {
         "username": "analyst",
-        "password": "analyst-pass",
         "school_ids": [alpha_id],
         "is_admin": False,
     }
@@ -111,7 +110,6 @@ def test_admin_update_user(admin_client, sample_schools):
         "/admin/users",
         json={
             "username": "analyst",
-            "password": "analyst-pass",
             "school_ids": [alpha_id],
             "is_admin": False,
         },
@@ -141,7 +139,6 @@ def test_admin_delete_user(admin_client, sample_schools):
         "/admin/users",
         json={
             "username": "analyst",
-            "password": "analyst-pass",
             "school_ids": [alpha_id],
             "is_admin": False,
         },

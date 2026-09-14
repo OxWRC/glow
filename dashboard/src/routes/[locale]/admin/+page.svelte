@@ -51,7 +51,6 @@
   let editDialog: HTMLDialogElement | null = $state(null);
 
   let formUsername = $state('');
-  let formPassword = $state('');
   let formSchoolIds = $state<number[]>([]);
   let formIsActive = $state(true);
   let formIsAdmin = $state(false);
@@ -67,7 +66,6 @@
     modalMode = 'create';
     editingUser = null;
     formUsername = '';
-    formPassword = '';
     formSchoolIds = [];
     formIsActive = true;
     formIsAdmin = false;
@@ -79,7 +77,6 @@
     modalMode = 'edit';
     editingUser = user;
     formUsername = user.username;
-    formPassword = '';
     formSchoolIds = [...user.school_ids];
     formIsActive = user.is_active;
     formIsAdmin = user.is_admin;
@@ -108,20 +105,18 @@
     formLoading = true;
     try {
       if (modalMode === 'create') {
-        const payload: UserCreate = { 
-          username: formUsername, 
-          password: formPassword, 
+        const payload: UserCreate = {
+          username: formUsername,
           school_ids: formSchoolIds,
-          is_admin: formIsAdmin 
+          is_admin: formIsAdmin
         };
         await createUser($authStore.token!, payload);
       } else if (modalMode === 'edit' && editingUser) {
-        const payload: UserUpdate = { 
+        const payload: UserUpdate = {
           school_ids: formSchoolIds,
-          is_active: formIsActive, 
-          is_admin: formIsAdmin 
+          is_active: formIsActive,
+          is_admin: formIsAdmin
         };
-        if (formPassword) payload.password = formPassword;
         await updateUser($authStore.token!, editingUser.id, payload);
       }
       closeModal();
@@ -253,20 +248,6 @@
           bind:value={formUsername}
           disabled={modalMode === 'edit'}
           placeholder="username"
-        />
-      </div>
-
-      <div>
-        <label class="label" for="f-password">
-          {i18n.t('admin.password')} {modalMode === 'edit' ? i18n.t('admin.passwordOptional') : ''}
-        </label>
-        <input
-          id="f-password"
-          type="password"
-          class="input"
-          bind:value={formPassword}
-          placeholder={modalMode === 'edit' ? i18n.t('admin.newPasswordOptional') : i18n.t('admin.password')}
-          autocomplete="new-password"
         />
       </div>
 

@@ -60,7 +60,9 @@
 
   onMount(() => {
     if (!DEV_AUTH_BYPASS) {
-      redirectToCognito();
+      redirectToCognito().catch((e: unknown) => {
+        error = e instanceof Error ? e.message : i18n.t('login.loginFailed');
+      });
     }
   });
 

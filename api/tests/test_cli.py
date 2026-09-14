@@ -37,8 +37,6 @@ def test_users_create_and_list(monkeypatch, db_engine, sample_schools):
             "users",
             "create",
             "alice",
-            "--password",
-            "secret-pass",
             "--schools",
             "Focus School Academy",
             "--admin",
@@ -70,8 +68,6 @@ def test_users_create_wrc_clears_schools(monkeypatch, db_engine, sample_schools)
             "users",
             "create",
             "wrcalice",
-            "--password",
-            "secret-pass",
             "--schools",
             "Focus School Academy",
             "--wrc",
@@ -94,7 +90,7 @@ def test_users_update_wrc_flag(monkeypatch, db_engine, sample_schools):
     runner = CliRunner()
     runner.invoke(
         cli_module.cli,
-        ["users", "create", "bob", "--password", "secret-pass"],
+        ["users", "create", "bob"],
     )
 
     update_result = runner.invoke(
@@ -124,8 +120,6 @@ def test_users_update_wrc_flag_clears_existing_schools_without_schools_flag(
             "users",
             "create",
             "carol",
-            "--password",
-            "secret-pass",
             "--schools",
             "Focus School Academy",
         ],
@@ -154,7 +148,7 @@ def test_users_delete(monkeypatch, db_engine, sample_schools):
     runner = CliRunner()
     runner.invoke(
         cli_module.cli,
-        ["users", "create", "alice", "--password", "secret-pass"],
+        ["users", "create", "alice"],
     )
 
     delete_result = runner.invoke(

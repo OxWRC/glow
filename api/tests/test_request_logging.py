@@ -157,7 +157,6 @@ class TestAdminMutationAuditEvents:
                 "/admin/users",
                 json={
                     "username": "brandnewuser",
-                    "password": "s3cret-pass",
                     "school_ids": [],
                     "is_admin": False,
                 },

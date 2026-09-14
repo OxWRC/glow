@@ -156,7 +156,15 @@ def _bootstrap_cognito_user(
 
 @users.command("create")
 @click.argument("username")
-@click.option("--password", prompt=True, hide_input=True, confirmation_prompt=True)
+@click.option(
+    "--password",
+    default=None,
+    help=(
+        "Cognito password to set for this user. Only used with --bootstrap "
+        "(ignored otherwise); prompted interactively if --bootstrap is given "
+        "without it."
+    ),
+)
 @click.option(
     "--schools",
     default="",
@@ -193,7 +201,7 @@ def _bootstrap_cognito_user(
 )
 def users_create(
     username: str,
-    password: str,
+    password: str | None,
     schools: str,
     is_admin: bool,
     is_wrc: bool,
@@ -212,6 +220,13 @@ def users_create(
             err=True,
         )
         sys.exit(1)
+
+    if not bootstrap and password is not None:
+        click.echo("--password only applies with --bootstrap; ignoring.", err=True)
+    if bootstrap and password is None:
+        password = click.prompt(
+            "Password", hide_input=True, confirmation_prompt=True
+        )
 
     with SessionLocal() as db:
         # Parse school names and get IDs
@@ -268,9 +283,6 @@ def users_create(
 @users.command("update")
 @click.argument("username")
 @click.option(
-    "--password", default=None, help="New password (will prompt if not provided)."
-)
-@click.option(
     "--schools",
     default=None,
     help='Comma-separated school names to replace existing schools, e.g. "Focus School Academy,Neighbouring School"',
@@ -288,15 +300,14 @@ def users_create(
 )
 def users_update(
     username: str,
-    password: str | None,
     schools: str | None,
     active: bool | None,
     is_wrc: bool | None,
 ) -> None:
-    """Update a user's password, schools, active status, or WRC flag."""
-    if password is None and schools is None and active is None and is_wrc is None:
+    """Update a user's schools, active status, or WRC flag."""
+    if schools is None and active is None and is_wrc is None:
         click.echo(
-            "Nothing to update. Provide --password, --schools, --active/--inactive, "
+            "Nothing to update. Provide --schools, --active/--inactive, "
             "or --wrc/--no-wrc."
         )
         return

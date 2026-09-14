@@ -27,9 +27,9 @@ For the most consistent development experience:
 3. Click "Reopen in Container" when prompted (or use Command Palette → "Dev Containers: Reopen in Container")
 4. Wait for the devcontainer to build and app services to start
 5. Generate and seed test data (see [Data Collection & Format](#data-collection--format) section below)
-6. Create users:
+6. Log in: local dev has `GLOW_DEV_AUTH_BYPASS` on by default (`compose.override.yml`), so the dashboard's login page shows a role picker (Admin / WRC / School) — no user needs to be created manually. Against a real Cognito-backed deployment, the first admin is created with `--bootstrap` (see [Admin CLI](#admin-cli) below):
    ```bash
-   docker compose exec api glow-api users create --admin admin
+   docker compose exec api glow-api users create admin --bootstrap --admin --password 'TempPass123!'
    ```
 
 The dashboard will be available at <http://localhost:3000> and the API at <http://localhost:8000>.
@@ -57,8 +57,10 @@ docker compose --profile odk up --build
 # In a separate terminal: Generate and seed test data
 # (see "Data Collection & Format" section below for detailed steps)
 
-# Create the first admin user (in a separate terminal)
-docker compose exec api glow-api users create --admin admin
+# Local dev has GLOW_DEV_AUTH_BYPASS on by default, so sign in via the
+# dashboard's role picker — no user needs to be created manually. Against a
+# real Cognito-backed deployment, create the first admin with --bootstrap:
+docker compose exec api glow-api users create admin --bootstrap --admin --password 'TempPass123!'
 ```
 
 The dashboard will be available at <http://localhost:3000>.
@@ -101,7 +103,6 @@ This keeps ODK Central isolated from the dashboard while still allowing API-medi
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/health` | — | Health check |
-| `POST` | `/auth/login` | — | Login (returns JWT) |
 | `GET` | `/schools` | User | List schools with query options |
 | `POST` | `/query` | User | Execute query with blanket suppression |
 | `GET` | `/admin/users` | Admin | List users |
@@ -111,6 +112,10 @@ This keeps ODK Central isolated from the dashboard while still allowing API-medi
 | `GET` | `/admin/me` | User | Current user info |
 
 Interactive documentation is available at `/docs` (Swagger UI) and `/redoc`.
+
+### Authentication
+
+Sign-in is Cognito-backed: the dashboard redirects to the Cognito hosted UI, exchanges the returned code for a token, and calls `GET /me` with it. There is no password-grant endpoint. For local dev, set `GLOW_DEV_AUTH_BYPASS`/`PUBLIC_DEV_AUTH_BYPASS` (on by default via `compose.override.yml`) to skip Cognito and use `POST /auth/dev-login` with the dashboard's role picker instead. The first admin against a real Cognito pool is created with `glow-api users create <username> --bootstrap --admin` (see [Admin CLI](#admin-cli)).
 
 ### Admin CLI
 
@@ -126,6 +131,10 @@ glow-api users create alice
 
 # Create an admin user
 glow-api users create --admin bob
+
+# Bootstrap the first admin against a real Cognito pool (provisions the user
+# in Cognito too; requires GLOW_COGNITO_USER_POOL_ID to be configured)
+glow-api users create carol --bootstrap --admin --password 'TempPass123!'
 
 # Update a user
 glow-api users update alice --scope '{"filters": {"school": ["Greenwood"]}}'
