@@ -125,12 +125,22 @@ def upsert_user_by_sub(
     stack. `username` defaults to `cognito_sub` when creating a new row (only
     used then; an existing row's username is left alone here - that's
     `sync_user_claims`'s job).
+
+    If no row matches `cognito_sub` but one already exists with the given
+    `username` (necessarily with `cognito_sub` still NULL - e.g. a row made
+    by the pre-Cognito `create_user` path), that row is linked by attaching
+    `cognito_sub` to it rather than attempting to insert a second row and
+    hitting the `username` unique constraint.
     """
     if is_wrc:
         # WRC users never have direct school access, regardless of what was
         # passed for schools (mirrors create_user/update_user).
         school_ids = []
     user = get_user_by_sub(db, cognito_sub)
+    if user is None and username is not None:
+        user = get_user_by_username(db, username)
+        if user is not None:
+            user.cognito_sub = cognito_sub
     if user is None:
         user = User(
             username=username or cognito_sub,
