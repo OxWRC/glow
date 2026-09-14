@@ -198,12 +198,10 @@ def test_schools_sync_extracts_creates_and_grants_access(
         # Create an admin user first
         with Session() as session:
             from glow_api.database import create_user
-            from glow_api.auth import get_password_hash
 
             admin = create_user(
                 session,
                 username="admin",
-                hashed_password=get_password_hash("adminpass"),
                 is_admin=True,
             )
             assert len(admin.schools) == 0

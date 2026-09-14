@@ -359,22 +359,25 @@ def wrc_client(db_session, wrc_user, sample_schools, sample_df):
 
 @pytest.fixture(scope="function")
 def login_as_user(auth_client, db_session):
-    """Helper to login as a specific user and return JWT token."""
+    """Helper to mint a JWT for a specific user via the real /auth/dev-login
+    + verifier path (no password grant exists anymore - see Task 2/4)."""
 
     def _login(username: str) -> str:
-        # Get user from DB to check password
         from glow_api.database import get_user_by_username
 
         user = get_user_by_username(db_session, username)
         if not user:
             raise ValueError(f"User {username} not found")
 
-        # Login with known password (tests create users with hashed_password)
-        # For test users, we need to use the raw password "test_password"
-        response = auth_client.post(
-            "/token",
-            data={"username": username, "password": "test_password"},
-        )
+        if user.is_admin:
+            payload = {"role": "admin"}
+        elif user.is_wrc:
+            payload = {"role": "wrc"}
+        else:
+            school_id = user.schools[0].id if user.schools else None
+            payload = {"role": "school", "school_id": school_id}
+
+        response = auth_client.post("/auth/dev-login", json=payload)
         if response.status_code != 200:
             raise ValueError(f"Login failed for {username}: {response.json()}")
         return response.json()["access_token"]
@@ -384,9 +387,6 @@ def login_as_user(auth_client, db_session):
 
 @pytest.fixture(scope="function")
 def admin_token(auth_client, admin_user):
-    """Get JWT token for admin user."""
-    response = auth_client.post(
-        "/token",
-        data={"username": "adminuser", "password": "adminpass"},
-    )
+    """Get a JWT for an admin identity via /auth/dev-login."""
+    response = auth_client.post("/auth/dev-login", json={"role": "admin"})
     return response.json()["access_token"]

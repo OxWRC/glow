@@ -75,33 +75,6 @@ def test_health(client):
     assert "version" in data
 
 
-def test_login_valid(auth_client):
-    response = auth_client.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "testpass"},
-    )
-    assert response.status_code == status.HTTP_200_OK
-    data = response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
-
-
-def test_login_invalid_password(auth_client):
-    response = auth_client.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "wrongpass"},
-    )
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-def test_login_unknown_user(auth_client):
-    response = auth_client.post(
-        "/auth/login",
-        data={"username": "nobody", "password": "pass"},
-    )
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-
 def test_admin_list_users(admin_client):
     response = admin_client.get("/admin/users")
     assert response.status_code == status.HTTP_200_OK
@@ -217,12 +190,11 @@ def test_me_anonymous(auth_client):
     assert data["kind"] == "anonymous"
 
 
-def test_me_authenticated(auth_client, sample_user, sample_schools):
-    """GET /me with valid token should return authenticated response with schools."""
-    # First login to get a token
+def test_me_authenticated(auth_client, sample_schools):
+    """GET /me with a valid dev-login token should return authenticated response with schools."""
+    school = sample_schools["Focus School Academy"]
     login_response = auth_client.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "testpass"},
+        "/auth/dev-login", json={"role": "school", "school_id": school.id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
@@ -233,21 +205,15 @@ def test_me_authenticated(auth_client, sample_user, sample_schools):
     data = response.json()
 
     assert data["kind"] == "authenticated"
-    assert data["id"] == sample_user.id
-    assert data["username"] == sample_user.username
     assert data["is_admin"] is False
     assert len(data["schools"]) == 1
-    assert data["schools"][0]["id"] == sample_schools["Focus School Academy"].id
+    assert data["schools"][0]["id"] == school.id
     assert data["schools"][0]["name"] == "Focus School Academy"
 
 
-def test_me_authenticated_admin(auth_client, admin_user, sample_schools):
-    """GET /me with admin token should show all schools."""
-    # First login as admin to get a token
-    login_response = auth_client.post(
-        "/auth/login",
-        data={"username": "adminuser", "password": "adminpass"},
-    )
+def test_me_authenticated_admin(auth_client, sample_schools):
+    """GET /me with an admin dev-login token should show all schools."""
+    login_response = auth_client.post("/auth/dev-login", json={"role": "admin"})
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
 
@@ -395,15 +361,13 @@ def test_dimensions_exposes_namespaced_variable_metadata(
 
 def test_dimensions_school_scope_requires_auth(auth_client, sample_schools):
     """GET /dimensions?school_id=X should require authorization for that school."""
-    # First login to get a token
+    school_id = sample_schools["Focus School Academy"].id
     login_response = auth_client.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "testpass"},
+        "/auth/dev-login", json={"role": "school", "school_id": school_id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
 
-    school_id = sample_schools["Focus School Academy"].id
     response = auth_client.get(
         f"/dimensions?school_id={school_id}",
         headers={"Authorization": f"Bearer {token}"},
@@ -422,10 +386,10 @@ def test_dimensions_school_scope_requires_auth(auth_client, sample_schools):
 
 def test_dimensions_school_scope_unauthorized(auth_client, sample_schools):
     """GET /dimensions for unauthorized school should return 403."""
-    # Login as testuser who only has access to Focus School Academy
+    # Login as a user scoped only to Focus School Academy
     login_response = auth_client.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "testpass"},
+        "/auth/dev-login",
+        json={"role": "school", "school_id": sample_schools["Focus School Academy"].id},
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
@@ -453,14 +417,13 @@ def test_dimensions_school_scope_no_data_loaded(auth_client_empty_data, sample_s
     """GET /dimensions?school_id=X should return empty results, not 500, when the
     datastore hasn't loaded any submissions yet (e.g. ODK Central unreachable at
     startup) and the analytic frame has no "school" column."""
+    school_id = sample_schools["Focus School Academy"].id
     login_response = auth_client_empty_data.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "testpass"},
+        "/auth/dev-login", json={"role": "school", "school_id": school_id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
 
-    school_id = sample_schools["Focus School Academy"].id
     response = auth_client_empty_data.get(
         f"/dimensions?school_id={school_id}",
         headers={"Authorization": f"Bearer {token}"},
@@ -607,15 +570,13 @@ def test_query_get_omit_variables_means_all_variables(client):
 
 def test_query_get_school_scope_requires_auth(auth_client, sample_schools):
     """GET /query with school_id should require authorization."""
-    # Login first to get a token
+    school_id = sample_schools["Focus School Academy"].id
     login_response = auth_client.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "testpass"},
+        "/auth/dev-login", json={"role": "school", "school_id": school_id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
 
-    school_id = sample_schools["Focus School Academy"].id
     response = auth_client.get(
         f"/query?school_id={school_id}&v=bw_wbeing_1",
         headers={"Authorization": f"Bearer {token}"},
@@ -625,10 +586,10 @@ def test_query_get_school_scope_requires_auth(auth_client, sample_schools):
 
 def test_query_get_school_scope_unauthorized(auth_client, sample_schools):
     """GET /query for unauthorized school should return 403."""
-    # Login as testuser who only has access to Focus School Academy
+    # Login as a user scoped only to Focus School Academy
     login_response = auth_client.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "testpass"},
+        "/auth/dev-login",
+        json={"role": "school", "school_id": sample_schools["Focus School Academy"].id},
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
@@ -646,14 +607,13 @@ def test_query_get_school_scope_no_data_loaded(auth_client_empty_data, sample_sc
     """GET /query?school_id=X should return an empty result, not 500, when the
     datastore hasn't loaded any submissions yet and the analytic frame has no
     "school" column."""
+    school_id = sample_schools["Focus School Academy"].id
     login_response = auth_client_empty_data.post(
-        "/auth/login",
-        data={"username": "testuser", "password": "testpass"},
+        "/auth/dev-login", json={"role": "school", "school_id": school_id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
 
-    school_id = sample_schools["Focus School Academy"].id
     response = auth_client_empty_data.get(
         f"/query?school_id={school_id}&v=bw_wbeing_1",
         headers={"Authorization": f"Bearer {token}"},

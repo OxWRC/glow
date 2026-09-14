@@ -53,12 +53,12 @@ def _events(logs, event_name):
 
 class TestAuditTimeline:
     def test_school_scoped_query_logs_full_timeline(self, auth_client, sample_schools):
+        school_id = sample_schools["Focus School Academy"].id
         token_resp = auth_client.post(
-            "/token", data={"username": "testuser", "password": "testpass"}
+            "/auth/dev-login", json={"role": "school", "school_id": school_id}
         )
         assert token_resp.status_code == 200
         token = token_resp.json()["access_token"]
-        school_id = sample_schools["Focus School Academy"].id
 
         with capture_logs() as logs:
             resp = auth_client.get(
@@ -148,29 +148,6 @@ class TestAuditFileSink:
         payload = json.loads(lines[0])
         assert payload["path"] == "/query/"
         assert payload["audit"] is True
-
-
-class TestLoginAuditEvents:
-    def test_login_success_emits_auth_assessed(self, auth_client):
-        with capture_logs() as logs:
-            resp = auth_client.post(
-                "/token", data={"username": "testuser", "password": "testpass"}
-            )
-        assert resp.status_code == 200
-        entry = _events(logs, "request_completed")[0]
-        assert entry["timeline"][0]["outcome"] == "login_success"
-        assert entry["timeline"][0]["success"] is True
-        assert entry["timeline"][0]["username"] == "testuser"
-
-    def test_login_failure_emits_auth_assessed(self, auth_client):
-        with capture_logs() as logs:
-            resp = auth_client.post(
-                "/token", data={"username": "testuser", "password": "wrong"}
-            )
-        assert resp.status_code == 401
-        entry = _events(logs, "request_completed")[0]
-        assert entry["timeline"][0]["outcome"] == "login_failed"
-        assert entry["timeline"][0]["success"] is False
 
 
 class TestAdminMutationAuditEvents:

@@ -128,6 +128,44 @@ class TestDevVerifier:
         with pytest.raises(jwt.PyJWTError):
             verifier.decode(token)
 
+    def test_rejects_expired_token(self):
+        verifier = auth_module._DevVerifier()
+        token = auth_module.create_access_token(
+            {"sub": "some-user-sub"},
+            expires_delta=datetime.timedelta(minutes=-5),
+        )
+
+        with pytest.raises(jwt.PyJWTError):
+            verifier.decode(token)
+
+    def test_rejects_wrong_signature(self):
+        verifier = auth_module._DevVerifier()
+        token = jwt.encode(
+            {
+                "sub": "x",
+                "iss": auth_module.DEV_ISSUER,
+                "exp": datetime.datetime.now(datetime.timezone.utc)
+                + datetime.timedelta(minutes=5),
+            },
+            "some-other-secret-key-entirely",
+            algorithm=auth_module.settings.ALGORITHM,
+        )
+
+        with pytest.raises(jwt.PyJWTError):
+            verifier.decode(token)
+
+
+class TestValidateAuthConfig:
+    """Direct unit coverage for settings.validate_auth_config() itself, not
+    just via _build_verifier (see TestBuildVerifierFailsClosed above)."""
+
+    def test_dev_bypass_and_cognito_pool_both_set_raises(self, monkeypatch):
+        monkeypatch.setattr(auth_module.settings, "DEV_AUTH_BYPASS", True)
+        monkeypatch.setattr(auth_module.settings, "COGNITO_USER_POOL_ID", TEST_POOL_ID)
+
+        with pytest.raises(RuntimeError):
+            auth_module.settings.validate_auth_config()
+
 
 class TestBuildVerifierFailsClosed:
     """Covers the review's two Critical findings: a missing/incomplete auth
