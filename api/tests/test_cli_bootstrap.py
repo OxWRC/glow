@@ -79,6 +79,11 @@ def test_bootstrap_creates_cognito_user_and_local_row(monkeypatch, db_engine):
         user = session.query(User).filter_by(username="alice").one()
         assert user.cognito_sub == "sub-1"
         assert user.is_admin is True
+        # Regression guard: upsert_user_by_sub doesn't set is_active
+        # explicitly, relying on the column's default=True - if that ever
+        # changes, a bootstrapped admin would be silently locked out by
+        # get_current_user's `not user.is_active` check.
+        assert user.is_active is True
 
 
 def test_bootstrap_permanent_password_flag_sets_permanent_true(monkeypatch, db_engine):
