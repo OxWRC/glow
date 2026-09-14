@@ -96,12 +96,12 @@ services:
         # sees everything" expansion), so admin needs the connected school
         # assigned too for the dashboard's school picker to offer it.
         ADMIN_SCHOOLS="Focus School Academy,Neighbouring School,$$GLOW_CONNECTED_SCHOOL"
-        glow-api users create --admin --password admin --schools "$$ADMIN_SCHOOLS" admin || \
-          glow-api users update --password admin --schools "$$ADMIN_SCHOOLS" --active admin
+        glow-api users create --admin --schools "$$ADMIN_SCHOOLS" admin || \
+          glow-api users update --schools "$$ADMIN_SCHOOLS" --active admin
         # alpha-user is scoped to a real, ODK-connected school so its query
         # smoke test exercises actual data, not just auth plumbing.
-        glow-api users create --password alpha-user --schools "$$GLOW_CONNECTED_SCHOOL" alpha-user || \
-          glow-api users update --password alpha-user --schools "$$GLOW_CONNECTED_SCHOOL" --active alpha-user
+        glow-api users create --schools "$$GLOW_CONNECTED_SCHOOL" alpha-user || \
+          glow-api users update --schools "$$GLOW_CONNECTED_SCHOOL" --active alpha-user
 
 volumes:
   glow_cache:
