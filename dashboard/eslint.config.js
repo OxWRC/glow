@@ -1,27 +1,48 @@
-// For more info, see https://github.com/storybookjs/eslint-plugin-storybook#configuration-flat-config-format
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
 import storybook from "eslint-plugin-storybook";
-
 import globals from "globals";
 
-export default [
+export default tseslint.config(
   {
     ignores: [
-      ".svelte-kit/**",
-      "build/**",
-      "dist/**",
-      "node_modules/**",
-      "**/*.svelte",
-      "**/*.ts",
-      "storybook-static/**",
+      "**/dist/**",
+      "**/node_modules/**",
+      "**/.storybook/**",
+      "**/storybook-static/**",
+      "**/.storybook-cache/**",
+      "**/build/**",
+      "**/.svelte-kit/**",
+      "**/src/routes/**",
+      "**/src/lib/**",
+      "**/src/stories/**",
+      "**/src/hooks*.ts",
+      "**/scripts/**",
+      "**/*.config.ts",
+      "**/*.config.js",
     ],
   },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
   {
-    files: ["**/*.{js,mjs,cjs}"],
+    files: ["src/main.tsx", "src/App.tsx", "src/**/*.{ts,tsx}"],
     languageOptions: {
+      ecmaVersion: 2022,
       globals: globals.browser,
-      ecmaVersion: "latest",
-      sourceType: "module",
+    },
+    plugins: {
+      "react-hooks": reactHooks,
+      "react-refresh": reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      "react-refresh/only-export-components": [
+        "warn",
+        { allowConstantExport: true },
+      ],
     },
   },
   ...storybook.configs["flat/recommended"],
-];
+);
