@@ -9,7 +9,6 @@ import { http, HttpResponse, delay } from "msw";
 import {
   getExample,
   matchQueryExample,
-  type ContractExample,
 } from "./contractExamples";
 
 const API_BASE = "/api";
@@ -82,12 +81,8 @@ export function createHandlersFromExamples(
   const dimensionsExample = getExample(dimensionsExampleId);
   if (dimensionsExample) {
     handlers.push(
-      http.get(`${API_BASE}/dimensions`, async ({ request }) => {
+      http.get(`${API_BASE}/dimensions`, async () => {
         await delay(150);
-        // Support school_id query parameter
-        const url = new URL(request.url);
-        const schoolId = url.searchParams.get("school_id");
-
         // If a school-scoped example is requested, try to find it
         // Otherwise use the configured or default example
         return HttpResponse.json(dimensionsExample.response, {

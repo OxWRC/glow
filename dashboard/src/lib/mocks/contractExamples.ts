@@ -7,6 +7,7 @@
 
 import { contractExamplesData } from "./contractExamplesData";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface ContractExample {
   id: string;
   method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
@@ -14,7 +15,9 @@ export interface ContractExample {
   status: number;
   request_model: string | null;
   response_model: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   request: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   response: any;
 }
 
@@ -56,7 +59,8 @@ export function getExamplesForEndpoint(
  * Used for POST /api/query which has different responses based on request body.
  */
 export function matchQueryExample(
-  requestBody: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _requestBody: any,
   exampleId?: string,
 ): ContractExample | undefined {
   // If specific example ID provided, use it

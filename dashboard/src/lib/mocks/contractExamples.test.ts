@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getExample, getAllExamples } from "$lib/mocks/contractExamples";
+import { getExample, getAllExamples } from "./contractExamples";
 
 describe("Contract Examples", () => {
   it("should load all contract examples", () => {
@@ -7,7 +7,8 @@ describe("Contract Examples", () => {
     console.log("Loaded examples:", examples.length);
     console.log(
       "Example IDs:",
-      examples.map((e) => e.id),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      examples.map((e: any) => e.id),
     );
     expect(examples.length).toBeGreaterThan(0);
   });

@@ -4,7 +4,6 @@
  * Provides utilities to easily configure stories with contract examples.
  */
 
-import { http, HttpResponse, delay } from "msw";
 import {
   createHandlersFromExamples,
   type ApiResponseConfig,

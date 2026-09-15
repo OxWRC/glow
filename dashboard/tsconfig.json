@@ -25,11 +25,6 @@
     "src/lib/chartUtils.ts",
     "src/lib/i18n/index.ts",
     "src/lib/stores.ts",
-    "**/mocks/contractExamples.ts",
-    "**/mocks/contractExamples.test.ts",
-    "**/mocks/handlers.ts",
-    "**/mocks/handlersFromExamples.ts",
-    "**/mocks/storyHelpers.ts",
     "src/routes/+layout.ts",
     "src/routes/+page.ts",
     "src/routes/*/+layout.ts"
