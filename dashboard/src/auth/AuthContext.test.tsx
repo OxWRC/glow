@@ -1,7 +1,12 @@
 // src/auth/AuthContext.test.tsx
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { AuthProvider, useAuth, useIsAdmin, useCurrentSchools } from "./AuthContext";
+import {
+  AuthProvider,
+  useAuth,
+  useIsAdmin,
+  useCurrentSchools,
+} from "./AuthContext";
 import type { MeResponse } from "../lib/api";
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -26,7 +31,11 @@ describe("AuthContext", () => {
       schools: [{ id: 5, name: "Test School" }],
     };
     const { result } = renderHook(
-      () => ({ auth: useAuth(), isAdmin: useIsAdmin(), schools: useCurrentSchools() }),
+      () => ({
+        auth: useAuth(),
+        isAdmin: useIsAdmin(),
+        schools: useCurrentSchools(),
+      }),
       { wrapper },
     );
     act(() => result.current.auth.setIdentity(identity, "tok123"));

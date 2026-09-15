@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  ReactNode,
+} from "react";
 import type { MeResponse, SchoolSummary } from "../lib/api";
 
 interface AuthState {
@@ -15,13 +21,16 @@ const STORAGE_KEY = "auth";
 
 function loadInitialState(): AuthState {
   const stored =
-    typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem(STORAGE_KEY)
+      : null;
   if (!stored) return { token: null, identity: null };
   try {
     const parsed = JSON.parse(stored) as AuthState;
     return { token: parsed.token ?? null, identity: parsed.identity ?? null };
   } catch {
-    if (typeof localStorage !== "undefined") localStorage.removeItem(STORAGE_KEY);
+    if (typeof localStorage !== "undefined")
+      localStorage.removeItem(STORAGE_KEY);
     return { token: null, identity: null };
   }
 }
