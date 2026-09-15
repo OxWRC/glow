@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
-from glow_api.auth import get_current_user
+from glow_api.auth import require_current_user
 from glow_api.database import (
     create_school,
     create_user,
@@ -31,7 +31,7 @@ from glow_api.models import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-def _require_admin(current_user: UserRead = Depends(get_current_user)) -> UserRead:
+def _require_admin(current_user: UserRead = Depends(require_current_user)) -> UserRead:
     if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -326,6 +326,6 @@ def delete_existing_school(
 
 
 @router.get("/me", response_model=UserRead)
-def get_current_admin(current_user: UserRead = Depends(get_current_user)) -> UserRead:
+def get_current_admin(current_user: UserRead = Depends(require_current_user)) -> UserRead:
     """Return the current user's details, including is_admin flag."""
     return current_user

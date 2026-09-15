@@ -3,8 +3,36 @@ SQLAlchemy models for the metadata database (users and school metadata).
 Separate from the read-only CSV data.
 """
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Table
+from datetime import datetime, timezone
+
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.types import TypeDecorator
+
+
+class UTCDateTime(TypeDecorator):
+    """DateTime that is always timezone-aware, in and out.
+
+    SQLite (used in tests, and for local dev) has no native tz-aware storage -
+    it silently drops tzinfo on read-back even from a DateTime(timezone=True)
+    column. This type re-attaches UTC on the way out (and normalizes to UTC on
+    the way in) so every datetime the app sees is aware, on any backend.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: datetime | None, dialect) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def process_result_value(self, value: datetime | None, dialect) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 
 class Base(DeclarativeBase):
@@ -51,6 +79,24 @@ class User(Base):
         secondary=user_schools,
         back_populates="users",
     )
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    prefix = Column(String, nullable=False)
+    key_hash = Column(String, nullable=False, unique=True, index=True)
+    created_at = Column(
+        UTCDateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    expires_at = Column(UTCDateTime, nullable=False)
+    revoked_at = Column(UTCDateTime, nullable=True)
+    last_used_at = Column(UTCDateTime, nullable=True)
+
+    user = relationship("User")
 
 
 class School(Base):

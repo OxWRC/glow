@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
+    API_KEY_EXPIRE_DAYS: int = 90  # default lifetime for a newly-created WRC API key
 
     # Cognito / auth mode
     COGNITO_USER_POOL_ID: Optional[str] = None

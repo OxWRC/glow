@@ -9,19 +9,33 @@ the guard that keeps the two modes from being enabled together).
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Security, status
+from fastapi.security import (
+    APIKeyHeader,
+    HTTPAuthorizationCredentials,
+    OAuth2PasswordBearer,
+)
 import jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
-from glow_api.database import get_db, get_school_by_id, get_user_by_sub
+from glow_api.api_keys import hash_api_key
+from glow_api.database import (
+    get_api_key_by_hash,
+    get_db,
+    get_school_by_id,
+    get_user_by_id,
+    get_user_by_sub,
+    touch_api_key_last_used,
+)
 from glow_api.metadata_models import School, User
 from glow_api.models import UserRead
 from glow_api.settings import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 DEV_ISSUER = "glow-dev"
 
@@ -126,10 +140,7 @@ def _user_model_to_read(user: User) -> UserRead:
     )
 
 
-async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> UserRead:
+def _authenticate_token(token: str, db: Session) -> UserRead:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -149,6 +160,57 @@ async def get_current_user(
 
     sync_user_claims(db, user, claims)
 
+    return _user_model_to_read(user)
+
+
+async def require_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> UserRead:
+    return _authenticate_token(token, db)
+
+
+async def get_current_user(
+    token: str | None = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> UserRead | None:
+    """Same as require_current_user, but returns None (rather than 401ing)
+    when no bearer token is present at all - for routes that also accept an
+    API key, where the absence of a JWT isn't itself an error.
+    """
+    if token is None:
+        return None
+    return _authenticate_token(token, db)
+
+
+async def require_api_key_user(
+    api_key: str | None = Security(api_key_header),
+    db: Session = Depends(get_db),
+) -> UserRead:
+    """Auth dependency for API-key-based (script) access to WRC routes.
+
+    Separate from require_current_user's JWT path entirely - a WRC API key
+    never grants anything a JWT-authenticated session does, and vice versa.
+    """
+    invalid_key_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired API key",
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
+    if api_key is None:
+        raise invalid_key_exception
+
+    record = get_api_key_by_hash(db, hash_api_key(api_key))
+    if record is None or record.revoked_at is not None:
+        raise invalid_key_exception
+    if record.expires_at < datetime.now(timezone.utc):
+        raise invalid_key_exception
+
+    user = get_user_by_id(db, record.user_id)
+    if user is None or not user.is_active or not user.is_wrc:
+        raise invalid_key_exception
+
+    touch_api_key_last_used(db, record)
     return _user_model_to_read(user)
 
 

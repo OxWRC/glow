@@ -2,11 +2,14 @@
 
 import io
 import threading
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 from fastapi import status
 
+from glow_api.api_keys import display_prefix, generate_api_key, hash_api_key
 from glow_api.canonical_query import normalize_query
+from glow_api.database import create_api_key, create_user, get_api_key_by_id
 
 
 # ---------------------------------------------------------------------------
@@ -351,11 +354,11 @@ def test_dimensions_exposes_namespaced_variable_metadata(
             is_admin=False,
         )
 
-    from glow_api.auth import get_current_user
+    from glow_api.auth import require_current_user
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_datastore] = override_get_datastore
-    app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[require_current_user] = override_get_current_user
 
     with TestClient(app, raise_server_exceptions=True) as client:
         response = client.get("/dimensions")
@@ -651,3 +654,101 @@ def test_wrc_ping_allows_wrc_user(wrc_client):
     response = wrc_client.get("/wrc/ping")
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# WRC API key tests
+# ---------------------------------------------------------------------------
+
+
+def test_create_api_key_requires_wrc_flag(client):
+    response = client.post("/wrc/keys", json={"name": "ci-script"})
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_create_api_key_returns_raw_key_once(wrc_client):
+    response = wrc_client.post("/wrc/keys", json={"name": "ci-script"})
+    assert response.status_code == status.HTTP_201_CREATED
+    body = response.json()
+    assert body["key"].startswith("glow_")
+    assert body["prefix"] == body["key"][:12]
+    assert body["name"] == "ci-script"
+
+
+def test_list_api_keys_excludes_raw_key(wrc_client):
+    wrc_client.post("/wrc/keys", json={"name": "ci-script"})
+    response = wrc_client.get("/wrc/keys")
+    assert response.status_code == status.HTTP_200_OK
+    [key] = response.json()
+    assert key["name"] == "ci-script"
+    assert "key" not in key
+
+
+def test_delete_api_key_revokes_it(wrc_client):
+    created = wrc_client.post("/wrc/keys", json={"name": "ci-script"}).json()
+    response = wrc_client.delete(f"/wrc/keys/{created['id']}")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    [key] = wrc_client.get("/wrc/keys").json()
+    assert key["revoked_at"] is not None
+
+
+def test_delete_unknown_api_key_404s(wrc_client):
+    response = wrc_client.delete("/wrc/keys/999999")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_ping_requires_some_credential(auth_client):
+    """No JWT and no API key at all - refused, not just downgraded to anonymous."""
+    response = auth_client.get("/wrc/ping")
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def test_ping_accepts_valid_api_key(wrc_client):
+    raw_key = wrc_client.post("/wrc/keys", json={"name": "ci-script"}).json()["key"]
+    response = wrc_client.get("/wrc/ping", headers={"X-API-Key": raw_key})
+    assert response.status_code == status.HTTP_200_OK
+
+
+def test_ping_rejects_revoked_api_key(wrc_client):
+    created = wrc_client.post("/wrc/keys", json={"name": "ci-script"}).json()
+    wrc_client.delete(f"/wrc/keys/{created['id']}")
+    response = wrc_client.get("/wrc/ping", headers={"X-API-Key": created["key"]})
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def test_ping_rejects_expired_api_key(wrc_client, db_session):
+    created = wrc_client.post("/wrc/keys", json={"name": "ci-script"}).json()
+    record = get_api_key_by_id(db_session, created["id"])
+    record.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    db_session.commit()
+
+    response = wrc_client.get("/wrc/ping", headers={"X-API-Key": created["key"]})
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def test_ping_rejects_garbage_api_key(client):
+    response = client.get("/wrc/ping", headers={"X-API-Key": "glow_not-a-real-key"})
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def test_create_api_key_rejects_out_of_range_expiry(wrc_client):
+    response = wrc_client.post(
+        "/wrc/keys", json={"name": "ci-script", "expires_in_days": 400}
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_delete_api_key_404s_for_another_users_key(wrc_client, db_session):
+    other_user = create_user(db_session, username="other-wrc-user", is_wrc=True)
+    raw_key = generate_api_key()
+    other_key = create_api_key(
+        db_session,
+        user_id=other_user.id,
+        name="not-yours",
+        key_hash=hash_api_key(raw_key),
+        prefix=display_prefix(raw_key),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+
+    response = wrc_client.delete(f"/wrc/keys/{other_key.id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND

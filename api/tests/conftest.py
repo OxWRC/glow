@@ -18,7 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from glow_api.auth import get_current_user
+from glow_api.auth import get_current_user, require_current_user
 from glow_api.data import DataStore
 from glow_api.database import create_user, create_school, get_db
 from glow_api.metadata_models import Base
@@ -231,6 +231,7 @@ def client(db_session, sample_user, sample_schools, sample_df):
     from glow_api.data import get_datastore
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[require_current_user] = override_get_current_user
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_datastore] = override_get_datastore
 
@@ -311,6 +312,7 @@ def admin_client(db_session, admin_user, sample_schools, sample_df):
     data_module.datastore = fake_store
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[require_current_user] = override_get_current_user
     app.dependency_overrides[get_current_user] = override_get_current_user
 
     with TestClient(app, raise_server_exceptions=True) as c:
@@ -348,6 +350,7 @@ def wrc_client(db_session, wrc_user, sample_schools, sample_df):
     from glow_api.data import get_datastore
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[require_current_user] = override_get_current_user
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_datastore] = override_get_datastore
 

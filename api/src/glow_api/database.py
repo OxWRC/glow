@@ -3,6 +3,7 @@ Database configuration and session management for metadata database.
 """
 
 from collections.abc import Generator
+from datetime import datetime, timezone
 from pathlib import Path
 
 from alembic import command
@@ -11,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from glow_api.metadata_models import School, User
+from glow_api.metadata_models import ApiKey, School, User
 from glow_api.settings import settings
 
 
@@ -351,6 +352,52 @@ def extract_schools_from_dataframe(db: Session, df) -> list[School]:
             created_schools.append(existing)
 
     return created_schools
+
+
+# API key CRUD operations
+def create_api_key(
+    db: Session,
+    user_id: int,
+    name: str,
+    key_hash: str,
+    prefix: str,
+    expires_at: datetime,
+) -> ApiKey:
+    api_key = ApiKey(
+        user_id=user_id,
+        name=name,
+        key_hash=key_hash,
+        prefix=prefix,
+        expires_at=expires_at,
+    )
+    db.add(api_key)
+    db.commit()
+    db.refresh(api_key)
+    return api_key
+
+
+def get_api_key_by_hash(db: Session, key_hash: str) -> ApiKey | None:
+    return db.query(ApiKey).filter(ApiKey.key_hash == key_hash).first()
+
+
+def get_api_key_by_id(db: Session, key_id: int) -> ApiKey | None:
+    return db.query(ApiKey).filter(ApiKey.id == key_id).first()
+
+
+def list_api_keys_for_user(db: Session, user_id: int) -> list[ApiKey]:
+    return db.query(ApiKey).filter(ApiKey.user_id == user_id).all()
+
+
+def revoke_api_key(db: Session, api_key: ApiKey) -> ApiKey:
+    api_key.revoked_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(api_key)
+    return api_key
+
+
+def touch_api_key_last_used(db: Session, api_key: ApiKey) -> None:
+    api_key.last_used_at = datetime.now(timezone.utc)
+    db.commit()
 
 
 def grant_admins_all_schools(db: Session) -> int:

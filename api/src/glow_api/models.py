@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional, Union
 
@@ -190,6 +191,40 @@ class NewQueryResponse(BaseModel):
     dimensions: list[str]  # Ordered list of requested dimension keys
     periods: list[str]  # Observed period IDs in chronological order
     variables: list[VariableSlice]  # One per requested variable
+
+
+# ---------------------------------------------------------------------------
+# WRC API key models
+# ---------------------------------------------------------------------------
+
+
+class ApiKeyCreate(BaseModel):
+    name: str
+    # Falls back to settings.API_KEY_EXPIRE_DAYS. Bounded so a key can't be
+    # issued with effectively-infinite/no expiry.
+    expires_in_days: Optional[int] = Field(None, gt=0, le=365)
+
+
+class ApiKeyCreated(BaseModel):
+    """Response for key creation - the only time the raw key is ever returned."""
+
+    id: int
+    name: str
+    prefix: str
+    key: str
+    created_at: datetime
+    expires_at: datetime
+
+
+class ApiKeyRead(BaseModel):
+    id: int
+    name: str
+    prefix: str
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}
 
 
 # ---------------------------------------------------------------------------

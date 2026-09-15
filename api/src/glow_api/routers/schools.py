@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from glow_api.auth import get_current_user
+from glow_api.auth import require_current_user
 from glow_api.database import get_db, list_schools
 from glow_api.models import SchoolListResponse, SchoolRead, UserRead
 
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/schools", tags=["schools"])
 
 @router.get("", response_model=SchoolListResponse)
 def get_schools(
-    current_user: UserRead = Depends(get_current_user),
+    current_user: UserRead = Depends(require_current_user),
     db: Session = Depends(get_db),
 ) -> list[SchoolRead]:
     """
