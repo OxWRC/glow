@@ -1,19 +1,20 @@
-// Can be overridden by setting PUBLIC_API_BASE env var (e.g. http://localhost:8000)
-import { env } from "$env/dynamic/public";
+// API base and Cognito config now come from runtime env (see runtimeConfig.ts),
+// injected via window.__ENV__ or Vite's import.meta.env fallback.
+import { getRuntimeConfig } from "../runtimeConfig";
 
-const API_BASE = env.PUBLIC_API_BASE ?? "/api";
+const config = getRuntimeConfig();
+const API_BASE = config.apiBase;
 
-// Cognito hosted-UI config, same $env/dynamic/public passthrough as
-// PUBLIC_API_BASE above (see compose.yml's dashboard.environment).
-// PUBLIC_COGNITO_DOMAIN is a bare host (no scheme), e.g.
+// Cognito hosted-UI config (see compose.yml's dashboard.environment).
+// COGNITO_DOMAIN is a bare host (no scheme), e.g.
 // "<prefix>.auth.<region>.amazoncognito.com" - see
 // deploy/aws/terraform/outputs.tf's cognito_hosted_ui_domain.
-export const COGNITO_DOMAIN = env.PUBLIC_COGNITO_DOMAIN ?? "";
-export const COGNITO_CLIENT_ID = env.PUBLIC_COGNITO_CLIENT_ID ?? "";
+export const COGNITO_DOMAIN = config.cognitoDomain;
+export const COGNITO_CLIENT_ID = config.cognitoClientId;
 
 // Dev-only: shows the role-picker login instead of redirecting to Cognito's
 // hosted UI. Mirrors the api service's GLOW_DEV_AUTH_BYPASS (compose.override.yml).
-export const DEV_AUTH_BYPASS = env.PUBLIC_DEV_AUTH_BYPASS === "true";
+export const DEV_AUTH_BYPASS = config.devAuthBypass;
 
 export class ApiError extends Error {
   constructor(
@@ -452,52 +453,6 @@ export interface QueryResponse {
 
 export async function listSchools(token: string): Promise<School[]> {
   return apiFetch<School[]>("/schools", { headers: authHeaders(token) });
-}
-
-export async function createSchool(
-  token: string,
-  data: { name: string; size?: string | null; category?: string | null },
-): Promise<School> {
-  return apiFetch<School>("//schools", {
-    method: "POST",
-    headers: { ...authHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-}
-
-export async function updateSchool(
-  token: string,
-  id: number,
-  data: {
-    name?: string;
-    size?: string | null;
-    category?: string | null;
-    geographical_neighbor_ids?: number[];
-    statistical_neighbor_ids?: number[];
-  },
-): Promise<School> {
-  return apiFetch<School>(`//schools/${id}`, {
-    method: "PUT",
-    headers: { ...authHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-}
-
-export async function deleteSchool(token: string, id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}//schools/${id}`, {
-    method: "DELETE",
-    headers: authHeaders(token),
-  });
-  if (!res.ok && res.status !== 204) {
-    try {
-      const j = (await res.json()) as { detail?: string };
-      throw new ApiError(res.status, j.detail ?? res.statusText);
-    } catch (parseError) {
-      // If JSON parsing fails, throw a generic delete error
-      if (parseError instanceof ApiError) throw parseError;
-      throw new ApiError(res.status, "Failed to delete school");
-    }
-  }
 }
 
 export async function query(

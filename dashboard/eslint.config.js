@@ -21,7 +21,6 @@ export default tseslint.config(
       "**/*.config.js",
       "**/*.stories.ts",
       "**/*.stories.tsx",
-      "src/lib/api.ts",
       "src/lib/chartUtils.ts",
       "src/lib/i18n/index.ts",
       "src/lib/stores.ts",
