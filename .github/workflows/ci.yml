@@ -57,10 +57,6 @@ jobs:
         working-directory: dashboard
         env:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
-          PLAYWRIGHT_ADMIN_USER: admin
-          PLAYWRIGHT_ADMIN_PASSWORD: admin
-          PLAYWRIGHT_SCOPED_USER: alpha-user
-          PLAYWRIGHT_SCOPED_PASSWORD: alpha-user
           PLAYWRIGHT_SCOPED_SCHOOL: Beahanberg High School
         run: npm run test:e2e
       - name: Tear down compose stack

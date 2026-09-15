@@ -1,41 +1,11 @@
-import { useCallback, useState } from "react";
 import { en, type Messages } from "./en";
 
 const messages = { en };
-const LOCALE_STORAGE_KEY = "glow-dashboard-locale";
 const PHASE_PREFIX_RE = /^(baseline|comparison|change)_(.+)$/;
 
 export type Locale = keyof typeof messages;
 
 export const availableLocales = Object.keys(messages) as Locale[];
-
-function resolveLocale(value?: string | null): Locale {
-  if (!value) {
-    return "en";
-  }
-
-  return value.toLowerCase().startsWith("en") ? "en" : "en";
-}
-
-export function useLocale(): [Locale, (value: string) => void] {
-  const [locale, setLocaleState] = useState<Locale>(() => {
-    const stored =
-      typeof localStorage !== "undefined"
-        ? localStorage.getItem(LOCALE_STORAGE_KEY)
-        : null;
-    return resolveLocale(stored ?? navigator.language);
-  });
-
-  const setLocale = useCallback((value: string) => {
-    const resolved = resolveLocale(value);
-    setLocaleState(resolved);
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(LOCALE_STORAGE_KEY, resolved);
-    }
-  }, []);
-
-  return [locale, setLocale];
-}
 
 function lookupText(dictionary: Messages, key: string): string | undefined {
   let current: unknown = dictionary;

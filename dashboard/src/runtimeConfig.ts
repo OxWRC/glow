@@ -24,8 +24,11 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
       window.__ENV__ = injected;
     }
   } catch {
-    // no config.json (e.g. local `npm run dev`) — getRuntimeConfig() falls
-    // back to import.meta.env.VITE_* per Task 2.
+    // Vite's dev server has no /config.json, but it serves index.html (200
+    // OK) for unknown paths rather than failing the fetch, so this catch is
+    // actually reached via a JSON-parse error on that HTML body, not a
+    // network-level rejection. Either way, getRuntimeConfig() falls back to
+    // import.meta.env.VITE_* per Task 2.
   }
   cached = getRuntimeConfig();
   return cached;

@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  Navigate,
+  Outlet,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import { useAuth, useIsAdmin, useIsAuthenticated } from "../auth/AuthContext";
 import {
   checkHealth,
@@ -78,6 +84,16 @@ export function Layout() {
       logout_uri: logoutUri,
     });
     window.location.href = `https://${COGNITO_DOMAIN}/logout?${params.toString()}`;
+  }
+
+  // Any path whose first segment isn't a known locale (e.g. /admin, matched
+  // by the :locale route param itself) - redirect to /en<path> rather than
+  // silently rendering with an invalid locale, matching the old
+  // hooks.server.ts's catch-all default-locale redirect.
+  if (!availableLocales.includes(localeParam as Locale)) {
+    return (
+      <Navigate to={`/en${location.pathname}${location.search}`} replace />
+    );
   }
 
   const noChrome =

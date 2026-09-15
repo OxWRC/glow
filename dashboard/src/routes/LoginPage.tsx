@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   devLogin,
@@ -43,12 +43,16 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [schoolIdInput, setSchoolIdInput] = useState("");
+  const ranRef = useRef(false);
 
   useEffect(() => {
     document.title = `${i18n.t("login.signIn")} — ${i18n.t("login.title")} ${i18n.t("nav.dashboard")}`;
   }, [i18n]);
 
   useEffect(() => {
+    if (ranRef.current) return;
+    ranRef.current = true;
+
     async function redirectToCognito() {
       if (!COGNITO_DOMAIN || !COGNITO_CLIENT_ID) {
         setError(i18n.t("login.configError"));

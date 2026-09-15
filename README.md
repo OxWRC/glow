@@ -115,7 +115,7 @@ Interactive documentation is available at `/docs` (Swagger UI) and `/redoc`.
 
 ### Authentication
 
-Sign-in is Cognito-backed: the dashboard redirects to the Cognito hosted UI, exchanges the returned code for a token, and calls `GET /me` with it. There is no password-grant endpoint. For local dev, set `GLOW_DEV_AUTH_BYPASS`/`PUBLIC_DEV_AUTH_BYPASS` (on by default via `compose.override.yml`) to skip Cognito and use `POST /auth/dev-login` with the dashboard's role picker instead. The first admin against a real Cognito pool is created with `glow-api users create <username> --bootstrap --admin` (see [Admin CLI](#admin-cli)).
+Sign-in is Cognito-backed: the dashboard redirects to the Cognito hosted UI, exchanges the returned code for a token, and calls `GET /me` with it. There is no password-grant endpoint. For local dev, set `GLOW_DEV_AUTH_BYPASS`/`VITE_PUBLIC_DEV_AUTH_BYPASS` (on by default via `compose.override.yml`) to skip Cognito and use `POST /auth/dev-login` with the dashboard's role picker instead. The first admin against a real Cognito pool is created with `glow-api users create <username> --bootstrap --admin` (see [Admin CLI](#admin-cli)).
 
 ### Admin CLI
 
@@ -155,7 +155,7 @@ Any materialized result cell where the contributing student count is less than `
 
 The dashboard provides:
 
-- **Login** — JWT-based authentication
+- **Login** — Cognito hosted-UI sign-in (OAuth2 PKCE), with a dev-only role picker when dev-auth-bypass is enabled (see [Authentication](#authentication) above)
 - **Home** — pre-built overview charts
 - **Query Builder** — a step-based analytical query builder with built-in suppression
 - **Admin** — user CRUD (admin users only)
@@ -172,6 +172,7 @@ This repo uses a centralized approach to minimize drift between dev/test/prod:
   - Includes the optional `odk` profile for self-hosted ODK Central
 - **`compose.override.yml`** — local development overrides
   - Enables source bind mounts, Vite/Uvicorn reload, and dev-friendly defaults
+  - The dashboard's `node_modules` lives in a named `dashboard_node_modules` volume, not the bind mount; if you switch dashboard toolchains (or hit confusing dependency errors after a pull), clear it with `docker volume rm glow_dashboard_node_modules` (or whatever `docker compose config --format json | grep dashboard_node_modules`/`docker volume ls` shows it resolved to) and let it rebuild
   - Applied automatically by `docker compose up`
 - **`compose.test.yml`** — test-specific overrides
   - Deterministic secrets, tighter healthchecks, no restart policies

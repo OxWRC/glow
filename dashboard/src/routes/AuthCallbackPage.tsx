@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { exchangeCodeForToken, me } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
@@ -14,12 +14,16 @@ export function AuthCallbackPage() {
   const { setIdentity } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const ranRef = useRef(false);
 
   useEffect(() => {
     document.title = `${i18n.t("login.signingIn")} — ${i18n.t("login.title")}`;
   }, [i18n]);
 
   useEffect(() => {
+    if (ranRef.current) return;
+    ranRef.current = true;
+
     async function run() {
       // Verify state before anything else, including the error branch below -
       // Cognito echoes state back on both success and error redirects.

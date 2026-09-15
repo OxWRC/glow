@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useRouteError } from "react-router-dom";
 import { useParams } from "react-router-dom";
 import { availableLocales, createI18n, type Locale } from "../lib/i18n";
@@ -27,6 +28,10 @@ export function ErrorPage({ status, message }: ErrorPageProps) {
     ? (localeParam as Locale)
     : "en";
   const i18n = createI18n(locale);
+
+  useEffect(() => {
+    document.title = `${errorStatus} - Error`;
+  }, [errorStatus]);
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

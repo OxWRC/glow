@@ -94,7 +94,7 @@ test("admin can log in via dev-bypass, run a query, and use the admin screen", a
   await page.getByRole("button", { name: "Run Query" }).click();
 
   // Wait for query results to appear - ChartCard renders a <canvas> via
-  // svelte-chartjs, there is no ".chart-container" class in the app.
+  // react-chartjs-2, there is no ".chart-container" class in the app.
   await expect(page.locator("canvas")).toBeVisible({
     timeout: 10000,
   });
