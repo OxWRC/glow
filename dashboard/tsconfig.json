@@ -14,23 +14,22 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "paths": {
-      "$lib/*": ["./src/lib/*"],
-      "$app/*": ["./src/app/*"]
-    }
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
   "exclude": [
     "**/*.stories.tsx",
     "**/*.stories.ts",
     "src/hooks*.ts",
-    "src/stories",
     "src/lib/api.ts",
     "src/lib/chartUtils.ts",
     "src/lib/i18n/index.ts",
     "src/lib/stores.ts",
-    "src/lib/mocks",
+    "**/mocks/contractExamples.ts",
+    "**/mocks/contractExamples.test.ts",
+    "**/mocks/handlers.ts",
+    "**/mocks/handlersFromExamples.ts",
+    "**/mocks/storyHelpers.ts",
     "src/routes/+layout.ts",
     "src/routes/+page.ts",
     "src/routes/*/+layout.ts"
