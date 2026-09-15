@@ -19,6 +19,13 @@ export default tseslint.config(
       "**/scripts/**",
       "**/*.config.ts",
       "**/*.config.js",
+      // Dead Svelte-era `*.stories.ts` files (importing deleted `.svelte`
+      // components) still sit alongside the new `*.stories.tsx` React
+      // stories until Task 19's big-bang deletion of the old tree — ignore
+      // only the `.ts` ones so the real `.stories.tsx` files get linted
+      // like any other source file (mirrors the `.tsx`-only glob in
+      // .storybook/main.ts, same reason).
+      "**/*.stories.ts",
       "src/lib/stores.ts",
       "src/routes/+layout.ts",
       "src/routes/+page.ts",
