@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, within, userEvent } from "storybook/test";
-import { MemoryRouter } from "react-router-dom";
 import { DataTable } from "./DataTable";
 
 const meta = {
@@ -10,13 +9,6 @@ const meta = {
   parameters: {
     layout: "padded",
   },
-  decorators: [
-    (Story) => (
-      <MemoryRouter initialEntries={["/en"]}>
-        <Story />
-      </MemoryRouter>
-    ),
-  ],
 } satisfies Meta<typeof DataTable>;
 
 export default meta;
