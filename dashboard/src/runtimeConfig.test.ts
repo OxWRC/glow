@@ -1,18 +1,15 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { getRuntimeConfig } from "./runtimeConfig";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(globalThis as any).window ??= {};
+(globalThis as { window?: object }).window ??= {};
 
 describe("getRuntimeConfig", () => {
   afterEach(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (window as any).__ENV__;
+    delete window.__ENV__;
   });
 
   it("reads values from window.__ENV__ when present", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__ENV__ = {
+    window.__ENV__ = {
       PUBLIC_API_BASE: "https://api.example.com",
       PUBLIC_COGNITO_DOMAIN: "example.auth.us-east-1.amazoncognito.com",
       PUBLIC_COGNITO_CLIENT_ID: "client123",
