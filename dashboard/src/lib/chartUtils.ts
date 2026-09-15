@@ -1,4 +1,4 @@
-import type { QueryResult, NewQueryResponse } from "./api";
+import type { NewQueryResponse } from "./api";
 import { parseCSV } from "./csvUtils";
 
 const PALETTE = [
@@ -128,7 +128,6 @@ export function frequencyToChartData(
 
   // Single group-by: labels = first col values, dataset = "n" or last numeric col
   if (groupBy.length <= 1) {
-    const labelCol = headers[0];
     const valueCol = headers[headers.length - 1];
     const xLabels = rows.map((r) => String(r[0] ?? ""));
     const data = rows.map((r) => {
