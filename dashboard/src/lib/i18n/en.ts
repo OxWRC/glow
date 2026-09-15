@@ -363,6 +363,7 @@ export const en = {
     query: "Query",
     admin: "Admin",
     dashboard: "Dashboard",
+    signIn: "Sign In",
     signOut: "Sign out",
     adminBadge: "admin",
     api: "API",
