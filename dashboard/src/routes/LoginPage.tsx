@@ -85,7 +85,8 @@ export function LoginPage() {
     setLoading(true);
     try {
       const trimmed = schoolIdInput.trim();
-      const schoolId = role === "school" && trimmed ? Number(trimmed) : undefined;
+      const schoolId =
+        role === "school" && trimmed ? Number(trimmed) : undefined;
       const token = await devLogin(role, schoolId);
       const identity = await me(token.access_token);
       if (identity.kind !== "authenticated") {
@@ -111,7 +112,9 @@ export function LoginPage() {
     <div className="min-h-screen bg-blue-900 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white">{i18n.t("login.title")}</h1>
+          <h1 className="text-3xl font-bold text-white">
+            {i18n.t("login.title")}
+          </h1>
           <p className="text-blue-200 mt-1">{i18n.t("login.subtitle")}</p>
         </div>
 
@@ -200,7 +203,9 @@ export function LoginPage() {
                   d="M4 12a8 8 0 018-8v8H4z"
                 ></path>
               </svg>
-              <span className="text-gray-600">{i18n.t("login.redirecting")}</span>
+              <span className="text-gray-600">
+                {i18n.t("login.redirecting")}
+              </span>
             </div>
           )}
         </div>
