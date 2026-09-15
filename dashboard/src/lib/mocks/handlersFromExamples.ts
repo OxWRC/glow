@@ -6,10 +6,7 @@
  */
 
 import { http, HttpResponse, delay } from "msw";
-import {
-  getExample,
-  matchQueryExample,
-} from "./contractExamples";
+import { getExample, matchQueryExample } from "./contractExamples";
 
 const API_BASE = "/api";
 

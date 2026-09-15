@@ -1,0 +1,9 @@
+dist/
+build/
+storybook-static/
+.svelte-kit/
+node_modules/
+src/app.html
+src/hooks.server.ts
+src/lib/stores.ts
+static/mockServiceWorker.js

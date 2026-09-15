@@ -7,8 +7,7 @@ describe("Contract Examples", () => {
     console.log("Loaded examples:", examples.length);
     console.log(
       "Example IDs:",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      examples.map((e: any) => e.id),
+      examples.map((e) => e.id),
     );
     expect(examples.length).toBeGreaterThan(0);
   });

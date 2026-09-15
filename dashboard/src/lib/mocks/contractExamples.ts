@@ -7,7 +7,6 @@
 
 import { contractExamplesData } from "./contractExamplesData";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface ContractExample {
   id: string;
   method: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
