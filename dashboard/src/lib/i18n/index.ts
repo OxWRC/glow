@@ -1,15 +1,13 @@
-import { browser } from "$app/environment";
-import { writable } from "svelte/store";
+import { useCallback, useState } from "react";
 import { en, type Messages } from "./en";
 
 const messages = { en };
-const STORAGE_KEY = "glow-dashboard-locale";
+const LOCALE_STORAGE_KEY = "glow-dashboard-locale";
 const PHASE_PREFIX_RE = /^(baseline|comparison|change)_(.+)$/;
 
 export type Locale = keyof typeof messages;
 
 export const availableLocales = Object.keys(messages) as Locale[];
-export const locale = writable<Locale>("en");
 
 function resolveLocale(value?: string | null): Locale {
   if (!value) {
@@ -19,22 +17,24 @@ function resolveLocale(value?: string | null): Locale {
   return value.toLowerCase().startsWith("en") ? "en" : "en";
 }
 
-export function initializeLocale() {
-  if (!browser) {
-    return;
-  }
+export function useLocale(): [Locale, (value: string) => void] {
+  const [locale, setLocaleState] = useState<Locale>(() => {
+    const stored =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem(LOCALE_STORAGE_KEY)
+        : null;
+    return resolveLocale(stored ?? navigator.language);
+  });
 
-  const stored = localStorage.getItem(STORAGE_KEY);
-  setLocale(stored ?? navigator.language);
-}
+  const setLocale = useCallback((value: string) => {
+    const resolved = resolveLocale(value);
+    setLocaleState(resolved);
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(LOCALE_STORAGE_KEY, resolved);
+    }
+  }, []);
 
-export function setLocale(nextLocale: string | Locale) {
-  const resolved = resolveLocale(nextLocale);
-  locale.set(resolved);
-
-  if (browser) {
-    localStorage.setItem(STORAGE_KEY, resolved);
-  }
+  return [locale, setLocale];
 }
 
 function lookupText(dictionary: Messages, key: string): string | undefined {

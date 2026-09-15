@@ -21,7 +21,6 @@
     "**/*.stories.tsx",
     "**/*.stories.ts",
     "src/hooks*.ts",
-    "src/lib/i18n/index.ts",
     "src/lib/stores.ts",
     "src/routes/+layout.ts",
     "src/routes/+page.ts",
