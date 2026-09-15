@@ -1,14 +1,9 @@
-import type { Preview } from "@storybook/sveltekit";
+import type { Preview } from "@storybook/react-vite";
 import { initialize, mswLoader } from "msw-storybook-addon";
 import "../src/app.css";
 
 // Initialize MSW
 initialize();
-
-// Fix for SvelteKit dev mode check in Storybook
-if (typeof globalThis !== "undefined" && !globalThis.__sveltekit_dev) {
-  globalThis.__sveltekit_dev = { env: {} };
-}
 
 const preview: Preview = {
   parameters: {

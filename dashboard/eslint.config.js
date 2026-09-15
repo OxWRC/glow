@@ -19,8 +19,6 @@ export default tseslint.config(
       "**/scripts/**",
       "**/*.config.ts",
       "**/*.config.js",
-      "**/*.stories.ts",
-      "**/*.stories.tsx",
       "src/lib/stores.ts",
       "src/routes/+layout.ts",
       "src/routes/+page.ts",
