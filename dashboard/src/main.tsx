@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { loadRuntimeConfig } from "./runtimeConfig";
+import "./app.css";
 
 // App (and its transitive imports, e.g. lib/api.ts) reads getRuntimeConfig()
 // at module scope, so it must not be evaluated until loadRuntimeConfig() has
