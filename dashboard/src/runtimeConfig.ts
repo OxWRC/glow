@@ -13,6 +13,24 @@ declare global {
   }
 }
 
+let cached: RuntimeConfig | null = null;
+
+export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
+  if (cached) return cached;
+  try {
+    const res = await fetch("/config.json");
+    if (res.ok) {
+      const injected = (await res.json()) as Record<string, string>;
+      window.__ENV__ = injected;
+    }
+  } catch {
+    // no config.json (e.g. local `npm run dev`) — getRuntimeConfig() falls
+    // back to import.meta.env.VITE_* per Task 2.
+  }
+  cached = getRuntimeConfig();
+  return cached;
+}
+
 export function getRuntimeConfig(): RuntimeConfig {
   const injected = window.__ENV__ ?? {};
   return {

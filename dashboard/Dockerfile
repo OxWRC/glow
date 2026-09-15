@@ -14,11 +14,12 @@ WORKDIR /app
 COPY . .
 RUN npm run build
 
-FROM node:22-bookworm-slim
-WORKDIR /app
-COPY --from=builder /app/build ./build
-COPY --from=builder /app/package*.json ./
-RUN npm ci --omit=dev
+FROM nginx:1.27-alpine
+RUN apk add --no-cache gettext
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY docker/config.json.template /usr/share/nginx/html/config.json.template
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 EXPOSE 3000
-ENV NODE_ENV=production
-CMD ["node", "build"]
+ENTRYPOINT ["/entrypoint.sh"]

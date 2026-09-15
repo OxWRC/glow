@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { getRuntimeConfig } from "./runtimeConfig";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { getRuntimeConfig, loadRuntimeConfig } from "./runtimeConfig";
 
 (globalThis as { window?: object }).window ??= {};
 
@@ -27,5 +27,26 @@ describe("getRuntimeConfig", () => {
     const config = getRuntimeConfig();
     expect(config.apiBase).toBe("/api");
     expect(config.devAuthBypass).toBe(false);
+  });
+});
+
+describe("loadRuntimeConfig", () => {
+  afterEach(() => {
+    delete window.__ENV__;
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches /config.json, populates window.__ENV__, and returns the resolved config", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ PUBLIC_API_BASE: "https://fetched.example.com" }),
+      }),
+    );
+    const config = await loadRuntimeConfig();
+    expect(fetch).toHaveBeenCalledWith("/config.json");
+    expect(window.__ENV__?.PUBLIC_API_BASE).toBe("https://fetched.example.com");
+    expect(config.apiBase).toBe("https://fetched.example.com");
   });
 });
