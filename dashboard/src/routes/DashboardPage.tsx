@@ -26,6 +26,9 @@ import { createI18n, availableLocales, type Locale } from "../lib/i18n";
 //   - `.card` is rounded-lg (the global `.card` in app.css is rounded-xl);
 //   - every `card bg-red-50` / `card bg-yellow-50` / `card bg-gray-100` element
 //     rendered white with a gray-200 border, the colour utility having lost;
+//   - likewise `card … py-12` rendered at the rule's own 1.5rem padding, not
+//     3rem - any utility the scoped rule also declares loses, whatever the
+//     class attribute says;
 //   - `<h1 class="text-3xl">` rendered at text-2xl, `<h2 class="text-lg">` at
 //     text-xl/gray-900 (app.css's global h2 is gray-800).
 // Unifying any of this is a separate job from the React port.
@@ -413,7 +416,7 @@ export function DashboardPage() {
                 )}
               </>
             ) : queryLoading ? (
-              <div className={`${CARD} text-center py-12`}>
+              <div className={`${CARD} text-center`}>
                 <p className="text-gray-500 mb-2">
                   {i18n.t("explore.querying")}...
                 </p>
@@ -422,7 +425,7 @@ export function DashboardPage() {
                 </p>
               </div>
             ) : (
-              <div className={`${CARD} text-center py-12`}>
+              <div className={`${CARD} text-center`}>
                 <p className="text-gray-500 mb-2">
                   {i18n.t("explore.selectQueryParams")}
                 </p>
