@@ -7,7 +7,7 @@ API and Dashboard for GLOW longitudinal questionnaire data.
 This project has two components:
 
 - **API** (`/api`) — a read-only FastAPI service that provides suppression-safe access to student questionnaire data
-- **Dashboard** (`/dashboard`) — a SvelteKit app for authenticated users to view and query data via interactive charts
+- **Dashboard** (`/dashboard`) — a Vite + React SPA for authenticated users to view and query data via interactive charts
 
 In local compose, the Glow services are exposed directly:
 - Dashboard → `http://localhost:3000`
@@ -153,7 +153,7 @@ Any materialized result cell where the contributing student count is less than `
 
 ## Dashboard
 
-The SvelteKit dashboard provides:
+The dashboard provides:
 
 - **Login** — JWT-based authentication
 - **Home** — pre-built overview charts

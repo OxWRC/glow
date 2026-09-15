@@ -61,9 +61,10 @@ While we are in beta, we **do not need to retain backwards-compatibility**.
 The Dashboard exposes API data in graphic and tabular form to users.
 
 ### Tech stack:
-- SvelteKit (Svelte 5)
+- React (React Router)
 - TypeScript
 - Vite
+- Tailwind
 - Storybook
 
 ### SemVer
