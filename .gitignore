@@ -260,3 +260,4 @@ data/*
 skills-lock.json
 
 docs/superpowers/
+.superpowers/
