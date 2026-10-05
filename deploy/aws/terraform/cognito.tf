@@ -45,10 +45,10 @@ resource "aws_cognito_user_pool_client" "dashboard" {
   allowed_oauth_scopes                 = ["openid", "email", "profile"]
   supported_identity_providers         = ["COGNITO"]
 
-  # Task 8's dashboard only serves the "en" locale today
-  # (dashboard/src/lib/i18n/index.ts normalizes everything to "en"), with a
-  # planned callback route of /[locale]/auth/callback.
-  callback_urls = ["https://${var.domain_name}/en/auth/callback"]
+  # Cognito matches redirect_uri exactly, so the callback is locale-free
+  # (the dashboard carries the locale across the redirect in sessionStorage).
+  # logout_urls is still per-locale: only "en" exists today.
+  callback_urls = ["https://${var.domain_name}/auth/callback"]
   logout_urls   = ["https://${var.domain_name}/en/login"]
 
   prevent_user_existence_errors = "ENABLED"

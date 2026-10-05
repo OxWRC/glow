@@ -96,11 +96,7 @@ export function Layout() {
     );
   }
 
-  const noChrome =
-    location.pathname.endsWith("/login") ||
-    location.pathname.includes("/auth/callback");
-
-  if (noChrome) return <Outlet />;
+  if (location.pathname.endsWith("/login")) return <Outlet />;
 
   const displayName =
     identity?.kind === "authenticated" ? identity.username : null;

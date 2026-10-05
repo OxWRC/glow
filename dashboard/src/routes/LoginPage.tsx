@@ -62,8 +62,11 @@ export function LoginPage() {
       sessionStorage.setItem("pkce_code_verifier", verifier);
       const state = randomToken();
       sessionStorage.setItem("oauth_state", state);
+      // Cognito matches redirect_uri exactly, so the callback URL is
+      // locale-free and the locale rides across the redirect here instead.
+      sessionStorage.setItem("oauth_locale", locale);
       const challenge = await generateCodeChallenge(verifier);
-      const redirectUri = `${window.location.origin}/${locale}/auth/callback`;
+      const redirectUri = `${window.location.origin}/auth/callback`;
       const params = new URLSearchParams({
         client_id: COGNITO_CLIENT_ID,
         response_type: "code",

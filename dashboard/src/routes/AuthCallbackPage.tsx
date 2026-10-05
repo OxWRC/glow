@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { exchangeCodeForToken, me } from "../lib/api";
 import { useAuth } from "../auth/AuthContext";
 import { createI18n, availableLocales, type Locale } from "../lib/i18n";
 
 export function AuthCallbackPage() {
-  const { locale: localeParam } = useParams<{ locale: string }>();
-  const locale: Locale = availableLocales.includes(localeParam as Locale)
-    ? (localeParam as Locale)
-    : "en";
+  // Outside /:locale (Cognito needs one fixed callback URL); LoginPage
+  // stashes the locale in sessionStorage before redirecting.
+  const [locale] = useState<Locale>(() => {
+    const stored = sessionStorage.getItem("oauth_locale");
+    sessionStorage.removeItem("oauth_locale");
+    return availableLocales.includes(stored as Locale)
+      ? (stored as Locale)
+      : "en";
+  });
   const i18n = useMemo(() => createI18n(locale), [locale]);
   const [searchParams] = useSearchParams();
   const { setIdentity } = useAuth();
@@ -51,7 +56,7 @@ export function AuthCallbackPage() {
       }
 
       try {
-        const redirectUri = `${window.location.origin}/${locale}/auth/callback`;
+        const redirectUri = `${window.location.origin}/auth/callback`;
         const tokens = await exchangeCodeForToken(code, redirectUri, verifier);
         const identity = await me(tokens.id_token);
         if (identity.kind !== "authenticated") {

@@ -13,6 +13,8 @@ import { AdminPage } from "./routes/AdminPage";
 
 const router = createBrowserRouter([
   { path: "/", element: <Navigate to="/en" replace /> },
+  // Locale-free: must match cognito.tf's single callback URL exactly.
+  { path: "/auth/callback", element: <AuthCallbackPage /> },
   {
     path: "/:locale",
     element: <Layout />,
@@ -21,7 +23,6 @@ const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: "admin", element: <AdminPage /> },
       { path: "login", element: <LoginPage /> },
-      { path: "auth/callback", element: <AuthCallbackPage /> },
     ],
   },
   { path: "*", element: <ErrorPage status={404} /> },
