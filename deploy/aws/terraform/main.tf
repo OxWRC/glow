@@ -10,6 +10,7 @@ locals {
     Stack          = "glow"
     GitTag         = var.git_ref
     GlowGUIVersion = var.gui_version
+    GlowDemoMode   = tostring(var.demo_mode)
   }
 
   runner_tags = merge(local.tags, {

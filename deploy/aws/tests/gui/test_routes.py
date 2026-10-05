@@ -959,3 +959,73 @@ def test_snapshots_page_delete_route_redirects_to_snapshots_list(client, monkeyp
     assert response.status_code == 303
     assert response.headers["location"] == "/snapshots"
     assert delete_calls == ["snap-2"]
+
+
+def test_new_deployment_demo_checkbox_threads_to_config(client, monkeypatch):
+    _sign_in(client)
+    monkeypatch.setattr(
+        github_api, "resolve_git_commit_via_github", lambda repo_url, ref: "d" * 40
+    )
+    plan_calls = []
+    monkeypatch.setattr(core, "provision", lambda config: plan_calls.append(config))
+    response = client.post(
+        "/deployments/new/plan",
+        data={
+            "domain": "example.com",
+            "git_ref": "v2",
+            "aws_region": "eu-west-2",
+            "demo_mode": "true",
+        },
+        follow_redirects=False,
+    )
+    job_id = response.headers["location"].removeprefix("/jobs/")
+    _wait_for_job(client, job_id)
+    assert plan_calls[0].demo_mode is True
+    assert 'name="demo_mode" value="True"' in client.get(f"/jobs/{job_id}").text
+
+    apply_calls = []
+    monkeypatch.setattr(core, "provision", lambda config: apply_calls.append(config))
+    response = client.post(
+        "/deployments/new/apply",
+        data={
+            "domain_name": "example.com",
+            "git_repo_url": "https://github.com/OxWRC/glow.git",
+            "git_ref": "v2",
+            "git_commit": "d" * 40,
+            "aws_region": "eu-west-2",
+            "app_name": "glow-core",
+            "runner_instance_type": "t3.medium",
+            "runner_root_volume_size_gb": "100",
+            "demo_mode": "True",
+        },
+        follow_redirects=False,
+    )
+    _wait_for_job(client, response.headers["location"].removeprefix("/jobs/"))
+    assert apply_calls[0].demo_mode is True
+
+
+def test_new_deployment_form_has_demo_checkbox(client):
+    _sign_in(client)
+    page = client.get("/deployments/new")
+    assert "Demo deployment (fictional data, no login)" in page.text
+
+
+def test_home_badges_demo_deployments(client, monkeypatch):
+    _sign_in(client)
+    monkeypatch.setattr(
+        core,
+        "list_deployments",
+        lambda session, region: [
+            {
+                "instance_id": "i-123",
+                "state": "running",
+                "domain": "demo.example.com",
+                "git_ref": "main",
+                "git_commit": "deadbeef" * 5,
+                "launch_time": "2026-01-01T00:00:00Z",
+                "demo": True,
+            }
+        ],
+    )
+    monkeypatch.setattr(core, "get_cpu_utilization", lambda ids, region, session: {})
+    assert ">Demo<" in client.get("/deployments").text

@@ -115,6 +115,7 @@ def new_deployment_plan(
     runner_root_volume_size_gb: int = Form(100),
     force_rebuild_ami: bool = Form(False),
     restore_from_snapshot_id: str = Form(""),
+    demo_mode: bool = Form(False),
 ):
     resolved_ref = git_ref_override.strip() or git_ref or _default_git_ref(request)
     try:
@@ -151,6 +152,7 @@ def new_deployment_plan(
         runner_root_volume_size_gb=runner_root_volume_size_gb,
         force_rebuild_ami=force_rebuild_ami,
         restore_from_snapshot_id=restore_from_snapshot_id,
+        demo_mode=demo_mode,
     )
     config = core.Config(session=session, dry_run=True, **config_fields)
     job_id = request.app.state.job_manager.submit(
@@ -180,6 +182,7 @@ def new_deployment_apply(
     runner_root_volume_size_gb: int = Form(...),
     force_rebuild_ami: bool = Form(False),
     restore_from_snapshot_id: str = Form(""),
+    demo_mode: bool = Form(False),
 ):
     config = core.Config(
         session=session,
@@ -195,6 +198,7 @@ def new_deployment_apply(
         runner_root_volume_size_gb=runner_root_volume_size_gb,
         force_rebuild_ami=force_rebuild_ami,
         restore_from_snapshot_id=restore_from_snapshot_id,
+        demo_mode=demo_mode,
     )
     job_id = request.app.state.job_manager.submit(
         lambda: core.provision(config),

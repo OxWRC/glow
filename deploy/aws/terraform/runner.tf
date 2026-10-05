@@ -80,6 +80,7 @@ resource "aws_instance" "runner" {
       git_ref                         = var.git_ref
       git_repo_url                    = var.git_repo_url
       git_checkout_ref                = var.git_checkout_ref
+      demo_mode                       = var.demo_mode
       cloudwatch_bootstrap_log_group  = aws_cloudwatch_log_group.bootstrap.name
       cloudwatch_containers_log_group = aws_cloudwatch_log_group.containers.name
       cloudwatch_system_log_group     = aws_cloudwatch_log_group.system.name

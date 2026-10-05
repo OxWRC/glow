@@ -71,6 +71,7 @@ class Config:
     certificate_arn: str = ""
     gui_version: str = GUI_VERSION
     restore_from_snapshot_id: str = ""
+    demo_mode: bool = False
     session: boto3.Session | None = None
 
 
@@ -401,6 +402,34 @@ def read_terraform_outputs(env: dict[str, str] | None = None) -> dict[str, Any]:
     return {name: details["value"] for name, details in raw.items()}
 
 
+def _is_demo(value: Any) -> bool:
+    """Terraform outputs arrive as bools; tolerate a "true"/"false" string too."""
+    return value is True or str(value).lower() == "true"
+
+
+def _read_existing_outputs(env: dict[str, str] | None) -> dict[str, Any]:
+    """Outputs of any prior deployment, or ``{}`` if there is none to read."""
+    try:
+        return read_terraform_outputs(env=env)
+    except (DeployError, ValueError):
+        return {}
+
+
+def _runner_env(config: Config, outputs: dict[str, Any], demo: bool) -> dict[str, str]:
+    """Environment for the runner userdata re-run; demo has no Cognito."""
+    cognito = {} if demo else outputs
+    return {
+        "GIT_REPO_URL": config.git_repo_url,
+        "GIT_REF": config.git_ref,
+        "GIT_COMMIT": config.git_commit,
+        "GLOW_DEMO_MODE": "true" if demo else "false",
+        "GLOW_COGNITO_USER_POOL_ID": cognito.get("cognito_user_pool_id", ""),
+        "GLOW_COGNITO_CLIENT_ID": cognito.get("cognito_client_id", ""),
+        "GLOW_COGNITO_REGION": cognito.get("cognito_region", ""),
+        "GLOW_COGNITO_DOMAIN": cognito.get("cognito_hosted_ui_domain", ""),
+    }
+
+
 def terraform_apply(config: Config, ami_id: str) -> dict[str, Any]:
     """Apply Terraform configuration."""
     # A pasted certificate ARN always wins: it's how someone hosting on a
@@ -453,6 +482,7 @@ def terraform_apply(config: Config, ami_id: str) -> dict[str, Any]:
         "runner_ami_id": validate_ami_id(ami_id),
         "runner_instance_type": config.runner_instance_type,
         "runner_root_volume_size_gb": config.runner_root_volume_size_gb,
+        "demo_mode": config.demo_mode,
     }
 
     fd, tfvars_path = tempfile.mkstemp(suffix=".tfvars.json")
@@ -1031,6 +1061,7 @@ def list_deployments(
                     "domain": tags.get("Domain"),
                     "git_ref": tags.get("GitRef"),
                     "git_commit": tags.get("GitCommit"),
+                    "demo": tags.get("GlowDemoMode") == "true",
                     "launch_time": instance.get("LaunchTime"),
                 }
             )
@@ -1323,6 +1354,15 @@ def provision(config: Config) -> dict[str, Any] | None:
 
     terraform_init(bucket, config.aws_region, config.session)
 
+    existing = _read_existing_outputs(_subprocess_env(config.session))
+    if existing and _is_demo(existing.get("demo_mode")) != config.demo_mode:
+        raise DeployError(
+            f"{config.domain_name} was provisioned with demo mode "
+            f"{'on' if _is_demo(existing.get('demo_mode')) else 'off'}; demo mode "
+            "cannot be changed on an existing deployment. Destroy it and "
+            "provision again."
+        )
+
     write_line("[deploy] Applying Terraform")
     outputs = terraform_apply(config, ami_id)
 
@@ -1346,15 +1386,7 @@ def provision(config: Config) -> dict[str, Any] | None:
         instance_id,
         config.aws_region,
         config.domain_name,
-        {
-            "GIT_REPO_URL": config.git_repo_url,
-            "GIT_REF": config.git_ref,
-            "GIT_COMMIT": config.git_commit,
-            "GLOW_COGNITO_USER_POOL_ID": outputs.get("cognito_user_pool_id", ""),
-            "GLOW_COGNITO_CLIENT_ID": outputs.get("cognito_client_id", ""),
-            "GLOW_COGNITO_REGION": outputs.get("cognito_region", ""),
-            "GLOW_COGNITO_DOMAIN": outputs.get("cognito_hosted_ui_domain", ""),
-        },
+        _runner_env(config, outputs, config.demo_mode),
         config.session,
     )
     verify_runner_health(instance_id, config.aws_region, config.session)
@@ -1420,15 +1452,7 @@ def update(config: Config) -> None:
         instance_id,
         config.aws_region,
         config.domain_name,
-        {
-            "GIT_REPO_URL": config.git_repo_url,
-            "GIT_REF": config.git_ref,
-            "GIT_COMMIT": config.git_commit,
-            "GLOW_COGNITO_USER_POOL_ID": outputs.get("cognito_user_pool_id", ""),
-            "GLOW_COGNITO_CLIENT_ID": outputs.get("cognito_client_id", ""),
-            "GLOW_COGNITO_REGION": outputs.get("cognito_region", ""),
-            "GLOW_COGNITO_DOMAIN": outputs.get("cognito_hosted_ui_domain", ""),
-        },
+        _runner_env(config, outputs, _is_demo(outputs.get("demo_mode"))),
         config.session,
     )
     verify_runner_health(instance_id, config.aws_region, config.session)
@@ -1557,6 +1581,11 @@ def main() -> int:
     parser.add_argument("--force-rebuild-ami", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="Demo deployment: fictional data, no login. Fixed at provision.",
+    )
+    parser.add_argument(
         "--update",
         action="store_true",
         help="Update existing instance instead of provision",
@@ -1587,6 +1616,7 @@ def main() -> int:
             runner_root_volume_size_gb=args.runner_root_volume_size_gb,
             dry_run=args.dry_run,
             force_rebuild_ami=args.force_rebuild_ami,
+            demo_mode=args.demo,
         )
 
         if args.update:

@@ -225,6 +225,7 @@ uv run --project deploy/aws glow-deploy \
 - `--runner-instance-type`: EC2 instance type (default: t3.medium)
 - `--runner-root-volume-size-gb`: root volume size in GB (default: 100)
 - `--force-rebuild-ami`: force AMI rebuild even if one exists
+- `--demo`: provision a demo deployment (fictional data, no login; the GUI has a matching "Demo deployment" checkbox). The mode is fixed at provision: re-provisioning an existing deployment with a different mode is refused, so destroy it and provision again to change it
 - `--dry-run`: plan only, do not apply
 - `--update`: update existing instance instead of provision
 

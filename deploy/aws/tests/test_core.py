@@ -235,6 +235,7 @@ def test_list_deployments_maps_tags_from_terraform_managed_instances(monkeypatch
             "domain": "eu.glow-project.org",
             "git_ref": "main",
             "git_commit": "deadbeef",
+            "demo": False,
             "launch_time": "2026-01-01T00:00:00Z",
         }
     ]
@@ -569,6 +570,7 @@ def test_restore_snapshot_data_deletes_volume_and_preserves_original_error_when_
 
 
 def test_provision_restores_snapshot_data_when_requested(monkeypatch):
+    monkeypatch.setattr(core, "read_terraform_outputs", lambda env=None: {})
     calls: list[tuple] = []
     monkeypatch.setattr(
         core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
@@ -618,6 +620,7 @@ def test_provision_restores_snapshot_data_when_requested(monkeypatch):
 
 
 def test_provision_skips_restore_when_no_snapshot_requested(monkeypatch):
+    monkeypatch.setattr(core, "read_terraform_outputs", lambda env=None: {})
     calls: list[tuple] = []
     monkeypatch.setattr(
         core, "ensure_state_bucket", lambda region, domain, session=None: "bucket"
@@ -1541,6 +1544,7 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
                 "GIT_REPO_URL": "https://example.com/glow.git",
                 "GIT_REF": "main",
                 "GIT_COMMIT": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                "GLOW_DEMO_MODE": "false",
                 "GLOW_COGNITO_USER_POOL_ID": "",
                 "GLOW_COGNITO_CLIENT_ID": "",
                 "GLOW_COGNITO_REGION": "",
@@ -1645,6 +1649,7 @@ def test_update_snapshots_volume_before_preparing_repository(monkeypatch):
 
 
 def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
+    monkeypatch.setattr(core, "read_terraform_outputs", lambda env=None: {})
     calls: list[tuple[str, object]] = []
 
     monkeypatch.setattr(
@@ -1722,6 +1727,7 @@ def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
                 "GIT_REPO_URL": "https://example.com/glow.git",
                 "GIT_REF": "main",
                 "GIT_COMMIT": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                "GLOW_DEMO_MODE": "false",
                 "GLOW_COGNITO_USER_POOL_ID": "eu-west-2_abc123",
                 "GLOW_COGNITO_CLIENT_ID": "client-abc123",
                 "GLOW_COGNITO_REGION": "eu-west-2",
@@ -1733,6 +1739,7 @@ def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
 
 
 def test_provision_forwards_session_to_every_aws_touching_step(monkeypatch):
+    monkeypatch.setattr(core, "read_terraform_outputs", lambda env=None: {})
     """The whole point of Config.session: every collaborator must see it.
 
     provision() passes session as the *last positional argument* to each of
@@ -1776,3 +1783,181 @@ def test_provision_forwards_session_to_every_aws_touching_step(monkeypatch):
 
     assert sessions_seen
     assert all(seen is session for seen in sessions_seen)
+
+
+def _provision_stubs(monkeypatch, existing, calls):
+    monkeypatch.setattr(core, "ensure_state_bucket", lambda *a: "bucket")
+    monkeypatch.setattr(core, "find_ami_in_account", lambda *a: "ami-12345678")
+    monkeypatch.setattr(core, "terraform_init", lambda *a: None)
+    monkeypatch.setattr(core, "read_terraform_outputs", lambda env=None: existing)
+    monkeypatch.setattr(
+        core,
+        "terraform_apply",
+        lambda config, ami_id: (
+            calls.append("apply")
+            or {"runner_instance_id": "i-1", "alb_dns_name": "alb"}
+        ),
+    )
+    monkeypatch.setattr(core, "wait_for_ssm_online", lambda *a: None)
+    monkeypatch.setattr(core, "wait_for_runner_bootstrap_completion", lambda *a: None)
+    monkeypatch.setattr(core, "prepare_runner_repository", lambda *a: None)
+    monkeypatch.setattr(
+        core,
+        "rerun_runner_userdata",
+        lambda i, r, d, env=None, session=None: calls.append(env),
+    )
+    monkeypatch.setattr(core, "verify_runner_health", lambda *a: None)
+
+
+def test_terraform_apply_writes_demo_mode_tfvars(monkeypatch):
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+    captured = {}
+
+    def fake_run_command(args, **kwargs):
+        path = next(a for a in args if a.startswith("-var-file=")).split("=", 1)[1]
+        captured.update(json.loads(Path(path).read_text()))
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(core, "run_command", fake_run_command)
+    core.terraform_apply(
+        _make_config(certificate_arn="arn:aws:acm:...", dry_run=True, demo_mode=True),
+        "ami-12345678",
+    )
+    assert captured["demo_mode"] is True
+
+
+def test_provision_refuses_to_switch_existing_deployment_to_demo(monkeypatch):
+    calls = []
+    _provision_stubs(monkeypatch, {"runner_instance_id": "i-1"}, calls)
+    with pytest.raises(core.DeployError, match="demo mode"):
+        core.provision(_make_config(demo_mode=True))
+    assert "apply" not in calls
+
+
+def test_provision_refuses_to_switch_demo_deployment_to_real(monkeypatch):
+    calls = []
+    _provision_stubs(monkeypatch, {"demo_mode": True}, calls)
+    with pytest.raises(core.DeployError, match="demo mode"):
+        core.provision(_make_config(demo_mode=False))
+    assert "apply" not in calls
+
+
+@pytest.mark.parametrize("demo", [True, False])
+def test_provision_proceeds_on_fresh_state(monkeypatch, demo):
+    calls = []
+    _provision_stubs(monkeypatch, {}, calls)
+    core.provision(_make_config(demo_mode=demo))
+    assert calls[0] == "apply"
+    assert calls[1]["GLOW_DEMO_MODE"] == ("true" if demo else "false")
+
+
+def test_provision_proceeds_when_prior_state_predates_demo_output(monkeypatch):
+    calls = []
+    _provision_stubs(monkeypatch, {"runner_instance_id": "i-1"}, calls)
+    core.provision(_make_config(demo_mode=False))
+    assert calls[0] == "apply"
+
+
+def test_provision_demo_blanks_cognito_values(monkeypatch):
+    calls = []
+    _provision_stubs(monkeypatch, {}, calls)
+    monkeypatch.setattr(
+        core,
+        "terraform_apply",
+        lambda config, ami_id: {
+            "runner_instance_id": "i-1",
+            "alb_dns_name": "alb",
+            "cognito_user_pool_id": "pool",
+            "cognito_client_id": "client",
+            "cognito_region": "eu-west-2",
+            "cognito_hosted_ui_domain": "d",
+        },
+    )
+    core.provision(_make_config(demo_mode=True))
+    env = calls[0]
+    assert env["GLOW_DEMO_MODE"] == "true"
+    assert [v for k, v in env.items() if k.startswith("GLOW_COGNITO")] == [""] * 4
+
+
+def test_read_existing_outputs_is_empty_when_terraform_output_fails(monkeypatch):
+    def boom(env=None):
+        raise core.DeployError("no state")
+
+    monkeypatch.setattr(core, "read_terraform_outputs", boom)
+    assert core._read_existing_outputs(None) == {}
+
+
+def _update_stubs(monkeypatch, outputs, calls):
+    monkeypatch.setattr(core, "ensure_state_bucket", lambda *a: "bucket")
+    monkeypatch.setattr(core, "terraform_init", lambda *a: None)
+    monkeypatch.setattr(core, "read_terraform_outputs", lambda env=None: outputs)
+    monkeypatch.setattr(core, "wait_for_ssm_online", lambda *a: None)
+    monkeypatch.setattr(core, "wait_for_runner_bootstrap_completion", lambda *a: None)
+    monkeypatch.setattr(core, "find_root_volume_id", lambda *a: "vol-1")
+    monkeypatch.setattr(core, "create_snapshot", lambda *a, **k: None)
+    monkeypatch.setattr(core, "prepare_runner_repository", lambda *a: None)
+    monkeypatch.setattr(
+        core,
+        "rerun_runner_userdata",
+        lambda i, r, d, env=None, session=None: calls.append(env),
+    )
+    monkeypatch.setattr(core, "verify_runner_health", lambda *a: None)
+    monkeypatch.setattr(
+        core, "_client", lambda *a: SimpleNamespace(create_tags=lambda **k: None)
+    )
+
+
+@pytest.mark.parametrize("flag", [True, "true"])
+def test_update_passes_demo_mode_and_blank_cognito(monkeypatch, flag):
+    calls = []
+    _update_stubs(
+        monkeypatch,
+        {"runner_instance_id": "i-1", "demo_mode": flag, "cognito_client_id": "c"},
+        calls,
+    )
+    core.update(_make_config())
+    assert calls[0]["GLOW_DEMO_MODE"] == "true"
+    assert calls[0]["GLOW_COGNITO_CLIENT_ID"] == ""
+
+
+def test_update_without_demo_output_passes_false_and_real_cognito(monkeypatch):
+    calls = []
+    _update_stubs(
+        monkeypatch, {"runner_instance_id": "i-1", "cognito_client_id": "c"}, calls
+    )
+    core.update(_make_config())
+    assert calls[0]["GLOW_DEMO_MODE"] == "false"
+    assert calls[0]["GLOW_COGNITO_CLIENT_ID"] == "c"
+
+
+@pytest.mark.parametrize("tag,expected", [("true", True), (None, False)])
+def test_list_deployments_maps_demo_tag(monkeypatch, tag, expected):
+    tags = [{"Key": "Component", "Value": "glow-runner"}]
+    if tag:
+        tags.append({"Key": "GlowDemoMode", "Value": tag})
+    response = {
+        "Reservations": [
+            {
+                "Instances": [
+                    {"InstanceId": "i-1", "State": {"Name": "running"}, "Tags": tags}
+                ]
+            }
+        ]
+    }
+    monkeypatch.setattr(core, "_client", lambda *a: _FakeEc2Client(response))
+    assert core.list_deployments()[0]["demo"] is expected
+
+
+def test_cli_demo_flag_sets_config_demo_mode(monkeypatch):
+    seen = []
+    monkeypatch.setattr(core.binaries, "terraform_binary", lambda: "terraform")
+    monkeypatch.setattr(core.binaries, "packer_binary", lambda: "packer")
+    monkeypatch.setattr(
+        core.github_api, "resolve_git_commit_via_github", lambda *a: "c" * 40
+    )
+    monkeypatch.setattr(core, "provision", lambda config: seen.append(config))
+    monkeypatch.setattr(
+        "sys.argv", ["glow-deploy", "--domain", "example.com", "--demo"]
+    )
+    assert core.main() == 0
+    assert seen[0].demo_mode is True

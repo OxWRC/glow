@@ -41,6 +41,11 @@ variable "runner_ami_id" {
   type = string
 }
 
+variable "demo_mode" {
+  type    = bool
+  default = false
+}
+
 variable "runner_instance_type" {
   type = string
 }

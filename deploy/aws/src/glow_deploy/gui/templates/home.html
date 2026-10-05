@@ -12,6 +12,7 @@
         <div class="deployment-row">
           <strong><a href="/deployments/{{ deployment.domain }}">{{ deployment.domain }}</a></strong>
           <span>
+            {% if deployment.demo %}<span class="badge">Demo</span>{% endif %}
             <span class="badge">{{ deployment.state }} — {{ deployment.version_info.deployed_version or deployment.git_ref }} ({{ (deployment.git_commit or "")[:8] }})</span>
             {% if deployment.version_info.state == "tracked" %}
               {% if deployment.version_info.status.upgrade_to %}<span class="badge badge-running">upgrade available</span>{% endif %}

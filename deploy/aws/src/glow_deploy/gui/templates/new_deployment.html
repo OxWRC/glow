@@ -46,6 +46,7 @@
       <input type="number" name="runner_root_volume_size_gb" value="{{ defaults.runner_root_volume_size_gb }}" required>
     </label>
     <label><input type="checkbox" name="force_rebuild_ami" value="true"> Force rebuild AMI</label>
+    <label><input type="checkbox" name="demo_mode" value="true"> Demo deployment (fictional data, no login)</label>
     <button type="submit" class="button">Start deployment</button>
   </form>
   <script type="module" src="/static/js/domain-check.js"></script>
