@@ -261,3 +261,6 @@ skills-lock.json
 
 docs/superpowers/
 .superpowers/
+
+# Local-only ops script (EBS volume probe)
+deploy/aws/scripts/tag-glow-volumes.sh
