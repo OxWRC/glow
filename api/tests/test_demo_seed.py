@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from click.testing import CliRunner
 
 from glow_api.cli import cli
@@ -67,3 +68,14 @@ def test_demo_reset_cli_refuses_when_demo_mode_off(monkeypatch):
     result = CliRunner().invoke(cli, ["demo", "reset"])
     assert result.exit_code == 1
     assert "GLOW_DEMO_MODE is off" in result.output
+
+
+def test_seed_demo_failure_rolls_back_everything(db_session, sample_df):
+    seed_demo(db_session, sample_df)
+    schools = {s.name for s in list_schools(db_session)}
+
+    with pytest.raises(ValueError):
+        seed_demo(db_session, sample_df.drop(columns=["school"]))
+
+    assert {s.name for s in list_schools(db_session)} == schools
+    assert [u.username for u in list_users(db_session)] == ["admin"]

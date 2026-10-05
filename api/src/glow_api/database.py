@@ -2,17 +2,18 @@
 Database configuration and session management for metadata database.
 """
 
+import random
 from collections.abc import Generator
 from datetime import datetime, timezone
-import random
 from pathlib import Path
 
-from alembic import command
+import pandas as pd
 from alembic.config import Config
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command
 from glow_api.metadata_models import (
     ApiKey,
     School,
@@ -176,6 +177,7 @@ def create_user(
     is_admin: bool = False,
     is_wrc: bool = False,
     school_ids: list[int] | None = None,
+    commit: bool = True,
 ) -> User:
     if is_wrc:
         # WRC users never have direct school access, regardless of what
@@ -191,7 +193,7 @@ def create_user(
         schools = db.query(School).filter(School.id.in_(school_ids)).all()
         user.schools = schools
     db.add(user)
-    db.commit()
+    db.commit() if commit else db.flush()
     db.refresh(user)
     return user
 
@@ -251,12 +253,13 @@ def create_school(
     size: str | None = None,
     category: str | None = None,
     odk_school_id: str | None = None,
+    commit: bool = True,
 ) -> School:
     school = School(
         name=name, size=size, category=category, odk_school_id=odk_school_id
     )
     db.add(school)
-    db.commit()
+    db.commit() if commit else db.flush()
     db.refresh(school)
     return school
 
@@ -268,6 +271,7 @@ def update_school(
     size: str | None = None,
     category: str | None = None,
     odk_school_id: str | None = None,
+    commit: bool = True,
 ) -> School:
     if name is not None:
         school.name = name
@@ -277,7 +281,7 @@ def update_school(
         school.category = category
     if odk_school_id is not None:
         school.odk_school_id = odk_school_id
-    db.commit()
+    db.commit() if commit else db.flush()
     db.refresh(school)
     return school
 
@@ -292,7 +296,7 @@ def list_schools(db: Session) -> list[School]:
 
 
 def set_geographical_neighbors(
-    db: Session, school: School, neighbor_ids: list[int]
+    db: Session, school: School, neighbor_ids: list[int], commit: bool = True
 ) -> School:
     """Set geographical neighbors for a school (reciprocal relationship)."""
     neighbors = db.query(School).filter(School.id.in_(neighbor_ids)).all()
@@ -303,13 +307,13 @@ def set_geographical_neighbors(
         if school not in neighbor.geographical_neighbors:
             neighbor.geographical_neighbors.append(school)
 
-    db.commit()
+    db.commit() if commit else db.flush()
     db.refresh(school)
     return school
 
 
 def set_statistical_neighbors(
-    db: Session, school: School, neighbor_ids: list[int]
+    db: Session, school: School, neighbor_ids: list[int], commit: bool = True
 ) -> School:
     """Set statistical neighbors for a school (reciprocal relationship)."""
     neighbors = db.query(School).filter(School.id.in_(neighbor_ids)).all()
@@ -320,12 +324,14 @@ def set_statistical_neighbors(
         if school not in neighbor.statistical_neighbors:
             neighbor.statistical_neighbors.append(school)
 
-    db.commit()
+    db.commit() if commit else db.flush()
     db.refresh(school)
     return school
 
 
-def extract_schools_from_dataframe(db: Session, df) -> list[School]:
+def extract_schools_from_dataframe(
+    db: Session, df: pd.DataFrame, commit: bool = True
+) -> list[School]:
     """Extract unique ODK school values from a DataFrame and create School records.
 
     Matches/links by odk_school_id (the raw ODK "school" field value), not by
@@ -349,10 +355,14 @@ def extract_schools_from_dataframe(db: Session, df) -> list[School]:
             legacy = get_school_by_name(db, odk_school_id)
             if legacy is not None and legacy.odk_school_id is None:
                 created_schools.append(
-                    update_school(db, legacy, odk_school_id=odk_school_id)
+                    update_school(
+                        db, legacy, odk_school_id=odk_school_id, commit=commit
+                    )
                 )
                 continue
-            school = create_school(db, name=odk_school_id, odk_school_id=odk_school_id)
+            school = create_school(
+                db, name=odk_school_id, odk_school_id=odk_school_id, commit=commit
+            )
             created_schools.append(school)
         else:
             created_schools.append(existing)
@@ -406,7 +416,7 @@ def touch_api_key_last_used(db: Session, api_key: ApiKey) -> None:
     db.commit()
 
 
-def grant_admins_all_schools(db: Session) -> int:
+def grant_admins_all_schools(db: Session, commit: bool = True) -> int:
     """Grant all admin users access to all schools.
 
     Returns the number of admin users updated.
@@ -420,16 +430,17 @@ def grant_admins_all_schools(db: Session) -> int:
         admin.schools = all_schools
         updated_count += 1
 
-    db.commit()
+    db.commit() if commit else db.flush()
     return updated_count
 
 
 def sync_schools(
     db: Session,
-    df,
+    df: pd.DataFrame,
     min_geographical: int = 2,
     min_statistical: int = 2,
     rng: random.Random | None = None,
+    commit: bool = True,
 ) -> list[School]:
     """Extract schools from df, top up neighbours, grant admins all schools.
 
@@ -437,7 +448,7 @@ def sync_schools(
     ValueError if df has no 'school' column.
     """
     rng = rng or random
-    extract_schools_from_dataframe(db, df)
+    extract_schools_from_dataframe(db, df, commit=commit)
     schools = sorted(list_schools(db), key=lambda s: s.id)
 
     for school in schools:
@@ -455,13 +466,13 @@ def sync_schools(
             available = [s for s in others if s.id not in have]
             if needed > 0 and available:
                 picked = rng.sample(available, min(needed, len(available)))
-                setter(db, school, [*have, *(n.id for n in picked)])
+                setter(db, school, [*have, *(n.id for n in picked)], commit=commit)
 
-    grant_admins_all_schools(db)
+    grant_admins_all_schools(db, commit=commit)
     return schools
 
 
-def seed_demo(db: Session, df) -> None:
+def seed_demo(db: Session, df: pd.DataFrame) -> None:
     """Reset to the demo state: only schools from df, one `admin` user."""
     try:
         for table in (
@@ -473,10 +484,10 @@ def seed_demo(db: Session, df) -> None:
             School.__table__,
         ):
             db.execute(table.delete())
+        sync_schools(db, df, rng=random.Random(0), commit=False)
+        create_user(db, username="admin", is_admin=True, commit=False)
+        grant_admins_all_schools(db, commit=False)
         db.commit()
-        sync_schools(db, df, rng=random.Random(0))
-        create_user(db, username="admin", is_admin=True)
-        grant_admins_all_schools(db)
     except Exception:
         db.rollback()
         raise
