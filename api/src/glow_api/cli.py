@@ -111,7 +111,13 @@ def _get_cognito_client():
 
 
 def _bootstrap_cognito_user(
-    db, username: str, password: str, permanent: bool, is_admin: bool, is_wrc: bool, school_ids: list[int]
+    db,
+    username: str,
+    password: str,
+    permanent: bool,
+    is_admin: bool,
+    is_wrc: bool,
+    school_ids: list[int],
 ) -> User:
     """Create/find `username` in Cognito, then upsert the local row by its `sub`.
 

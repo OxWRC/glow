@@ -29,8 +29,7 @@ def test_extract_ami_id_from_packer_output_reads_machine_readable_artifact_id():
 
 def test_extract_ami_id_from_packer_output_ignores_trailing_control_characters():
     output = (
-        "1720781201,amazon-ebs.runner,artifact,0,id,"
-        "eu-west-2:ami-0123456789abcdef0[0m"
+        "1720781201,amazon-ebs.runner,artifact,0,id,eu-west-2:ami-0123456789abcdef0[0m"
     )
 
     assert core.extract_ami_id_from_packer_output(output) == "ami-0123456789abcdef0"
@@ -266,7 +265,10 @@ class _FakeEc2ClientForSnapshots:
         if kwargs.get("SnapshotIds"):
             return {
                 "Snapshots": [
-                    {"SnapshotId": kwargs["SnapshotIds"][0], "State": self._snapshot_state}
+                    {
+                        "SnapshotId": kwargs["SnapshotIds"][0],
+                        "State": self._snapshot_state,
+                    }
                 ]
             }
         return self.describe_snapshots_response
@@ -285,8 +287,14 @@ def test_find_root_volume_id_reads_root_device_mapping(monkeypatch):
                         "InstanceId": "i-1234567890",
                         "RootDeviceName": "/dev/xvda",
                         "BlockDeviceMappings": [
-                            {"DeviceName": "/dev/xvda", "Ebs": {"VolumeId": "vol-abc123"}},
-                            {"DeviceName": "/dev/xvdf", "Ebs": {"VolumeId": "vol-other"}},
+                            {
+                                "DeviceName": "/dev/xvda",
+                                "Ebs": {"VolumeId": "vol-abc123"},
+                            },
+                            {
+                                "DeviceName": "/dev/xvdf",
+                                "Ebs": {"VolumeId": "vol-other"},
+                            },
                         ],
                     }
                 ]
@@ -344,7 +352,12 @@ def test_create_snapshot_skips_wait_when_wait_is_false(monkeypatch):
     monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
 
     snapshot_id = core.create_snapshot(
-        "vol-abc123", "eu.glow-project.org", "pre-update", "eu-west-2", session=None, wait=False
+        "vol-abc123",
+        "eu.glow-project.org",
+        "pre-update",
+        "eu-west-2",
+        session=None,
+        wait=False,
     )
 
     assert snapshot_id == "snap-1234567890"
@@ -371,7 +384,9 @@ def test_list_snapshots_maps_tags_and_filters_by_domain(monkeypatch):
     }
     monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
 
-    snapshots = core.list_snapshots("eu-west-2", session=None, domain="eu.glow-project.org")
+    snapshots = core.list_snapshots(
+        "eu-west-2", session=None, domain="eu.glow-project.org"
+    )
 
     assert snapshots == [
         {
@@ -451,13 +466,17 @@ def test_restore_snapshot_data_creates_attaches_and_cleans_up_volume(monkeypatch
     monkeypatch.setattr(
         core,
         "run_ssm_command",
-        lambda instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None: ssm_calls.append(
-            (instance_id, commands, comment)
+        lambda instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None: (
+            ssm_calls.append((instance_id, commands, comment))
         ),
     )
 
     core.restore_snapshot_data(
-        "i-1234567890", "snap-1234567890", "eu-west-2", domain="example.com", session=None
+        "i-1234567890",
+        "snap-1234567890",
+        "eu-west-2",
+        domain="example.com",
+        session=None,
     )
 
     assert fake_ec2.create_volume_calls == [
@@ -476,7 +495,11 @@ def test_restore_snapshot_data_creates_attaches_and_cleans_up_volume(monkeypatch
         }
     ]
     assert fake_ec2.attach_volume_calls == [
-        {"VolumeId": "vol-restore123", "InstanceId": "i-1234567890", "Device": "/dev/sdf"}
+        {
+            "VolumeId": "vol-restore123",
+            "InstanceId": "i-1234567890",
+            "Device": "/dev/sdf",
+        }
     ]
     assert len(ssm_calls) == 1
     assert ssm_calls[0][0] == "i-1234567890"
@@ -489,20 +512,26 @@ def test_restore_snapshot_data_creates_attaches_and_cleans_up_volume(monkeypatch
     assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-restore123"}]
 
 
-def test_restore_snapshot_data_cleans_up_volume_even_when_ssm_command_fails(monkeypatch):
+def test_restore_snapshot_data_cleans_up_volume_even_when_ssm_command_fails(
+    monkeypatch,
+):
     fake_ec2 = _FakeEc2ClientForRestore()
     monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
     monkeypatch.setattr(
         core,
         "run_ssm_command",
         lambda instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None: (
-            _ for _ in ()
-        ).throw(core.DeployError("ssm failed")),
+            (_ for _ in ()).throw(core.DeployError("ssm failed"))
+        ),
     )
 
     with pytest.raises(core.DeployError, match="ssm failed"):
         core.restore_snapshot_data(
-            "i-1234567890", "snap-1234567890", "eu-west-2", domain="example.com", session=None
+            "i-1234567890",
+            "snap-1234567890",
+            "eu-west-2",
+            domain="example.com",
+            session=None,
         )
 
     assert fake_ec2.detach_volume_calls == [
@@ -520,13 +549,17 @@ def test_restore_snapshot_data_deletes_volume_and_preserves_original_error_when_
         core,
         "run_ssm_command",
         lambda instance_id, region, commands, comment, timeout=1800, session=None, on_tick=None: (
-            _ for _ in ()
-        ).throw(core.DeployError("ssm failed")),
+            (_ for _ in ()).throw(core.DeployError("ssm failed"))
+        ),
     )
 
     with pytest.raises(core.DeployError, match="ssm failed"):
         core.restore_snapshot_data(
-            "i-1234567890", "snap-1234567890", "eu-west-2", domain="example.com", session=None
+            "i-1234567890",
+            "snap-1234567890",
+            "eu-west-2",
+            domain="example.com",
+            session=None,
         )
 
     assert fake_ec2.detach_volume_calls == [
@@ -683,7 +716,9 @@ def test_find_hosted_zone_id_returns_none_for_an_unrelated_domain(monkeypatch):
 def test_terraform_apply_requires_a_hosted_zone_or_a_pasted_certificate_arn(
     monkeypatch,
 ):
-    monkeypatch.setattr(core, "find_hosted_zone_id", lambda domain, region, session=None: None)
+    monkeypatch.setattr(
+        core, "find_hosted_zone_id", lambda domain, region, session=None: None
+    )
     config = _make_config(domain_name="example.com", certificate_arn="")
 
     with pytest.raises(core.DeployError, match="no public Route 53 hosted zone"):
@@ -705,7 +740,9 @@ def test_terraform_apply_prefers_a_pasted_certificate_arn_over_auto_dns(monkeypa
     captured_tfvars = {}
 
     def fake_run_command(args, **kwargs):
-        tfvars_path = next(a for a in args if a.startswith("-var-file=")).split("=", 1)[1]
+        tfvars_path = next(a for a in args if a.startswith("-var-file=")).split("=", 1)[
+            1
+        ]
         captured_tfvars.update(json.loads(Path(tfvars_path).read_text()))
         return SimpleNamespace(stdout="plan output")
 
@@ -887,11 +924,15 @@ def test_get_container_log_tail_reads_single_stream_directly(monkeypatch):
     )
     monkeypatch.setattr(core, "_client", lambda session, service, region: fake_logs)
 
-    result = core.get_container_log_tail("i-1234567890", "example.com", "glow-web-1", "eu-west-2")
+    result = core.get_container_log_tail(
+        "i-1234567890", "example.com", "glow-web-1", "eu-west-2"
+    )
 
     assert result == ["web line"]
     assert fake_logs.describe_calls == []
-    assert fake_logs.get_events_calls[0]["logGroupName"] == "/glow/example.com/containers"
+    assert (
+        fake_logs.get_events_calls[0]["logGroupName"] == "/glow/example.com/containers"
+    )
     assert fake_logs.get_events_calls[0]["logStreamName"] == "i-1234567890-glow-web-1"
 
 
@@ -954,7 +995,9 @@ def test_rerun_runner_userdata_reports_last_bootstrap_log_line(monkeypatch):
         captured["timeout"] = timeout
 
     monkeypatch.setattr(core, "run_ssm_command", fake_run_ssm_command)
-    monkeypatch.setattr(core, "_client", lambda session, service, region: SimpleNamespace())
+    monkeypatch.setattr(
+        core, "_client", lambda session, service, region: SimpleNamespace()
+    )
 
     core.rerun_runner_userdata("i-1234567890", "eu-west-2", "example.com")
 
@@ -977,7 +1020,9 @@ def test_rerun_runner_userdata_accepts_git_environment_overrides(monkeypatch):
         captured["commands"] = commands
 
     monkeypatch.setattr(core, "run_ssm_command", fake_run_ssm_command)
-    monkeypatch.setattr(core, "_client", lambda session, service, region: SimpleNamespace())
+    monkeypatch.setattr(
+        core, "_client", lambda session, service, region: SimpleNamespace()
+    )
 
     core.rerun_runner_userdata(
         "i-1234567890",
@@ -999,7 +1044,9 @@ def test_rerun_runner_userdata_accepts_git_environment_overrides(monkeypatch):
 def test_prepare_runner_repository_clones_and_checks_out_requested_ref(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_run_ssm_command(instance_id, region, commands, comment, timeout=1800, session=None):
+    def fake_run_ssm_command(
+        instance_id, region, commands, comment, timeout=1800, session=None
+    ):
         captured["instance_id"] = instance_id
         captured["region"] = region
         captured["commands"] = commands
@@ -1028,7 +1075,9 @@ def test_prepare_runner_repository_clones_and_checks_out_requested_ref(monkeypat
 def test_wait_for_runner_bootstrap_completion_waits_for_ready_file(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_run_ssm_command(instance_id, region, commands, comment, timeout=1800, session=None):
+    def fake_run_ssm_command(
+        instance_id, region, commands, comment, timeout=1800, session=None
+    ):
         captured["instance_id"] = instance_id
         captured["region"] = region
         captured["commands"] = commands
@@ -1084,8 +1133,8 @@ def test_runner_userdata_persists_git_ref_and_commit_in_environment_files():
     assert "GIT_REF=$${GIT_REF}" in template
     assert "GIT_COMMIT=$${GIT_COMMIT}" in template
     assert "/etc/environment" in template
-    assert "GIT_REF=\"$${GIT_REF}\"" in template
-    assert "GIT_COMMIT=\"$${GIT_COMMIT}\"" in template
+    assert 'GIT_REF="$${GIT_REF}"' in template
+    assert 'GIT_COMMIT="$${GIT_COMMIT}"' in template
 
 
 def test_runner_userdata_uses_var_lib_glow_for_persistent_state_check():
@@ -1140,9 +1189,9 @@ def test_activate_stack_uses_odk_domain_for_helper_host_header_and_ping():
 
     assert 'export ODK_DOMAIN="odk.${DOMAIN_NAME}"' in script
     assert 'info "> odk_ping"' in script
-    assert 'if odk_ping >/dev/null 2>&1; then' in script
-    assert "curl -fsS -H \"Host: odk.$DOMAIN_NAME\" http://127.0.0.1:8080/" not in script
-    assert 'curl -fsS http://127.0.0.1:8080/ >/dev/null' not in script
+    assert "if odk_ping >/dev/null 2>&1; then" in script
+    assert 'curl -fsS -H "Host: odk.$DOMAIN_NAME" http://127.0.0.1:8080/' not in script
+    assert "curl -fsS http://127.0.0.1:8080/ >/dev/null" not in script
 
 
 def test_odk_api_helper_supports_optional_host_header_and_ping():
@@ -1150,9 +1199,9 @@ def test_odk_api_helper_supports_optional_host_header_and_ping():
     script = script_path.read_text()
 
     assert 'ODK_HOST_HEADER="${ODK_HOST_HEADER:-${ODK_DOMAIN:-}}"' in script
-    assert 'odk_curl() {' in script
+    assert "odk_curl() {" in script
     assert 'extra_args+=(-H "Host: ${ODK_HOST_HEADER}")' in script
-    assert 'odk_ping() {' in script
+    assert "odk_ping() {" in script
     assert 'local root_url="${ODK_API_BASE%/v1}/"' in script
     assert 'odk_curl -fsS "${root_url}"' in script
 
@@ -1163,7 +1212,7 @@ def test_get_git_ref_script_reads_runner_environment_file():
 
     assert 'ENV_FILE="/etc/glow-runner.env"' in script
     assert 'case "${1:-}" in' in script
-    assert '--commit)' in script
+    assert "--commit)" in script
     assert 'printf "%s\\n" "${GIT_REF:-}"' in script
     assert 'printf "%s\\n" "${GIT_COMMIT:-}"' in script
 
@@ -1223,16 +1272,16 @@ def test_destroy_captures_volume_before_terraform_destroy_then_snapshots_and_del
     monkeypatch.setattr(
         core,
         "find_root_volume_id",
-        lambda instance_id, region, session=None: calls.append(("find_volume", instance_id))
-        or "vol-abc123",
+        lambda instance_id, region, session=None: (
+            calls.append(("find_volume", instance_id)) or "vol-abc123"
+        ),
     )
     monkeypatch.setattr(
         core,
         "create_snapshot",
-        lambda volume_id, domain, reason, region, session=None: calls.append(
-            ("snapshot", volume_id, domain, reason)
-        )
-        or "snap-1234567890",
+        lambda volume_id, domain, reason, region, session=None: (
+            calls.append(("snapshot", volume_id, domain, reason)) or "snap-1234567890"
+        ),
     )
     fake_ec2 = _FakeEc2Client()
     monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
@@ -1278,8 +1327,9 @@ def test_destroy_still_runs_terraform_destroy_when_root_volume_cannot_be_determi
     monkeypatch.setattr(
         core,
         "find_root_volume_id",
-        lambda instance_id, region, session=None: calls.append(("find_volume", instance_id))
-        or "vol-abc123",
+        lambda instance_id, region, session=None: (
+            calls.append(("find_volume", instance_id)) or "vol-abc123"
+        ),
     )
     monkeypatch.setattr(
         core,
@@ -1445,7 +1495,9 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
     monkeypatch.setattr(
         core,
         "create_snapshot",
-        lambda volume_id, domain, reason, region, session=None, wait=True: "snap-1234567890",
+        lambda volume_id, domain, reason, region, session=None, wait=True: (
+            "snap-1234567890"
+        ),
     )
     monkeypatch.setattr(
         core,
@@ -1502,7 +1554,10 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
             "Resources": ["i-1234567890"],
             "Tags": [
                 {"Key": "GitRef", "Value": "main"},
-                {"Key": "GitCommit", "Value": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+                {
+                    "Key": "GitCommit",
+                    "Value": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+                },
                 {"Key": "GitTag", "Value": "main"},
                 {"Key": "GlowGUIVersion", "Value": "dev"},
             ],
@@ -1542,16 +1597,17 @@ def test_update_snapshots_volume_before_preparing_repository(monkeypatch):
     monkeypatch.setattr(
         core,
         "find_root_volume_id",
-        lambda instance_id, region, session=None: calls.append(("find_volume", instance_id))
-        or "vol-abc123",
+        lambda instance_id, region, session=None: (
+            calls.append(("find_volume", instance_id)) or "vol-abc123"
+        ),
     )
     monkeypatch.setattr(
         core,
         "create_snapshot",
-        lambda volume_id, domain, reason, region, session=None, wait=True: calls.append(
-            ("snapshot", volume_id, domain, reason, wait)
-        )
-        or "snap-1234567890",
+        lambda volume_id, domain, reason, region, session=None, wait=True: (
+            calls.append(("snapshot", volume_id, domain, reason, wait))
+            or "snap-1234567890"
+        ),
     )
     monkeypatch.setattr(
         core,
@@ -1695,7 +1751,9 @@ def test_provision_forwards_session_to_every_aws_touching_step(monkeypatch):
 
         return fake
 
-    monkeypatch.setattr(core, "ensure_state_bucket", record_session_and_return("bucket"))
+    monkeypatch.setattr(
+        core, "ensure_state_bucket", record_session_and_return("bucket")
+    )
     monkeypatch.setattr(
         core, "find_ami_in_account", record_session_and_return("ami-12345678")
     )
@@ -1704,9 +1762,7 @@ def test_provision_forwards_session_to_every_aws_touching_step(monkeypatch):
     monkeypatch.setattr(
         core, "wait_for_runner_bootstrap_completion", record_session_and_return()
     )
-    monkeypatch.setattr(
-        core, "prepare_runner_repository", record_session_and_return()
-    )
+    monkeypatch.setattr(core, "prepare_runner_repository", record_session_and_return())
     monkeypatch.setattr(core, "rerun_runner_userdata", record_session_and_return())
     monkeypatch.setattr(core, "verify_runner_health", record_session_and_return())
 

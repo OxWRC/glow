@@ -77,10 +77,11 @@ def ansi_to_html(text: str) -> str:
 
 def _demo() -> None:
     assert ansi_to_html("plain") == "plain"
-    assert ansi_to_html("\x1b[32m+\x1b[0m ok") == '<span class="ansi-fg-green">+</span> ok'
     assert (
-        ansi_to_html("\x1b[1mheader\x1b[0m")
-        == '<span class="ansi-bold">header</span>'
+        ansi_to_html("\x1b[32m+\x1b[0m ok") == '<span class="ansi-fg-green">+</span> ok'
+    )
+    assert (
+        ansi_to_html("\x1b[1mheader\x1b[0m") == '<span class="ansi-bold">header</span>'
     )
     assert ansi_to_html("<script>") == "&lt;script&gt;"
 

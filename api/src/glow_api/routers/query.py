@@ -73,7 +73,9 @@ def query_get(
     # Check If-None-Match
     if if_none_match and if_none_match == etag:
         # Data hasn't changed
-        request_context.record_event("query_executed", etag_matched=True, computed=False)
+        request_context.record_event(
+            "query_executed", etag_matched=True, computed=False
+        )
         response.status_code = status.HTTP_304_NOT_MODIFIED
         return {}
 
@@ -94,7 +96,9 @@ def query_get(
             df = df.iloc[0:0]  # no data loaded yet, or school not linked to ODK data
         school_name = school.odk_school_id
     else:
-        request_context.record_event("auth_assessed", outcome="anonymous", success=None, school_id=None)
+        request_context.record_event(
+            "auth_assessed", outcome="anonymous", success=None, school_id=None
+        )
         # Dataset-scoped query
         df = dfwl.df
         school_name = None

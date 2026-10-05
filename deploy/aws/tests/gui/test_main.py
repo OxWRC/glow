@@ -41,7 +41,9 @@ def test_single_instance_lock_can_be_reacquired_after_release(monkeypatch):
     second.close()
 
 
-def test_reopen_running_instance_opens_browser_at_state_file_port(monkeypatch, tmp_path):
+def test_reopen_running_instance_opens_browser_at_state_file_port(
+    monkeypatch, tmp_path
+):
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"port": 54321}))
     monkeypatch.setattr(main, "_STATE_FILE", state_file)
@@ -54,7 +56,9 @@ def test_reopen_running_instance_opens_browser_at_state_file_port(monkeypatch, t
     assert opened == ["http://127.0.0.1:54321"]
 
 
-def test_reopen_running_instance_exits_when_state_file_is_missing(monkeypatch, tmp_path):
+def test_reopen_running_instance_exits_when_state_file_is_missing(
+    monkeypatch, tmp_path
+):
     monkeypatch.setattr(main, "_STATE_FILE", tmp_path / "does-not-exist.json")
 
     try:

@@ -226,7 +226,10 @@ def get_optional_school_user(
     """
     if credentials is None:
         request_context.record_event(
-            "auth_assessed", outcome="no_credentials", success=False, school_id=school_id
+            "auth_assessed",
+            outcome="no_credentials",
+            success=False,
+            school_id=school_id,
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -238,7 +241,10 @@ def get_optional_school_user(
         sub: str | None = claims.get("sub")
         if sub is None:
             request_context.record_event(
-                "auth_assessed", outcome="invalid_token", success=False, school_id=school_id
+                "auth_assessed",
+                outcome="invalid_token",
+                success=False,
+                school_id=school_id,
             )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

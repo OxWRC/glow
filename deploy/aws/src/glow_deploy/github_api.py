@@ -38,7 +38,9 @@ def _parse_owner_repo(repo_url: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def _get_ref_sha(client: httpx.Client, owner: str, repo: str, ref_path: str) -> dict | None:
+def _get_ref_sha(
+    client: httpx.Client, owner: str, repo: str, ref_path: str
+) -> dict | None:
     response = client.get(f"/repos/{owner}/{repo}/git/ref/{ref_path}")
     if response.status_code == 404:
         return None
@@ -46,7 +48,9 @@ def _get_ref_sha(client: httpx.Client, owner: str, repo: str, ref_path: str) -> 
     return response.json()["object"]
 
 
-def _peel_tag(client: httpx.Client, owner: str, repo: str, tag_object_sha: str) -> str | None:
+def _peel_tag(
+    client: httpx.Client, owner: str, repo: str, tag_object_sha: str
+) -> str | None:
     response = client.get(f"/repos/{owner}/{repo}/git/tags/{tag_object_sha}")
     if response.status_code == 404:
         return None
@@ -58,7 +62,9 @@ def _peel_tag(client: httpx.Client, owner: str, repo: str, tag_object_sha: str) 
     return None
 
 
-def resolve_git_commit_via_github(repo_url: str, ref: str, token: str | None = None) -> str:
+def resolve_git_commit_via_github(
+    repo_url: str, ref: str, token: str | None = None
+) -> str:
     """Resolve a git ref to a commit SHA.
 
     Precedence matches the original ``git ls-remote``-based resolver:
@@ -88,14 +94,18 @@ def resolve_git_commit_via_github(repo_url: str, ref: str, token: str | None = N
     raise DeployError(f"could not resolve git ref: {ref}")
 
 
-def list_tags_with_prefix(repo_url: str, prefix: str, timeout: float = 5.0) -> list[str]:
+def list_tags_with_prefix(
+    repo_url: str, prefix: str, timeout: float = 5.0
+) -> list[str]:
     """All tags on repo_url starting with prefix, filtered to ones versions.parse
     accepts. Never raises — feeds page renders and a background thread, so a
     network hiccup here must never break either."""
     try:
         owner, repo = _parse_owner_repo(repo_url)
         with httpx.Client(base_url=_GITHUB_API, timeout=timeout) as client:
-            response = client.get(f"/repos/{owner}/{repo}/git/matching-refs/tags/{prefix}")
+            response = client.get(
+                f"/repos/{owner}/{repo}/git/matching-refs/tags/{prefix}"
+            )
             response.raise_for_status()
             refs = [item["ref"].removeprefix("refs/tags/") for item in response.json()]
         return [ref for ref in refs if versions.parse(ref, prefix) is not None]

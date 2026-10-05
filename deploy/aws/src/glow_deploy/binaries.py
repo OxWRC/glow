@@ -47,8 +47,7 @@ def _resolve_binary(name: str, env_var: str) -> str:
         return found
 
     raise DeployError(
-        f"required binary not found: {name} "
-        f"(set {env_var} to point at it explicitly)"
+        f"required binary not found: {name} (set {env_var} to point at it explicitly)"
     )
 
 

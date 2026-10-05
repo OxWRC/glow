@@ -44,7 +44,9 @@ class TestDevLogin:
         assert body["is_wrc"] is True
         assert body["is_admin"] is False
 
-    def test_school_role_logs_in_scoped_to_that_school(self, auth_client, sample_schools):
+    def test_school_role_logs_in_scoped_to_that_school(
+        self, auth_client, sample_schools
+    ):
         school = sample_schools["Focus School Academy"]
         resp = auth_client.post(
             "/auth/dev-login", json={"role": "school", "school_id": school.id}
@@ -60,7 +62,9 @@ class TestDevLogin:
         assert body["is_wrc"] is False
         assert [s["id"] for s in body["schools"]] == [school.id]
 
-    def test_school_role_defaults_to_first_seeded_school(self, auth_client, sample_schools):
+    def test_school_role_defaults_to_first_seeded_school(
+        self, auth_client, sample_schools
+    ):
         resp = auth_client.post("/auth/dev-login", json={"role": "school"})
         assert resp.status_code == 200
 

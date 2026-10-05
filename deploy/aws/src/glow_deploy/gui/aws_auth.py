@@ -125,7 +125,9 @@ def poll_once(device_authorization: DeviceAuthorization) -> SsoToken | None:
     """
     from botocore.exceptions import ClientError
 
-    oidc = boto3.client("sso-oidc", region_name=device_authorization.region, config=_UNSIGNED)
+    oidc = boto3.client(
+        "sso-oidc", region_name=device_authorization.region, config=_UNSIGNED
+    )
     try:
         token = oidc.create_token(
             clientId=device_authorization.client_id,
@@ -133,7 +135,9 @@ def poll_once(device_authorization: DeviceAuthorization) -> SsoToken | None:
             grantType="urn:ietf:params:oauth:grant-type:device_code",
             deviceCode=device_authorization.device_code,
         )
-        return SsoToken(access_token=token["accessToken"], expires_in=token["expiresIn"])
+        return SsoToken(
+            access_token=token["accessToken"], expires_in=token["expiresIn"]
+        )
     except ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code")
         if error_code in _PENDING_ERROR_CODES:
@@ -145,14 +149,18 @@ def poll_once(device_authorization: DeviceAuthorization) -> SsoToken | None:
         raise DeployError(f"SSO sign-in failed: {error_code or exc}") from exc
 
 
-def poll_for_token(device_authorization: DeviceAuthorization, timeout: int = 300) -> SsoToken:
+def poll_for_token(
+    device_authorization: DeviceAuthorization, timeout: int = 300
+) -> SsoToken:
     """Poll CreateToken until the user completes sign-in in their browser.
 
     Raises DeployError on an expired/denied code or on our own timeout.
     """
     from botocore.exceptions import ClientError
 
-    oidc = boto3.client("sso-oidc", region_name=device_authorization.region, config=_UNSIGNED)
+    oidc = boto3.client(
+        "sso-oidc", region_name=device_authorization.region, config=_UNSIGNED
+    )
     interval = device_authorization.interval
     start = time.time()
 
@@ -205,7 +213,9 @@ def list_accounts_and_roles(sso_token: SsoToken, region: str) -> list[SsoAccount
 
     try:
         accounts_paginator = sso.get_paginator("list_accounts")
-        for accounts_page in accounts_paginator.paginate(accessToken=sso_token.access_token):
+        for accounts_page in accounts_paginator.paginate(
+            accessToken=sso_token.access_token
+        ):
             for account in accounts_page.get("accountList", []):
                 account_id = account["accountId"]
                 account_name = account.get("accountName", account_id)
@@ -295,7 +305,9 @@ def to_stored_credentials(
     )
 
 
-def session_from_stored_credentials(stored: secret_store.StoredCredentials) -> boto3.Session:
+def session_from_stored_credentials(
+    stored: secret_store.StoredCredentials,
+) -> boto3.Session:
     """Rehydrate a session previously persisted via secret_store."""
     return boto3.Session(
         aws_access_key_id=stored.access_key,

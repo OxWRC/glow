@@ -26,7 +26,9 @@ class FakeCognitoClient:
 
     def __init__(self, existing: dict[str, str] | None = None):
         self.existing = dict(existing or {})
-        self.exceptions = type("Exceptions", (), {"UsernameExistsException": _UsernameExistsException})
+        self.exceptions = type(
+            "Exceptions", (), {"UsernameExistsException": _UsernameExistsException}
+        )
         self.create_calls = []
         self.set_password_calls = []
         self._next_sub_id = 1
@@ -50,7 +52,9 @@ class FakeCognitoClient:
         )
 
 
-def _run_bootstrap(runner, args, monkeypatch, db_engine, fake_client, pool_id="us-east-1_test"):
+def _run_bootstrap(
+    runner, args, monkeypatch, db_engine, fake_client, pool_id="us-east-1_test"
+):
     Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
     monkeypatch.setattr(cli_module, "SessionLocal", Session)
     monkeypatch.setattr(cli_module.settings, "COGNITO_USER_POOL_ID", pool_id)
@@ -63,7 +67,15 @@ def test_bootstrap_creates_cognito_user_and_local_row(monkeypatch, db_engine):
     runner = CliRunner()
     result, Session = _run_bootstrap(
         runner,
-        ["users", "create", "alice", "--password", "TempPass123!", "--bootstrap", "--admin"],
+        [
+            "users",
+            "create",
+            "alice",
+            "--password",
+            "TempPass123!",
+            "--bootstrap",
+            "--admin",
+        ],
         monkeypatch,
         db_engine,
         fake_client,
@@ -116,7 +128,15 @@ def test_bootstrap_idempotent_when_cognito_user_already_exists(monkeypatch, db_e
     runner = CliRunner()
     result, Session = _run_bootstrap(
         runner,
-        ["users", "create", "bob", "--password", "TempPass123!", "--bootstrap", "--wrc"],
+        [
+            "users",
+            "create",
+            "bob",
+            "--password",
+            "TempPass123!",
+            "--bootstrap",
+            "--wrc",
+        ],
         monkeypatch,
         db_engine,
         fake_client,
@@ -175,7 +195,14 @@ def test_permanent_password_without_bootstrap_errors(monkeypatch, db_engine):
     runner = CliRunner()
     result = runner.invoke(
         cli_module.cli,
-        ["users", "create", "eve", "--password", "TempPass123!", "--permanent-password"],
+        [
+            "users",
+            "create",
+            "eve",
+            "--password",
+            "TempPass123!",
+            "--permanent-password",
+        ],
     )
 
     assert result.exit_code != 0

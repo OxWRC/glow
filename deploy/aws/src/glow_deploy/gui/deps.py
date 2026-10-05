@@ -26,7 +26,9 @@ def find_deployment(request: Request, domain: str) -> dict:
     for deployment in deployments:
         if deployment["domain"] == domain:
             return deployment
-    raise HTTPException(status_code=404, detail=f"no deployment found for domain {domain!r}")
+    raise HTTPException(
+        status_code=404, detail=f"no deployment found for domain {domain!r}"
+    )
 
 
 def get_cached_release_tags(request: Request) -> list[str]:
@@ -39,7 +41,9 @@ def get_cached_release_tags(request: Request) -> list[str]:
     state = request.app.state
     cache = getattr(state, "release_tags_cache", None)  # (fetched_at, tags)
     if cache is None or time.time() - cache[0] > _RELEASE_TAGS_CACHE_TTL_SECONDS:
-        tags = github_api.list_tags_with_prefix(core.DEFAULT_GIT_REPO_URL, core.CORE_TAG_PREFIX)
+        tags = github_api.list_tags_with_prefix(
+            core.DEFAULT_GIT_REPO_URL, core.CORE_TAG_PREFIX
+        )
         state.release_tags_cache = (time.time(), tags)
         return tags
     return cache[1]

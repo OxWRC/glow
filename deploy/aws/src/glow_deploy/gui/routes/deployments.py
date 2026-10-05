@@ -28,7 +28,9 @@ def _default_git_ref(request: Request) -> str:
 
 def _sorted_available_versions(request: Request) -> list[str]:
     tags = deps.get_cached_release_tags(request)
-    return sorted(tags, key=lambda tag: versions.parse(tag, core.CORE_TAG_PREFIX), reverse=True)
+    return sorted(
+        tags, key=lambda tag: versions.parse(tag, core.CORE_TAG_PREFIX), reverse=True
+    )
 
 
 def _compute_version_info(domain: str, available: list[str]) -> dict:
@@ -56,14 +58,21 @@ def home(request: Request, session=Depends(require_session)):
     available = deps.get_cached_release_tags(request)
     for deployment in deployments:
         deployment["cpu_percent"] = cpu.get(deployment["instance_id"])
-        deployment["version_info"] = _compute_version_info(deployment["domain"], available)
-    return templates.TemplateResponse(request, "home.html", {"deployments": deployments}
+        deployment["version_info"] = _compute_version_info(
+            deployment["domain"], available
+        )
+    return templates.TemplateResponse(
+        request, "home.html", {"deployments": deployments}
     )
 
 
 @router.get("/deployments/new", response_class=HTMLResponse)
 def new_deployment_form(request: Request, session=Depends(require_session)):
-    return templates.TemplateResponse(request, "new_deployment.html", {"error": None,
+    return templates.TemplateResponse(
+        request,
+        "new_deployment.html",
+        {
+            "error": None,
             "available_versions": _sorted_available_versions(request),
             "defaults": {
                 "git_repo_url": core.DEFAULT_GIT_REPO_URL,
@@ -87,9 +96,7 @@ def check_domain(request: Request, domain: str, session=Depends(require_session)
     """
     zone_id = None
     if domain:
-        zone_id = core.find_hosted_zone_id(
-            domain, request.app.state.region, session
-        )
+        zone_id = core.find_hosted_zone_id(domain, request.app.state.region, session)
     return JSONResponse({"auto": zone_id is not None})
 
 
@@ -111,9 +118,15 @@ def new_deployment_plan(
 ):
     resolved_ref = git_ref_override.strip() or git_ref or _default_git_ref(request)
     try:
-        git_commit = github_api.resolve_git_commit_via_github(git_repo_url, resolved_ref)
+        git_commit = github_api.resolve_git_commit_via_github(
+            git_repo_url, resolved_ref
+        )
     except DeployError as exc:
-        return templates.TemplateResponse(request, "new_deployment.html", {"error": str(exc),
+        return templates.TemplateResponse(
+            request,
+            "new_deployment.html",
+            {
+                "error": str(exc),
                 "available_versions": _sorted_available_versions(request),
                 "defaults": {
                     "git_repo_url": git_repo_url,
@@ -194,21 +207,30 @@ def new_deployment_apply(
 def deployment_detail(request: Request, domain: str, session=Depends(require_session)):
     deployment = find_deployment(request, domain)
     available = deps.get_cached_release_tags(request)
-    return templates.TemplateResponse(request, "deployment_detail.html", {
+    return templates.TemplateResponse(
+        request,
+        "deployment_detail.html",
+        {
             "deployment": deployment,
             "error": None,
             "version_info": _compute_version_info(domain, available),
             "available_versions": sorted(
-                available, key=lambda tag: versions.parse(tag, core.CORE_TAG_PREFIX), reverse=True
+                available,
+                key=lambda tag: versions.parse(tag, core.CORE_TAG_PREFIX),
+                reverse=True,
             ),
             "default_git_ref": _default_git_ref(request),
             "default_git_repo_url": core.DEFAULT_GIT_REPO_URL,
-            "snapshots": core.list_snapshots(request.app.state.region, session, domain=domain),
+            "snapshots": core.list_snapshots(
+                request.app.state.region, session, domain=domain
+            ),
         },
     )
 
 
-@router.post("/deployments/{domain}/snapshots/{snapshot_id}/delete", response_class=HTMLResponse)
+@router.post(
+    "/deployments/{domain}/snapshots/{snapshot_id}/delete", response_class=HTMLResponse
+)
 def delete_deployment_snapshot(
     request: Request, domain: str, snapshot_id: str, session=Depends(require_session)
 ):
@@ -228,15 +250,22 @@ def update_plan(
     deployment = find_deployment(request, domain)
     resolved_ref = git_ref_override.strip() or git_ref or _default_git_ref(request)
     try:
-        git_commit = github_api.resolve_git_commit_via_github(git_repo_url, resolved_ref)
+        git_commit = github_api.resolve_git_commit_via_github(
+            git_repo_url, resolved_ref
+        )
     except DeployError as exc:
         available = deps.get_cached_release_tags(request)
-        return templates.TemplateResponse(request, "deployment_detail.html", {
+        return templates.TemplateResponse(
+            request,
+            "deployment_detail.html",
+            {
                 "deployment": deployment,
                 "error": str(exc),
                 "version_info": _compute_version_info(domain, available),
                 "available_versions": sorted(
-                    available, key=lambda tag: versions.parse(tag, core.CORE_TAG_PREFIX), reverse=True
+                    available,
+                    key=lambda tag: versions.parse(tag, core.CORE_TAG_PREFIX),
+                    reverse=True,
                 ),
                 "default_git_ref": _default_git_ref(request),
                 "default_git_repo_url": core.DEFAULT_GIT_REPO_URL,
@@ -331,10 +360,14 @@ def destroy(request: Request, domain: str, session=Depends(require_session)):
 @router.get("/snapshots", response_class=HTMLResponse)
 def all_snapshots(request: Request, session=Depends(require_session)):
     snapshots = core.list_snapshots(request.app.state.region, session)
-    return templates.TemplateResponse(request, "snapshots.html", {"snapshots": snapshots})
+    return templates.TemplateResponse(
+        request, "snapshots.html", {"snapshots": snapshots}
+    )
 
 
 @router.post("/snapshots/{snapshot_id}/delete", response_class=HTMLResponse)
-def delete_global_snapshot(request: Request, snapshot_id: str, session=Depends(require_session)):
+def delete_global_snapshot(
+    request: Request, snapshot_id: str, session=Depends(require_session)
+):
     core.delete_snapshot(snapshot_id, request.app.state.region, session)
     return RedirectResponse("/snapshots", status_code=303)

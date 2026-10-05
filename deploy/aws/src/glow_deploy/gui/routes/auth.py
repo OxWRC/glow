@@ -33,12 +33,13 @@ def signin_page(request: Request):
 
 
 @router.post("/signin/sso/start")
-def sso_start(request: Request, start_url: str = Form(...), region: str = Form("eu-west-2")):
+def sso_start(
+    request: Request, start_url: str = Form(...), region: str = Form("eu-west-2")
+):
     try:
         device_auth = aws_auth.start_device_authorization(start_url, region)
     except DeployError as exc:
-        return templates.TemplateResponse(request, "signin.html", {"error": str(exc)}
-        )
+        return templates.TemplateResponse(request, "signin.html", {"error": str(exc)})
 
     aws_auth.open_verification_url(device_auth)
     request.app.state.pending_device_auth = device_auth
@@ -55,11 +56,13 @@ def sso_poll(request: Request):
         token = aws_auth.poll_once(device_auth)
     except DeployError as exc:
         request.app.state.pending_device_auth = None
-        return templates.TemplateResponse(request, "signin.html", {"error": str(exc)}
-        )
+        return templates.TemplateResponse(request, "signin.html", {"error": str(exc)})
 
     if token is None:
-        return templates.TemplateResponse(request, "sso_poll.html", {"device_auth": device_auth, "accounts": None, "error": None},
+        return templates.TemplateResponse(
+            request,
+            "sso_poll.html",
+            {"device_auth": device_auth, "accounts": None, "error": None},
         )
 
     request.app.state.sso_token = token
@@ -74,9 +77,14 @@ def sso_poll(request: Request):
             return _complete_sso_signin(request, accounts[0], device_auth.region)
         except DeployError as exc:
             request.app.state.pending_device_auth = None
-            return templates.TemplateResponse(request, "signin.html", {"error": str(exc)})
+            return templates.TemplateResponse(
+                request, "signin.html", {"error": str(exc)}
+            )
 
-    return templates.TemplateResponse(request, "sso_poll.html", {"device_auth": device_auth, "accounts": accounts, "error": None},
+    return templates.TemplateResponse(
+        request,
+        "sso_poll.html",
+        {"device_auth": device_auth, "accounts": accounts, "error": None},
     )
 
 
@@ -128,8 +136,7 @@ def manual_signin(
             access_key, secret_key, session_token or None, region
         )
     except DeployError as exc:
-        return templates.TemplateResponse(request, "signin.html", {"error": str(exc)}
-        )
+        return templates.TemplateResponse(request, "signin.html", {"error": str(exc)})
 
     request.app.state.session = session
     request.app.state.region = region

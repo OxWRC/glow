@@ -55,7 +55,11 @@ app = FastAPI(
     root_path="/api",
 )
 
-app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+app.mount(
+    "/static",
+    StaticFiles(directory=str(Path(__file__).parent / "static")),
+    name="static",
+)
 
 
 @app.get("/docs", include_in_schema=False)
@@ -65,6 +69,7 @@ def swagger_docs():
         title=f"{app.title} - Swagger UI",
         swagger_favicon_url=app.root_path + "/static/favicon.png",
     )
+
 
 app.add_middleware(
     CORSMiddleware,

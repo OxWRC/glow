@@ -56,7 +56,9 @@ class JobManager:
     def _run(self, job: Job, fn: Callable[[], Any]) -> None:
         job.status = "running"
         token = core.set_progress_sink(
-            lambda message, inline, detail: self._append_line(job, message, inline, detail)
+            lambda message, inline, detail: self._append_line(
+                job, message, inline, detail
+            )
         )
         try:
             job.result = fn()
@@ -64,14 +66,18 @@ class JobManager:
         except DeployError as exc:
             job.error = ansi_to_html(str(exc))
             job.status = "failed"
-        except Exception as exc:  # surface to the GUI instead of hanging the job forever
+        except (
+            Exception
+        ) as exc:  # surface to the GUI instead of hanging the job forever
             job.error = ansi_to_html(str(exc))
             job.status = "failed"
         finally:
             core.reset_progress_sink(token)
 
     @staticmethod
-    def _append_line(job: Job, message: str, inline: bool, detail: bool = False) -> None:
+    def _append_line(
+        job: Job, message: str, inline: bool, detail: bool = False
+    ) -> None:
         html_message = ansi_to_html(message)
 
         if detail:

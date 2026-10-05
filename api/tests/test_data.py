@@ -640,8 +640,12 @@ class TestDataStore:
             ds2.startup()
 
             assert not ds2._df.empty
-            assert ds2._numerical_whitelist, "numerical whitelist empty after cache load"
-            assert ds2._categorical_whitelist, "categorical whitelist empty after cache load"
+            assert ds2._numerical_whitelist, (
+                "numerical whitelist empty after cache load"
+            )
+            assert ds2._categorical_whitelist, (
+                "categorical whitelist empty after cache load"
+            )
             assert ds2._observed_periods, "observed periods empty after cache load"
 
     def test_load_from_multiple_forms(self):

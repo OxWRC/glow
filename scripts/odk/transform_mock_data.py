@@ -86,7 +86,9 @@ def stable_int(*parts: object) -> int:
 
 
 def build_instance_id(uid: str, form_id: str, period_id: str) -> str:
-    digest = hashlib.sha256(f"{uid}||{form_id}||{period_id}".encode("utf-8")).hexdigest()[:32]
+    digest = hashlib.sha256(
+        f"{uid}||{form_id}||{period_id}".encode("utf-8")
+    ).hexdigest()[:32]
     return f"uuid:{digest}"
 
 
@@ -189,7 +191,10 @@ def assign_school_plans(schools: list[str]) -> dict[str, SchoolPlan]:
 
     for index, school in enumerate(output_schools):
         pattern = pattern_sequence[index % len(pattern_sequence)]
-        wave_mappings = tuple((school, source_wave, target_wave) for source_wave, target_wave in zip((1, 2, 3), pattern[:3], strict=True))
+        wave_mappings = tuple(
+            (school, source_wave, target_wave)
+            for source_wave, target_wave in zip((1, 2, 3), pattern[:3], strict=True)
+        )
 
         if pattern == (1, 2, 3, 4):
             wave_mappings = wave_mappings + ((donor_four_wave_school, 1, 4),)
@@ -245,7 +250,11 @@ def bewell_version(plan: SchoolPlan, target_wave: int, uid: str) -> str:
     if plan.all_v1:
         return "1"
     if plan.middle_only_v1:
-        return "1" if target_wave == plan.target_waves[len(plan.target_waves) // 2] else "2"
+        return (
+            "1"
+            if target_wave == plan.target_waves[len(plan.target_waves) // 2]
+            else "2"
+        )
     if plan.mixed_wave == target_wave:
         return "1" if stable_int("mixed_v1_v2", uid, target_wave) % 10 < 7 else "2"
     if target_wave == 1:
@@ -265,15 +274,16 @@ def phq_collected(plan: SchoolPlan, target_wave: int) -> bool:
     return False
 
 
-def synthetic_joiners(student_map: dict[str, dict[int, dict[str, str]]]) -> dict[str, dict[int, dict[str, str]]]:
+def synthetic_joiners(
+    student_map: dict[str, dict[int, dict[str, str]]],
+) -> dict[str, dict[int, dict[str, str]]]:
     generated: dict[str, dict[int, dict[str, str]]] = {}
     donor_uids = sorted(student_map)
     for join_source_wave, count in ((2, 2), (3, 1)):
-        donors = [
-            uid for uid in donor_uids
-            if join_source_wave in student_map[uid]
-        ]
-        donors.sort(key=lambda uid: (stable_int("joiner_rank", uid, join_source_wave), uid))
+        donors = [uid for uid in donor_uids if join_source_wave in student_map[uid]]
+        donors.sort(
+            key=lambda uid: (stable_int("joiner_rank", uid, join_source_wave), uid)
+        )
         for ordinal, donor_uid in enumerate(donors[:count], start=1):
             new_uid = f"joiner_{join_source_wave}_{ordinal:02d}_{donor_uid}"
             generated[new_uid] = {
@@ -284,14 +294,18 @@ def synthetic_joiners(student_map: dict[str, dict[int, dict[str, str]]]) -> dict
     return generated
 
 
-def build_form_record(fields: Iterable[str], row: dict[str, str], uid: str, school: str) -> dict[str, str]:
+def build_form_record(
+    fields: Iterable[str], row: dict[str, str], uid: str, school: str
+) -> dict[str, str]:
     record = {field: row.get(field, "") for field in fields}
     record["uid"] = uid
     record["school"] = school
     return record
 
 
-def build_bewell_v1_record(fields: Iterable[str], row: dict[str, str], uid: str, school: str) -> dict[str, str]:
+def build_bewell_v1_record(
+    fields: Iterable[str], row: dict[str, str], uid: str, school: str
+) -> dict[str, str]:
     record = build_form_record(fields, row, uid, school)
     for field in list(record):
         if field.startswith("bw_wbeing_"):
@@ -301,7 +315,9 @@ def build_bewell_v1_record(fields: Iterable[str], row: dict[str, str], uid: str,
     return record
 
 
-def build_phq_record(fields: Iterable[str], row: dict[str, str], uid: str, school: str) -> dict[str, str]:
+def build_phq_record(
+    fields: Iterable[str], row: dict[str, str], uid: str, school: str
+) -> dict[str, str]:
     record = {field: "" for field in fields}
     record["uid"] = uid
     record["school"] = school
@@ -315,17 +331,33 @@ def build_phq_record(fields: Iterable[str], row: dict[str, str], uid: str, schoo
     return record
 
 
-def build_demographics_record(fields: Iterable[str], row: dict[str, str], uid: str, school: str, source_wave: int) -> dict[str, str]:
+def build_demographics_record(
+    fields: Iterable[str], row: dict[str, str], uid: str, school: str, source_wave: int
+) -> dict[str, str]:
     record = build_form_record(fields, row, uid, school)
     record["yearGroup"] = adjusted_year_group(uid, row, source_wave)
     return record
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Transform canonical mock data into messy per-form CSVs")
-    parser.add_argument("--input", type=Path, required=True, help="Canonical wide CSV from glow-dummies")
-    parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write transformed CSVs and manifest")
-    parser.add_argument("--forms-dir", type=Path, default=Path("odk-forms"), help="Directory containing ODK form XMLs")
+    parser = argparse.ArgumentParser(
+        description="Transform canonical mock data into messy per-form CSVs"
+    )
+    parser.add_argument(
+        "--input", type=Path, required=True, help="Canonical wide CSV from glow-dummies"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Directory to write transformed CSVs and manifest",
+    )
+    parser.add_argument(
+        "--forms-dir",
+        type=Path,
+        default=Path("odk-forms"),
+        help="Directory containing ODK form XMLs",
+    )
     args = parser.parse_args()
 
     rows = read_csv_rows(args.input)
@@ -336,7 +368,9 @@ def main() -> None:
     bewell_v1_fields = parse_form_fields(forms_dir / "bewell_questionnaire_v1.xml")
     bewell_v2_fields = parse_form_fields(forms_dir / "bewell_questionnaire_v2.xml")
     phq_fields = parse_form_fields(forms_dir / "phq9_questionnaire.xml")
-    demographics_fields = parse_form_fields(forms_dir / "demographics_questionnaire.xml")
+    demographics_fields = parse_form_fields(
+        forms_dir / "demographics_questionnaire.xml"
+    )
 
     # Build school -> uid -> wave -> row mapping.
     school_students: dict[str, dict[str, dict[int, dict[str, str]]]] = {}
@@ -375,7 +409,9 @@ def main() -> None:
         if plan.donor_only:
             continue
 
-        school_map = {uid: dict(waves) for uid, waves in school_students[school].items()}
+        school_map = {
+            uid: dict(waves) for uid, waves in school_students[school].items()
+        }
         school_map.update(synthetic_joiners(school_map))
 
         base_uids = sorted(school_map)
@@ -389,20 +425,29 @@ def main() -> None:
                 else:
                     donor_map = school_students[source_school]
                     donor_uids = sorted(donor_map)
-                    donor_uid = donor_uids[stable_int("donor_uid_pick", school, base_uid, source_school) % len(donor_uids)]
+                    donor_uid = donor_uids[
+                        stable_int("donor_uid_pick", school, base_uid, source_school)
+                        % len(donor_uids)
+                    ]
                     source_rows = donor_map[donor_uid]
 
                 if source_wave not in source_rows:
                     continue
-                if source_school == school and not keep_source_wave(school, prefixed_uid, source_wave):
+                if source_school == school and not keep_source_wave(
+                    school, prefixed_uid, source_wave
+                ):
                     continue
 
                 source_row = source_rows[source_wave]
                 period_id = PERIOD_BY_WAVE[target_wave]
 
                 version = bewell_version(plan, target_wave, prefixed_uid)
-                created_at, boundary_case = choose_created_at(prefixed_uid, "bewell_questionnaire", target_wave)
-                instance_id = build_instance_id(prefixed_uid, "bewell_questionnaire", period_id)
+                created_at, boundary_case = choose_created_at(
+                    prefixed_uid, "bewell_questionnaire", target_wave
+                )
+                instance_id = build_instance_id(
+                    prefixed_uid, "bewell_questionnaire", period_id
+                )
                 helper_values = {
                     "instance_id": instance_id,
                     "wave": str(target_wave),
@@ -413,9 +458,19 @@ def main() -> None:
                 }
 
                 if version == "1":
-                    bewell_v1_rows.append(helper_values | build_bewell_v1_record(bewell_v1_fields, source_row, prefixed_uid, school))
+                    bewell_v1_rows.append(
+                        helper_values
+                        | build_bewell_v1_record(
+                            bewell_v1_fields, source_row, prefixed_uid, school
+                        )
+                    )
                 else:
-                    bewell_v2_rows.append(helper_values | build_form_record(bewell_v2_fields, source_row, prefixed_uid, school))
+                    bewell_v2_rows.append(
+                        helper_values
+                        | build_form_record(
+                            bewell_v2_fields, source_row, prefixed_uid, school
+                        )
+                    )
 
                 manifest_rows.append(
                     {
@@ -433,11 +488,18 @@ def main() -> None:
                     }
                 )
 
-                if phq_collected(plan, target_wave) and stable_int("missing_phq", prefixed_uid, target_wave) % 13 != 0:
-                    created_at, boundary_case = choose_created_at(prefixed_uid, "phq9_questionnaire", target_wave)
+                if (
+                    phq_collected(plan, target_wave)
+                    and stable_int("missing_phq", prefixed_uid, target_wave) % 13 != 0
+                ):
+                    created_at, boundary_case = choose_created_at(
+                        prefixed_uid, "phq9_questionnaire", target_wave
+                    )
                     phq_rows.append(
                         {
-                            "instance_id": build_instance_id(prefixed_uid, "phq9_questionnaire", period_id),
+                            "instance_id": build_instance_id(
+                                prefixed_uid, "phq9_questionnaire", period_id
+                            ),
                             "wave": str(target_wave),
                             "period_id": period_id,
                             "form_version": "1",
@@ -448,7 +510,9 @@ def main() -> None:
                     )
                     manifest_rows.append(
                         {
-                            "instance_id": build_instance_id(prefixed_uid, "phq9_questionnaire", period_id),
+                            "instance_id": build_instance_id(
+                                prefixed_uid, "phq9_questionnaire", period_id
+                            ),
                             "uid": prefixed_uid,
                             "school": school,
                             "form_id": "phq9_questionnaire",
@@ -462,11 +526,18 @@ def main() -> None:
                         }
                     )
 
-                if stable_int("missing_demographics", prefixed_uid, target_wave) % 17 != 0:
-                    created_at, boundary_case = choose_created_at(prefixed_uid, "demographics_questionnaire", target_wave)
+                if (
+                    stable_int("missing_demographics", prefixed_uid, target_wave) % 17
+                    != 0
+                ):
+                    created_at, boundary_case = choose_created_at(
+                        prefixed_uid, "demographics_questionnaire", target_wave
+                    )
                     demographics_rows.append(
                         {
-                            "instance_id": build_instance_id(prefixed_uid, "demographics_questionnaire", period_id),
+                            "instance_id": build_instance_id(
+                                prefixed_uid, "demographics_questionnaire", period_id
+                            ),
                             "wave": str(target_wave),
                             "period_id": period_id,
                             "form_version": "1",
@@ -483,7 +554,9 @@ def main() -> None:
                     )
                     manifest_rows.append(
                         {
-                            "instance_id": build_instance_id(prefixed_uid, "demographics_questionnaire", period_id),
+                            "instance_id": build_instance_id(
+                                prefixed_uid, "demographics_questionnaire", period_id
+                            ),
                             "uid": prefixed_uid,
                             "school": school,
                             "form_id": "demographics_questionnaire",
@@ -500,10 +573,24 @@ def main() -> None:
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    write_csv(output_dir / "bewell_questionnaire_v1.csv", bewell_v1_rows, HELPER_FIELDS + bewell_v1_fields)
-    write_csv(output_dir / "bewell_questionnaire_v2.csv", bewell_v2_rows, HELPER_FIELDS + bewell_v2_fields)
-    write_csv(output_dir / "phq9_questionnaire.csv", phq_rows, HELPER_FIELDS + phq_fields)
-    write_csv(output_dir / "demographics_questionnaire.csv", demographics_rows, HELPER_FIELDS + demographics_fields)
+    write_csv(
+        output_dir / "bewell_questionnaire_v1.csv",
+        bewell_v1_rows,
+        HELPER_FIELDS + bewell_v1_fields,
+    )
+    write_csv(
+        output_dir / "bewell_questionnaire_v2.csv",
+        bewell_v2_rows,
+        HELPER_FIELDS + bewell_v2_fields,
+    )
+    write_csv(
+        output_dir / "phq9_questionnaire.csv", phq_rows, HELPER_FIELDS + phq_fields
+    )
+    write_csv(
+        output_dir / "demographics_questionnaire.csv",
+        demographics_rows,
+        HELPER_FIELDS + demographics_fields,
+    )
     write_csv(
         output_dir / "manifest.csv",
         manifest_rows,
@@ -549,7 +636,9 @@ def main() -> None:
         "manifest_rows": len(manifest_rows),
         "plans": [asdict(plans[school]) for school in schools],
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (output_dir / "summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":

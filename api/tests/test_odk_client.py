@@ -77,9 +77,7 @@ def test_fetch_form_submissions_flattens_and_paginates(client, monkeypatch):
 
 
 def test_fetch_form_submissions_304_returns_none(client, monkeypatch):
-    monkeypatch.setattr(
-        client, "get", lambda url, **kw: FakeResponse(status_code=304)
-    )
+    monkeypatch.setattr(client, "get", lambda url, **kw: FakeResponse(status_code=304))
 
     df, etag = client.fetch_form_submissions(form_id="f1", etag="unchanged")
 

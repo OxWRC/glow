@@ -326,6 +326,8 @@ def delete_existing_school(
 
 
 @router.get("/me", response_model=UserRead)
-def get_current_admin(current_user: UserRead = Depends(require_current_user)) -> UserRead:
+def get_current_admin(
+    current_user: UserRead = Depends(require_current_user),
+) -> UserRead:
     """Return the current user's details, including is_admin flag."""
     return current_user

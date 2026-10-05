@@ -30,7 +30,9 @@ def logs(request: Request, domain: str, _session=Depends(require_session)):
     # /deployments/{domain}/logs/status so the SSM round-trip doesn't block
     # navigation to this page.
     deployment = find_deployment(request, domain)
-    return templates.TemplateResponse(request, "deployment_logs.html", {"deployment": deployment})
+    return templates.TemplateResponse(
+        request, "deployment_logs.html", {"deployment": deployment}
+    )
 
 
 @router.get("/deployments/{domain}/logs/status")
@@ -42,7 +44,9 @@ def logs_status(request: Request, domain: str, session=Depends(require_session))
         status = core.get_runner_status(deployment["instance_id"], region, session)
         error = None
     except DeployError as exc:
-        logger.error("Failed to fetch runner status for %s: %s", domain, exc, exc_info=exc)
+        logger.error(
+            "Failed to fetch runner status for %s: %s", domain, exc, exc_info=exc
+        )
         status = None
         error = (
             "Couldn't reach the server to check its status. "
@@ -61,24 +65,29 @@ def logs_status(request: Request, domain: str, session=Depends(require_session))
             )
         except DeployError as exc:
             logger.error(
-                "Failed to fetch admin credentials for %s: %s", domain, exc, exc_info=exc
+                "Failed to fetch admin credentials for %s: %s",
+                domain,
+                exc,
+                exc_info=exc,
             )
-            admin_credentials_error = (
-                f"Couldn't fetch dashboard admin credentials. (Details logged to {log_file()})"
-            )
+            admin_credentials_error = f"Couldn't fetch dashboard admin credentials. (Details logged to {log_file()})"
 
     try:
-        raw_containers = core.get_container_logs(deployment["instance_id"], domain, region, session)
+        raw_containers = core.get_container_logs(
+            deployment["instance_id"], domain, region, session
+        )
         containers = {
-            name: [ansi_to_html(line) for line in lines] for name, lines in raw_containers.items()
+            name: [ansi_to_html(line) for line in lines]
+            for name, lines in raw_containers.items()
         }
         containers_error = None
     except DeployError as exc:
-        logger.error("Failed to fetch container logs for %s: %s", domain, exc, exc_info=exc)
+        logger.error(
+            "Failed to fetch container logs for %s: %s", domain, exc, exc_info=exc
+        )
         containers = None
         containers_error = (
-            "Couldn't fetch container logs. "
-            f"(Details logged to {log_file()})"
+            f"Couldn't fetch container logs. (Details logged to {log_file()})"
         )
 
     return {
@@ -104,7 +113,11 @@ def container_log_tail(
         return {"lines": [ansi_to_html(line) for line in lines], "error": None}
     except DeployError as exc:
         logger.error(
-            "Failed to tail container %s for %s: %s", container, domain, exc, exc_info=exc
+            "Failed to tail container %s for %s: %s",
+            container,
+            domain,
+            exc,
+            exc_info=exc,
         )
         return {
             "lines": None,

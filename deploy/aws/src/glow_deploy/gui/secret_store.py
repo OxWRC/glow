@@ -17,7 +17,10 @@ import keyring
 import keyring.errors
 
 _SERVICE_NAME = "glow-deploy"
-_KEYRING_UNAVAILABLE_ERRORS = (keyring.errors.NoKeyringError, keyring.errors.KeyringLocked)
+_KEYRING_UNAVAILABLE_ERRORS = (
+    keyring.errors.NoKeyringError,
+    keyring.errors.KeyringLocked,
+)
 
 _memory_store: dict[str, str] = {}
 _keyring_backend_failed = False

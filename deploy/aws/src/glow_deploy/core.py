@@ -548,7 +548,9 @@ def wait_for_runner_bootstrap_completion(
     run_ssm_command(
         instance_id,
         region,
-        ["timeout 300 bash -c 'while [ ! -f /opt/glow-runner/bootstrap.ready ]; do sleep 1; done'"],
+        [
+            "timeout 300 bash -c 'while [ ! -f /opt/glow-runner/bootstrap.ready ]; do sleep 1; done'"
+        ],
         "wait for runner bootstrap completion",
         session=session,
     )
@@ -622,7 +624,9 @@ def run_ssm_command(
     on_tick: Callable[[], list[str]] | None = None,
 ) -> None:
     """Run a command via SSM and wait for completion, discarding its output."""
-    _send_ssm_command_and_wait(instance_id, region, commands, comment, timeout, session, on_tick)
+    _send_ssm_command_and_wait(
+        instance_id, region, commands, comment, timeout, session, on_tick
+    )
 
 
 def run_ssm_command_capturing_output(
@@ -706,7 +710,10 @@ def _tail_new_cloudwatch_lines(
     """
     from botocore.exceptions import ClientError
 
-    state: dict[str, Any] = {"token": None, "start_time_ms": int(time.time() * 1000) - 5000}
+    state: dict[str, Any] = {
+        "token": None,
+        "start_time_ms": int(time.time() * 1000) - 5000,
+    }
 
     def poll() -> list[str]:
         kwargs: dict[str, Any] = {
@@ -728,7 +735,10 @@ def _tail_new_cloudwatch_lines(
         return [
             event["message"]
             for event in response.get("events", [])
-            if not any(pattern.search(event["message"]) for pattern in _CLOUDWATCH_NOISE_PATTERNS)
+            if not any(
+                pattern.search(event["message"])
+                for pattern in _CLOUDWATCH_NOISE_PATTERNS
+            )
         ]
 
     return poll
@@ -909,7 +919,9 @@ def get_container_logs(
     try:
         streams = []
         paginator = logs_client.get_paginator("describe_log_streams")
-        for page in paginator.paginate(logGroupName=log_group, logStreamNamePrefix=prefix):
+        for page in paginator.paginate(
+            logGroupName=log_group, logStreamNamePrefix=prefix
+        ):
             streams.extend(page["logStreams"])
     except ClientError as exc:
         raise DeployError(f"couldn't list container log streams: {exc}") from exc
@@ -917,8 +929,10 @@ def get_container_logs(
     result: dict[str, list[str]] = {}
     for stream in streams:
         stream_name = stream["logStreamName"]
-        container = stream_name[len(prefix):]
-        result[container] = _get_log_stream_messages(logs_client, log_group, stream_name, max_lines)
+        container = stream_name[len(prefix) :]
+        result[container] = _get_log_stream_messages(
+            logs_client, log_group, stream_name, max_lines
+        )
     return result
 
 
@@ -942,7 +956,9 @@ def get_container_log_tail(
     return _get_log_stream_messages(logs_client, log_group, stream_name, max_lines)
 
 
-def _get_log_stream_messages(logs_client, log_group: str, stream_name: str, max_lines: int) -> list[str]:
+def _get_log_stream_messages(
+    logs_client, log_group: str, stream_name: str, max_lines: int
+) -> list[str]:
     from botocore.exceptions import ClientError
 
     try:
@@ -953,7 +969,9 @@ def _get_log_stream_messages(logs_client, log_group: str, stream_name: str, max_
             startFromHead=False,
         )["events"]
     except ClientError as exc:
-        raise DeployError(f"couldn't read logs for stream {stream_name}: {exc}") from exc
+        raise DeployError(
+            f"couldn't read logs for stream {stream_name}: {exc}"
+        ) from exc
     return [event["message"] for event in events]
 
 
@@ -1078,7 +1096,9 @@ def create_snapshot(
         return snapshot_id
 
     def check() -> bool:
-        state = ec2.describe_snapshots(SnapshotIds=[snapshot_id])["Snapshots"][0]["State"]
+        state = ec2.describe_snapshots(SnapshotIds=[snapshot_id])["Snapshots"][0][
+            "State"
+        ]
         return state == "completed"
 
     wait_with_spinner(f"Waiting for snapshot {snapshot_id}", check, timeout=1800)
@@ -1161,7 +1181,9 @@ def restore_snapshot_data(
     swap (see "Restore semantics" in the spec for why).
     """
     ec2 = _client(session, "ec2", region)
-    instance = ec2.describe_instances(InstanceIds=[instance_id])["Reservations"][0]["Instances"][0]
+    instance = ec2.describe_instances(InstanceIds=[instance_id])["Reservations"][0][
+        "Instances"
+    ][0]
     az = instance["Placement"]["AvailabilityZone"]
 
     write_line(f"[deploy] Creating restore volume from snapshot {snapshot_id}")
@@ -1180,20 +1202,28 @@ def restore_snapshot_data(
     )["VolumeId"]
 
     def volume_available() -> bool:
-        return ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"] == "available"
+        return (
+            ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"]
+            == "available"
+        )
 
     wait_with_spinner(f"Waiting for volume {volume_id}", volume_available, timeout=300)
 
     device = "/dev/sdf"
 
     def volume_attached() -> bool:
-        return ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"] == "in-use"
+        return (
+            ec2.describe_volumes(VolumeIds=[volume_id])["Volumes"][0]["State"]
+            == "in-use"
+        )
 
     try:
         ec2.attach_volume(VolumeId=volume_id, InstanceId=instance_id, Device=device)
         wait_with_spinner(f"Attaching volume {volume_id}", volume_attached, timeout=300)
 
-        script = _RESTORE_SNAPSHOT_DATA_SCRIPT.format(volume_suffix=volume_id.replace("-", ""))
+        script = _RESTORE_SNAPSHOT_DATA_SCRIPT.format(
+            volume_suffix=volume_id.replace("-", "")
+        )
         run_ssm_command(
             instance_id,
             region,
@@ -1206,7 +1236,9 @@ def restore_snapshot_data(
         write_line(f"[deploy] Detaching and deleting restore volume {volume_id}")
         try:
             ec2.detach_volume(VolumeId=volume_id, InstanceId=instance_id, Force=True)
-            wait_with_spinner(f"Detaching volume {volume_id}", volume_available, timeout=300)
+            wait_with_spinner(
+                f"Detaching volume {volume_id}", volume_available, timeout=300
+            )
         except Exception:
             write_line(
                 f"[deploy] Could not confirm detach of volume {volume_id} — attempting delete anyway"
@@ -1254,7 +1286,10 @@ def get_cpu_utilization(
     except Exception:
         return {iid: None for iid in instance_ids}
 
-    results = {r["Id"]: r["Values"][0] if r["Values"] else None for r in response["MetricDataResults"]}
+    results = {
+        r["Id"]: r["Values"][0] if r["Values"] else None
+        for r in response["MetricDataResults"]
+    }
     return {iid: results.get(f"cpu{i}") for i, iid in enumerate(instance_ids)}
 
 
@@ -1265,16 +1300,12 @@ def provision(config: Config) -> dict[str, Any] | None:
     write_line(f"[deploy] Provisioning {config.domain_name}")
     write_line(f"[deploy] Git reference: {config.git_ref} ({config.git_commit[:8]})")
 
-    bucket = ensure_state_bucket(
-        config.aws_region, config.domain_name, config.session
-    )
+    bucket = ensure_state_bucket(config.aws_region, config.domain_name, config.session)
 
     ami_id = (
         None
         if config.force_rebuild_ami
-        else find_ami_in_account(
-            config.aws_region, config.git_commit, config.session
-        )
+        else find_ami_in_account(config.aws_region, config.git_commit, config.session)
     )
 
     if ami_id:
@@ -1303,9 +1334,7 @@ def provision(config: Config) -> dict[str, Any] | None:
     alb_dns = outputs["alb_dns_name"]
 
     wait_for_ssm_online(instance_id, config.aws_region, config.session)
-    wait_for_runner_bootstrap_completion(
-        instance_id, config.aws_region, config.session
-    )
+    wait_for_runner_bootstrap_completion(instance_id, config.aws_region, config.session)
     prepare_runner_repository(
         instance_id,
         config.aws_region,
@@ -1354,9 +1383,7 @@ def update(config: Config) -> None:
         write_line("Checking configuration with a dry run.")
     write_line(f"[deploy] Updating to {config.git_ref} ({config.git_commit[:8]})")
 
-    bucket = ensure_state_bucket(
-        config.aws_region, config.domain_name, config.session
-    )
+    bucket = ensure_state_bucket(config.aws_region, config.domain_name, config.session)
     terraform_init(bucket, config.aws_region, config.session)
 
     outputs = read_terraform_outputs(env=_subprocess_env(config.session))
@@ -1370,13 +1397,15 @@ def update(config: Config) -> None:
         return
 
     wait_for_ssm_online(instance_id, config.aws_region, config.session)
-    wait_for_runner_bootstrap_completion(
-        instance_id, config.aws_region, config.session
-    )
+    wait_for_runner_bootstrap_completion(instance_id, config.aws_region, config.session)
 
     volume_id = find_root_volume_id(instance_id, config.aws_region, config.session)
     create_snapshot(
-        volume_id, config.domain_name, "pre-update", config.aws_region, config.session,
+        volume_id,
+        config.domain_name,
+        "pre-update",
+        config.aws_region,
+        config.session,
         wait=False,
     )
 
@@ -1437,9 +1466,7 @@ def destroy(config: Config) -> None:
     """
     write_line(f"[deploy] Destroying {config.domain_name}")
 
-    bucket = ensure_state_bucket(
-        config.aws_region, config.domain_name, config.session
-    )
+    bucket = ensure_state_bucket(config.aws_region, config.domain_name, config.session)
     terraform_init(bucket, config.aws_region, config.session)
 
     env = _subprocess_env(config.session)
@@ -1494,7 +1521,11 @@ def destroy(config: Config) -> None:
 
     if volume_id:
         create_snapshot(
-            volume_id, config.domain_name, "pre-destroy", config.aws_region, config.session
+            volume_id,
+            config.domain_name,
+            "pre-destroy",
+            config.aws_region,
+            config.session,
         )
         ec2 = _client(config.session, "ec2", config.aws_region)
         ec2.delete_volume(VolumeId=volume_id)

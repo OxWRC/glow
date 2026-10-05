@@ -63,9 +63,13 @@ def main() -> None:
         writer.writerows(kept_rows)
 
     kept_students = len({row["uid"] for row in kept_rows})
-    print(f"Kept {kept_students} students ({len(kept_rows)} wave-rows) across {len(schools)} schools")
+    print(
+        f"Kept {kept_students} students ({len(kept_rows)} wave-rows) across {len(schools)} schools"
+    )
     for school in schools:
-        print(f"  {school}: {len(kept_classes[school])}/{len(classes_by_school[school])} classes")
+        print(
+            f"  {school}: {len(kept_classes[school])}/{len(classes_by_school[school])} classes"
+        )
 
 
 if __name__ == "__main__":

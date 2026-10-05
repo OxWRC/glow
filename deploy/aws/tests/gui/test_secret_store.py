@@ -48,7 +48,9 @@ def test_save_and_load_round_trip_via_keyring(monkeypatch):
 
 
 def test_load_returns_none_when_nothing_stored(monkeypatch):
-    monkeypatch.setattr(secret_store.keyring, "get_password", lambda service, username: None)
+    monkeypatch.setattr(
+        secret_store.keyring, "get_password", lambda service, username: None
+    )
 
     assert secret_store.load_credentials("missing-profile") is None
 
@@ -83,7 +85,9 @@ def test_delete_credentials_removes_from_both_stores(monkeypatch):
     backend = _FakeKeyringBackend()
     monkeypatch.setattr(secret_store.keyring, "set_password", backend.set_password)
     monkeypatch.setattr(secret_store.keyring, "get_password", backend.get_password)
-    monkeypatch.setattr(secret_store.keyring, "delete_password", backend.delete_password)
+    monkeypatch.setattr(
+        secret_store.keyring, "delete_password", backend.delete_password
+    )
 
     secret_store.save_credentials("default", _sample_credentials())
     secret_store.delete_credentials("default")

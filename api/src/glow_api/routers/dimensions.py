@@ -56,7 +56,9 @@ def get_dimensions(
         else:
             df = df.iloc[0:0]  # no data loaded yet, or school not linked to ODK data
     else:
-        request_context.record_event("auth_assessed", outcome="anonymous", success=None, school_id=None)
+        request_context.record_event(
+            "auth_assessed", outcome="anonymous", success=None, school_id=None
+        )
         # Dataset-scoped query - use full dataset
         dfwl = datastore.to_frozen()
         df = dfwl.df

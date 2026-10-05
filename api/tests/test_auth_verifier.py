@@ -95,7 +95,9 @@ class TestCognitoVerifier:
         # Simulates a forged token / an attacker-controlled key: the verifier's
         # (monkeypatched) JWKS lookup still returns the pool's real public key,
         # so a token signed by any other private key must fail signature checks.
-        other_private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        other_private_key = rsa.generate_private_key(
+            public_exponent=65537, key_size=2048
+        )
         token = _make_cognito_token(other_private_key)
 
         with pytest.raises(jwt.PyJWTError):

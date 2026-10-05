@@ -61,9 +61,7 @@ def test_resolve_git_commit_via_github_prefers_peeled_annotated_tag_commit(
         },
     )
 
-    assert (
-        github_api.resolve_git_commit_via_github(REPO, "v1.2.3") == peeled_commit_sha
-    )
+    assert github_api.resolve_git_commit_via_github(REPO, "v1.2.3") == peeled_commit_sha
 
 
 def test_resolve_git_commit_via_github_uses_lightweight_tag_commit_directly(
@@ -223,4 +221,6 @@ def test_list_tags_with_prefix_returns_empty_list_on_http_error(monkeypatch):
 
 
 def test_list_tags_with_prefix_returns_empty_list_on_bad_repo_url():
-    assert github_api.list_tags_with_prefix("https://github.com/no-repo-path", "v") == []
+    assert (
+        github_api.list_tags_with_prefix("https://github.com/no-repo-path", "v") == []
+    )

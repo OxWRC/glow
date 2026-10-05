@@ -84,7 +84,9 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
-def _open_browser_when_ready(host: str, port: int, url: str, timeout: float = 10.0) -> None:
+def _open_browser_when_ready(
+    host: str, port: int, url: str, timeout: float = 10.0
+) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -99,7 +101,10 @@ def _watch_for_closed_tab(app, server: uvicorn.Server) -> None:
     while not server.should_exit:
         time.sleep(_WATCHER_INTERVAL)
         idle_for = time.time() - app.state.last_heartbeat
-        if idle_for > _HEARTBEAT_TIMEOUT and not app.state.job_manager.has_running_jobs():
+        if (
+            idle_for > _HEARTBEAT_TIMEOUT
+            and not app.state.job_manager.has_running_jobs()
+        ):
             server.should_exit = True
 
 
@@ -130,7 +135,9 @@ def main() -> None:
         threading.Thread(
             target=_open_browser_when_ready, args=(_HOST, port, url), daemon=True
         ).start()
-        threading.Thread(target=_watch_for_closed_tab, args=(app, server), daemon=True).start()
+        threading.Thread(
+            target=_watch_for_closed_tab, args=(app, server), daemon=True
+        ).start()
 
         server.run()
     finally:

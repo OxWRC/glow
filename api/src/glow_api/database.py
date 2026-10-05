@@ -344,9 +344,7 @@ def extract_schools_from_dataframe(db: Session, df) -> list[School]:
                     update_school(db, legacy, odk_school_id=odk_school_id)
                 )
                 continue
-            school = create_school(
-                db, name=odk_school_id, odk_school_id=odk_school_id
-            )
+            school = create_school(db, name=odk_school_id, odk_school_id=odk_school_id)
             created_schools.append(school)
         else:
             created_schools.append(existing)

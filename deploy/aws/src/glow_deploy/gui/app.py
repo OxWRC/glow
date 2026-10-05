@@ -34,7 +34,9 @@ logger = logging.getLogger("glow_deploy.gui")
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Glow Deploy")
-    app.mount("/static", StaticFiles(directory=str(gui_dir() / "static")), name="static")
+    app.mount(
+        "/static", StaticFiles(directory=str(gui_dir() / "static")), name="static"
+    )
 
     app.state.region = "eu-west-2"
     app.state.job_manager = JobManager()
@@ -70,9 +72,18 @@ def create_app() -> FastAPI:
     return app
 
 
-def _render_error(request: Request, message: str, *, signin_again: bool = False, status_code: int = 500):
+def _render_error(
+    request: Request,
+    message: str,
+    *,
+    signin_again: bool = False,
+    status_code: int = 500,
+):
     return templates.TemplateResponse(
-        request, "error.html", {"message": message, "signin_again": signin_again}, status_code=status_code
+        request,
+        "error.html",
+        {"message": message, "signin_again": signin_again},
+        status_code=status_code,
     )
 
 
@@ -84,7 +95,13 @@ def _handle_client_error(request: Request, exc: ClientError):
     out (RequestExpired/ExpiredToken*) — that's not a permissions problem,
     it's a "sign in again" prompt."""
     code = exc.response.get("Error", {}).get("Code", "Unknown")
-    logger.error("AWS request failed on %s %s: %s", request.method, request.url.path, exc, exc_info=exc)
+    logger.error(
+        "AWS request failed on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+        exc_info=exc,
+    )
     if code in _EXPIRED_CREDENTIAL_CODES:
         request.app.state.session = None
         secret_store.delete_credentials(_PROFILE)
@@ -99,13 +116,23 @@ def _handle_client_error(request: Request, exc: ClientError):
 
 
 def _handle_deploy_error(request: Request, exc: DeployError):
-    logger.error("Deploy error on %s %s: %s", request.method, request.url.path, exc, exc_info=exc)
+    logger.error(
+        "Deploy error on %s %s: %s", request.method, request.url.path, exc, exc_info=exc
+    )
     return _render_error(request, str(exc))
 
 
 def _handle_unexpected_error(request: Request, exc: Exception):
-    logger.error("Unhandled error on %s %s: %s", request.method, request.url.path, exc, exc_info=exc)
-    return _render_error(request, "Something went wrong. Please try again or restart the app.")
+    logger.error(
+        "Unhandled error on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+        exc_info=exc,
+    )
+    return _render_error(
+        request, "Something went wrong. Please try again or restart the app."
+    )
 
 
 def _check_for_update(app: FastAPI) -> None:

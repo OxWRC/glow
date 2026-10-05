@@ -36,7 +36,9 @@ class Settings(BaseSettings):
     PERIOD_CUTOFF_DAY: int = 1  # 1st of month
 
     # Deployment
-    APP_VERSION: str = "dev"  # Set from the deployed git tag; "dev" outside the deploy pipeline
+    APP_VERSION: str = (
+        "dev"  # Set from the deployed git tag; "dev" outside the deploy pipeline
+    )
 
     # Security
     MIN_N: int = 5
@@ -57,13 +59,13 @@ class Settings(BaseSettings):
 
     # Logging configuration
     LOG_LEVEL: str = "INFO"  # Log level for glow_api module
-    LOG_UVICORN_ACCESS: str = (
-        "WARNING"  # Log level for uvicorn.access; duplicates our own request_completed logs
-    )
+    LOG_UVICORN_ACCESS: str = "WARNING"  # Log level for uvicorn.access; duplicates our own request_completed logs
     LOG_UVICORN: str = "INFO"  # Log level for uvicorn.error (server logs)
 
     # Audit log sink (durable, append-only JSONL for audit-tier requests)
-    AUDIT_LOG_PATH: Optional[str] = None  # e.g. /var/log/glow-api/audit.jsonl; None disables the file sink
+    AUDIT_LOG_PATH: Optional[str] = (
+        None  # e.g. /var/log/glow-api/audit.jsonl; None disables the file sink
+    )
     AUDIT_LOG_MAX_BYTES: int = 50_000_000  # rotate at ~50MB
     AUDIT_LOG_BACKUP_COUNT: int = 20  # keep up to 20 rotated files (~1GB total)
 
@@ -109,7 +111,9 @@ class Settings(BaseSettings):
                 "set. Use Cognito verification in any environment with real user data; "
                 "enable the dev bypass only when no Cognito pool is configured."
             )
-        if self.COGNITO_USER_POOL_ID and not (self.COGNITO_CLIENT_ID and self.COGNITO_REGION):
+        if self.COGNITO_USER_POOL_ID and not (
+            self.COGNITO_CLIENT_ID and self.COGNITO_REGION
+        ):
             raise RuntimeError(
                 "GLOW_COGNITO_USER_POOL_ID is set but GLOW_COGNITO_CLIENT_ID and/or "
                 "GLOW_COGNITO_REGION are not. Both are required to verify Cognito "

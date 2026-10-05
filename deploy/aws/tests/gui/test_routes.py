@@ -27,7 +27,9 @@ def _no_network_version_checks(monkeypatch):
     deterministic and offline by default; individual tests override either
     with their own monkeypatch as needed."""
     monkeypatch.setattr(deps, "get_cached_release_tags", lambda request: [])
-    monkeypatch.setattr(core, "get_deployed_version", lambda domain_name, timeout=5.0: None)
+    monkeypatch.setattr(
+        core, "get_deployed_version", lambda domain_name, timeout=5.0: None
+    )
     monkeypatch.setattr(core, "list_snapshots", lambda region, session, domain=None: [])
 
 
@@ -102,7 +104,9 @@ def test_manual_signin_sets_session_and_redirects_home(client, monkeypatch):
     monkeypatch.setattr(
         aws_auth, "session_from_manual_credentials", lambda *a, **k: sentinel_session
     )
-    monkeypatch.setattr(aws_auth, "to_stored_credentials", lambda session, **k: object())
+    monkeypatch.setattr(
+        aws_auth, "to_stored_credentials", lambda session, **k: object()
+    )
 
     response = client.post(
         "/signin/manual",
@@ -139,7 +143,9 @@ def test_manual_signin_shows_error_on_rejected_credentials(client, monkeypatch):
 
 def _start_sso(client: TestClient, device_auth) -> None:
     client.app.state.pending_device_auth = device_auth
-    client.app.state.sso_token = aws_auth.SsoToken(access_token="token", expires_in=3600)
+    client.app.state.sso_token = aws_auth.SsoToken(
+        access_token="token", expires_in=3600
+    )
 
 
 def test_sso_start_shows_error_when_device_authorization_fails(client, monkeypatch):
@@ -151,7 +157,10 @@ def test_sso_start_shows_error_when_device_authorization_fails(client, monkeypat
 
     response = client.post(
         "/signin/sso/start",
-        data={"start_url": "https://ox-lza-master.awsapps.com/start/#/", "region": "eu-west-2"},
+        data={
+            "start_url": "https://ox-lza-master.awsapps.com/start/#/",
+            "region": "eu-west-2",
+        },
     )
 
     assert response.status_code == 200
@@ -177,7 +186,9 @@ def test_sso_poll_shows_error_when_listing_accounts_fails(client, monkeypatch):
     monkeypatch.setattr(
         aws_auth,
         "list_accounts_and_roles",
-        lambda *a, **k: (_ for _ in ()).throw(DeployError("could not list AWS accounts")),
+        lambda *a, **k: (_ for _ in ()).throw(
+            DeployError("could not list AWS accounts")
+        ),
     )
 
     response = client.get("/signin/sso/poll")
@@ -203,7 +214,9 @@ def test_sso_select_shows_error_when_role_exchange_fails(client, monkeypatch):
     monkeypatch.setattr(
         aws_auth,
         "session_from_sso_role",
-        lambda *a, **k: (_ for _ in ()).throw(DeployError("could not get role credentials")),
+        lambda *a, **k: (_ for _ in ()).throw(
+            DeployError("could not get role credentials")
+        ),
     )
 
     response = client.post(
@@ -273,7 +286,9 @@ def test_new_deployment_plan_then_apply_provisions(client, monkeypatch):
     )
     provision_calls = []
     monkeypatch.setattr(
-        core, "provision", lambda config: provision_calls.append(config) or core.write_line("done")
+        core,
+        "provision",
+        lambda config: provision_calls.append(config) or core.write_line("done"),
     )
 
     plan_response = client.post(
@@ -347,7 +362,9 @@ def test_new_deployment_plan_surfaces_git_ref_errors(client, monkeypatch):
     assert "ref not found" in response.text
 
 
-def test_new_deployment_plan_then_apply_threads_restore_snapshot_id(client, monkeypatch):
+def test_new_deployment_plan_then_apply_threads_restore_snapshot_id(
+    client, monkeypatch
+):
     """The visible snapshot-restore picker is gone from new_deployment.html
     (see core.provision's DeployError gate on restore_from_snapshot_id), but
     the underlying plan -> hidden-field -> apply config-threading mechanism
@@ -363,7 +380,10 @@ def test_new_deployment_plan_then_apply_threads_restore_snapshot_id(client, monk
     monkeypatch.setattr(
         core,
         "provision",
-        lambda config: {"runner_instance_id": "i-123", "alb_dns_name": "alb.example.com"},
+        lambda config: {
+            "runner_instance_id": "i-123",
+            "alb_dns_name": "alb.example.com",
+        },
     )
 
     plan_response = client.post(
@@ -415,7 +435,9 @@ def test_check_domain_reports_true_when_a_hosted_zone_is_found(client, monkeypat
         core, "find_hosted_zone_id", lambda domain, region, session=None: "Z_FOUND"
     )
 
-    response = client.get("/deployments/check-domain", params={"domain": "glow.oxrse.uk"})
+    response = client.get(
+        "/deployments/check-domain", params={"domain": "glow.oxrse.uk"}
+    )
 
     assert response.status_code == 200
     assert response.json() == {"auto": True}
@@ -532,7 +554,9 @@ def test_update_plan_then_apply_updates(client, monkeypatch):
     )
     update_calls = []
     monkeypatch.setattr(
-        core, "update", lambda config: update_calls.append(config) or core.write_line("done")
+        core,
+        "update",
+        lambda config: update_calls.append(config) or core.write_line("done"),
     )
 
     plan_response = client.post(
@@ -566,9 +590,13 @@ def test_update_plan_then_apply_updates(client, monkeypatch):
     assert update_calls[1].dry_run is False
 
 
-def test_new_deployment_plan_falls_back_to_highest_available_version(client, monkeypatch):
+def test_new_deployment_plan_falls_back_to_highest_available_version(
+    client, monkeypatch
+):
     _sign_in(client)
-    monkeypatch.setattr(deps, "get_cached_release_tags", lambda request: ["v1.0.0", "v1.4.0"])
+    monkeypatch.setattr(
+        deps, "get_cached_release_tags", lambda request: ["v1.0.0", "v1.4.0"]
+    )
     resolved_refs = []
     monkeypatch.setattr(
         github_api,
@@ -596,7 +624,9 @@ def test_new_deployment_plan_falls_back_to_highest_available_version(client, mon
     assert resolved_refs == ["v1.4.0"]
 
 
-def test_new_deployment_plan_override_takes_precedence_over_version_select(client, monkeypatch):
+def test_new_deployment_plan_override_takes_precedence_over_version_select(
+    client, monkeypatch
+):
     _sign_in(client)
     monkeypatch.setattr(deps, "get_cached_release_tags", lambda request: ["v1.4.0"])
     resolved_refs = []
@@ -626,10 +656,14 @@ def test_new_deployment_plan_override_takes_precedence_over_version_select(clien
     assert resolved_refs == ["my-feature-branch"]
 
 
-def test_update_plan_shows_currently_running_and_deploying_in_job_progress(client, monkeypatch):
+def test_update_plan_shows_currently_running_and_deploying_in_job_progress(
+    client, monkeypatch
+):
     _sign_in(client)
     _stub_deployment(monkeypatch)
-    monkeypatch.setattr(core, "get_deployed_version", lambda domain_name, timeout=5.0: "v1.2.0")
+    monkeypatch.setattr(
+        core, "get_deployed_version", lambda domain_name, timeout=5.0: "v1.2.0"
+    )
     monkeypatch.setattr(
         github_api, "resolve_git_commit_via_github", lambda repo_url, ref: "d" * 40
     )
@@ -648,10 +682,14 @@ def test_update_plan_shows_currently_running_and_deploying_in_job_progress(clien
     assert "v1.4.0" in job_page.text
 
 
-def test_deployment_detail_shows_custom_ref_note_for_main_tracked_deployment(client, monkeypatch):
+def test_deployment_detail_shows_custom_ref_note_for_main_tracked_deployment(
+    client, monkeypatch
+):
     _sign_in(client)
     _stub_deployment(monkeypatch)
-    monkeypatch.setattr(core, "get_deployed_version", lambda domain_name, timeout=5.0: "dev")
+    monkeypatch.setattr(
+        core, "get_deployed_version", lambda domain_name, timeout=5.0: "dev"
+    )
 
     response = client.get("/deployments/example.com")
 
@@ -661,7 +699,9 @@ def test_deployment_detail_shows_custom_ref_note_for_main_tracked_deployment(cli
     assert "Major upgrade available" not in response.text
 
 
-def test_deployment_detail_shows_unreachable_note_when_api_does_not_respond(client, monkeypatch):
+def test_deployment_detail_shows_unreachable_note_when_api_does_not_respond(
+    client, monkeypatch
+):
     _sign_in(client)
     _stub_deployment(monkeypatch)
     # autouse fixture already defaults get_deployed_version to None (unreachable)
@@ -689,7 +729,9 @@ def test_home_shows_no_update_badge_for_main_tracked_deployment(client, monkeypa
         ],
     )
     monkeypatch.setattr(core, "get_cpu_utilization", lambda ids, region, session: {})
-    monkeypatch.setattr(core, "get_deployed_version", lambda domain_name, timeout=5.0: "dev")
+    monkeypatch.setattr(
+        core, "get_deployed_version", lambda domain_name, timeout=5.0: "dev"
+    )
 
     response = client.get("/deployments")
 
@@ -715,7 +757,9 @@ def test_home_shows_update_badge_when_a_newer_version_is_available(client, monke
         ],
     )
     monkeypatch.setattr(core, "get_cpu_utilization", lambda ids, region, session: {})
-    monkeypatch.setattr(core, "get_deployed_version", lambda domain_name, timeout=5.0: "v1.2.0")
+    monkeypatch.setattr(
+        core, "get_deployed_version", lambda domain_name, timeout=5.0: "v1.2.0"
+    )
     monkeypatch.setattr(deps, "get_cached_release_tags", lambda request: ["v1.4.0"])
 
     response = client.get("/deployments")
@@ -749,14 +793,20 @@ def test_logs_route_surfaces_runner_status(client, monkeypatch):
     monkeypatch.setattr(
         core,
         "get_admin_credentials",
-        lambda instance_id, region, session: {"email": "glow-admin@example.com", "password": "s3cret"},
+        lambda instance_id, region, session: {
+            "email": "glow-admin@example.com",
+            "password": "s3cret",
+        },
     )
 
     status_response = client.get("/deployments/example.com/logs/status")
     assert status_response.status_code == 200
     body = status_response.json()
     assert body["status"]["health"] == "ok"
-    assert body["admin_credentials"] == {"email": "glow-admin@example.com", "password": "s3cret"}
+    assert body["admin_credentials"] == {
+        "email": "glow-admin@example.com",
+        "password": "s3cret",
+    }
     assert body["containers"] == {"glow-web-1": ["line one"]}
 
 
@@ -794,7 +844,11 @@ def test_logs_route_surfaces_admin_credentials_error(client, monkeypatch):
     monkeypatch.setattr(
         core,
         "get_runner_status",
-        lambda instance_id, region, session: {"health": "ok", "git_ref": "main", "git_commit": "a" * 40},
+        lambda instance_id, region, session: {
+            "health": "ok",
+            "git_ref": "main",
+            "git_commit": "a" * 40,
+        },
     )
     monkeypatch.setattr(
         core,
@@ -814,7 +868,9 @@ def test_logs_route_surfaces_admin_credentials_error(client, monkeypatch):
     assert status_response.status_code == 200
     body = status_response.json()
     assert body["admin_credentials"] is None
-    assert "Couldn't fetch dashboard admin credentials" in body["admin_credentials_error"]
+    assert (
+        "Couldn't fetch dashboard admin credentials" in body["admin_credentials_error"]
+    )
 
 
 def test_container_log_tail_route_returns_lines(client, monkeypatch):
@@ -838,9 +894,9 @@ def test_container_log_tail_route_surfaces_deploy_errors(client, monkeypatch):
     monkeypatch.setattr(
         core,
         "get_container_log_tail",
-        lambda instance_id, domain_name, container_name, region, session: (_ for _ in ()).throw(
-            DeployError("CloudWatch offline")
-        ),
+        lambda instance_id, domain_name, container_name, region, session: (
+            _ for _ in ()
+        ).throw(DeployError("CloudWatch offline")),
     )
 
     response = client.get("/deployments/example.com/logs/containers/glow-web-1/tail")

@@ -145,7 +145,9 @@ class ODKSeeder:
             "X-XmlFormId-Fallback": "true",
         }
 
-        response = self.session.post(url, data=xml_content.encode("utf-8"), headers=headers)
+        response = self.session.post(
+            url, data=xml_content.encode("utf-8"), headers=headers
+        )
         if response.ok:
             return form_id, version
 
@@ -159,7 +161,9 @@ class ODKSeeder:
             if str(current.get("version", "")) == str(version):
                 return form_id, version
 
-            versions = {str(item.get("version", "")) for item in self.get_form_versions(form_id)}
+            versions = {
+                str(item.get("version", "")) for item in self.get_form_versions(form_id)
+            }
             if str(version) in versions:
                 return form_id, version
 
@@ -184,7 +188,9 @@ class ODKSeeder:
             publish_response.raise_for_status()
 
         response.raise_for_status()
-        raise RuntimeError(f"Unexpected upload response for {xml_path}: {response.text}")
+        raise RuntimeError(
+            f"Unexpected upload response for {xml_path}: {response.text}"
+        )
 
     def get_form_metadata(self, form_id: str) -> dict:
         url = f"{self.base_url}/v1/projects/{self.project_id}/forms/{form_id}"
@@ -199,7 +205,9 @@ class ODKSeeder:
         return response.json()
 
     def get_existing_submissions(self, form_id: str) -> set[str]:
-        url = f"{self.base_url}/v1/projects/{self.project_id}/forms/{form_id}/submissions"
+        url = (
+            f"{self.base_url}/v1/projects/{self.project_id}/forms/{form_id}/submissions"
+        )
         response = self.session.get(url)
         if response.status_code == 404:
             raise RuntimeError(
@@ -207,7 +215,9 @@ class ODKSeeder:
             )
         response.raise_for_status()
         submissions = response.json()
-        instance_ids = {normalize_instance_id(sub.get("instanceId", "")) for sub in submissions}
+        instance_ids = {
+            normalize_instance_id(sub.get("instanceId", "")) for sub in submissions
+        }
         return instance_ids - {""}
 
     def create_submission_xml(
@@ -242,15 +252,21 @@ class ODKSeeder:
         return f'<?xml version="1.0"?>\n{xml_str}'
 
     def submit_submission(self, form_id: str, xml_data: str, instance_id: str) -> bool:
-        url = f"{self.base_url}/v1/projects/{self.project_id}/forms/{form_id}/submissions"
+        url = (
+            f"{self.base_url}/v1/projects/{self.project_id}/forms/{form_id}/submissions"
+        )
         headers = {"Content-Type": "application/xml"}
-        response = self.session.post(url, data=xml_data.encode("utf-8"), headers=headers)
+        response = self.session.post(
+            url, data=xml_data.encode("utf-8"), headers=headers
+        )
         if response.ok:
             return True
         if response.status_code == 409:
             return False
 
-        print(f"\n❌ Failed to submit {instance_id} to {form_id}: {response.status_code}")
+        print(
+            f"\n❌ Failed to submit {instance_id} to {form_id}: {response.status_code}"
+        )
         print(f"   Response: {response.text}")
         return False
 
@@ -272,7 +288,9 @@ class ODKSeeder:
         for row in rows:
             instance_id = normalize_instance_id(row.get("instance_id", ""))
             if not instance_id:
-                raise ValueError(f"Row in {csv_path} is missing instance_id helper column")
+                raise ValueError(
+                    f"Row in {csv_path} is missing instance_id helper column"
+                )
             if instance_id not in existing_ids:
                 new_rows.append(row)
 
@@ -287,10 +305,14 @@ class ODKSeeder:
         if not new_rows:
             return stats
 
-        for row in tqdm(new_rows, desc=f"Submitting {csv_path.name}", unit="submission"):
+        for row in tqdm(
+            new_rows, desc=f"Submitting {csv_path.name}", unit="submission"
+        ):
             instance_id = normalize_instance_id(row["instance_id"])
             row_version = row.get("form_version", form_version) or form_version
-            xml_data = self.create_submission_xml(row, form_id, row_version, instance_id)
+            xml_data = self.create_submission_xml(
+                row, form_id, row_version, instance_id
+            )
             success = self.submit_submission(form_id, xml_data, instance_id)
             if success:
                 stats["submitted"] += 1
@@ -321,15 +343,47 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Seed transformed multi-form mock data into ODK Central",
     )
-    parser.add_argument("--seed-dir", type=Path, required=True, help="Directory containing transformed per-form CSVs")
-    parser.add_argument("--manifest", type=Path, default=None, help="Optional manifest.csv path (defaults to <seed-dir>/manifest.csv)")
-    parser.add_argument("--forms-dir", type=Path, default=Path("odk-forms"), help="Directory containing form XMLs")
-    parser.add_argument("--odk-url", type=str, required=True, help="ODK Central base URL")
-    parser.add_argument("--email", type=str, required=True, help="ODK Central user email")
-    parser.add_argument("--password", type=str, required=True, help="ODK Central user password")
-    parser.add_argument("--project-id", type=int, required=True, help="ODK Central project ID")
-    parser.add_argument("--limit", type=int, default=None, help="Optional per-phase row limit for testing")
-    parser.add_argument("--skip-form-upload", action="store_true", help="Skip uploading form XMLs before seeding")
+    parser.add_argument(
+        "--seed-dir",
+        type=Path,
+        required=True,
+        help="Directory containing transformed per-form CSVs",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="Optional manifest.csv path (defaults to <seed-dir>/manifest.csv)",
+    )
+    parser.add_argument(
+        "--forms-dir",
+        type=Path,
+        default=Path("odk-forms"),
+        help="Directory containing form XMLs",
+    )
+    parser.add_argument(
+        "--odk-url", type=str, required=True, help="ODK Central base URL"
+    )
+    parser.add_argument(
+        "--email", type=str, required=True, help="ODK Central user email"
+    )
+    parser.add_argument(
+        "--password", type=str, required=True, help="ODK Central user password"
+    )
+    parser.add_argument(
+        "--project-id", type=int, required=True, help="ODK Central project ID"
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Optional per-phase row limit for testing",
+    )
+    parser.add_argument(
+        "--skip-form-upload",
+        action="store_true",
+        help="Skip uploading form XMLs before seeding",
+    )
     args = parser.parse_args()
 
     manifest_path = args.manifest or (args.seed_dir / "manifest.csv")
@@ -386,7 +440,9 @@ def main() -> None:
             form_id, form_version = extract_form_identity(xml_path)
 
         if form_id != phase.form_id:
-            print(f"❌ Expected form_id {phase.form_id} but {xml_path} defines {form_id}")
+            print(
+                f"❌ Expected form_id {phase.form_id} but {xml_path} defines {form_id}"
+            )
             sys.exit(1)
 
         stats = seeder.seed_phase(csv_path, form_id, form_version, limit=args.limit)

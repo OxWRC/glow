@@ -172,7 +172,9 @@ def test_admin_delete_user(admin_client, sample_schools):
     assert "analyst" not in usernames
 
 
-def test_admin_update_user_rejects_schools_for_wrc_user(admin_client, db_session, sample_schools):
+def test_admin_update_user_rejects_schools_for_wrc_user(
+    admin_client, db_session, sample_schools
+):
     from glow_api import database
 
     alpha_id = sample_schools["Focus School Academy"].id

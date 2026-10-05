@@ -53,8 +53,8 @@ def build_sql(copy_payload: str, dry_run: bool) -> str:
         copy_payload.rstrip("\n"),
         "\\.",
         "SELECT count(*) AS manifest_rows FROM timestamp_updates;",
-        "SELECT count(*) AS matched_submissions FROM submissions s JOIN timestamp_updates tu ON s.\"instanceId\" = tu.instance_id;",
-        "SELECT count(*) AS matched_submission_defs FROM submission_defs sd JOIN timestamp_updates tu ON sd.\"instanceId\" = tu.instance_id;",
+        'SELECT count(*) AS matched_submissions FROM submissions s JOIN timestamp_updates tu ON s."instanceId" = tu.instance_id;',
+        'SELECT count(*) AS matched_submission_defs FROM submission_defs sd JOIN timestamp_updates tu ON sd."instanceId" = tu.instance_id;',
     ]
 
     if dry_run:
@@ -62,8 +62,8 @@ def build_sql(copy_payload: str, dry_run: bool) -> str:
     else:
         statements.extend(
             [
-                "UPDATE submissions s SET \"createdAt\" = tu.target_created_at, \"updatedAt\" = COALESCE(s.\"updatedAt\", tu.target_created_at) FROM timestamp_updates tu WHERE s.\"instanceId\" = tu.instance_id;",
-                "UPDATE submission_defs sd SET \"createdAt\" = tu.target_created_at FROM timestamp_updates tu WHERE sd.\"instanceId\" = tu.instance_id;",
+                'UPDATE submissions s SET "createdAt" = tu.target_created_at, "updatedAt" = COALESCE(s."updatedAt", tu.target_created_at) FROM timestamp_updates tu WHERE s."instanceId" = tu.instance_id;',
+                'UPDATE submission_defs sd SET "createdAt" = tu.target_created_at FROM timestamp_updates tu WHERE sd."instanceId" = tu.instance_id;',
                 "COMMIT;",
             ]
         )
@@ -71,7 +71,9 @@ def build_sql(copy_payload: str, dry_run: bool) -> str:
     return "\n".join(statements) + "\n"
 
 
-def run_psql(sql_text: str, db_service: str, db_user: str, db_name: str) -> subprocess.CompletedProcess[str]:
+def run_psql(
+    sql_text: str, db_service: str, db_user: str, db_name: str
+) -> subprocess.CompletedProcess[str]:
     command = [
         "docker",
         "compose",
@@ -97,12 +99,24 @@ def run_psql(sql_text: str, db_service: str, db_user: str, db_name: str) -> subp
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Rewrite ODK submission createdAt timestamps from manifest.csv")
-    parser.add_argument("--manifest", type=Path, required=True, help="Manifest CSV path")
-    parser.add_argument("--db-service", default="postgres14", help="Docker compose service name for ODK Postgres")
+    parser = argparse.ArgumentParser(
+        description="Rewrite ODK submission createdAt timestamps from manifest.csv"
+    )
+    parser.add_argument(
+        "--manifest", type=Path, required=True, help="Manifest CSV path"
+    )
+    parser.add_argument(
+        "--db-service",
+        default="postgres14",
+        help="Docker compose service name for ODK Postgres",
+    )
     parser.add_argument("--db-user", default="odk", help="ODK Postgres username")
     parser.add_argument("--db-name", default="odk", help="ODK Postgres database name")
-    parser.add_argument("--dry-run", action="store_true", help="Validate matching rows without applying updates")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate matching rows without applying updates",
+    )
     args = parser.parse_args()
 
     if not args.manifest.exists():
@@ -114,9 +128,15 @@ def main() -> None:
         print(f"❌ Manifest is empty: {args.manifest}")
         sys.exit(1)
 
-    missing = [row for row in manifest_rows if not row.get("instance_id") or not row.get("target_created_at")]
+    missing = [
+        row
+        for row in manifest_rows
+        if not row.get("instance_id") or not row.get("target_created_at")
+    ]
     if missing:
-        print(f"❌ Manifest rows missing instance_id or target_created_at: {len(missing)}")
+        print(
+            f"❌ Manifest rows missing instance_id or target_created_at: {len(missing)}"
+        )
         sys.exit(1)
 
     sql_text = build_sql(build_copy_payload(manifest_rows), args.dry_run)

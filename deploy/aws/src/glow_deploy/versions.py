@@ -21,7 +21,7 @@ def parse(ref: str, prefix: str) -> tuple[int, int, int] | None:
     be a clean tag."""
     if not ref.startswith(prefix):
         return None
-    match = _VERSION_RE.fullmatch(ref[len(prefix):])
+    match = _VERSION_RE.fullmatch(ref[len(prefix) :])
     return tuple(int(group) for group in match.groups()) if match else None
 
 
@@ -43,8 +43,12 @@ def classify(current_ref: str, available_refs: list[str], prefix: str) -> dict |
     if current is None:
         return None
 
-    same_major = [ref for ref in available_refs if (parse(ref, prefix) or (-1,))[0] == current[0]]
-    higher_major = [ref for ref in available_refs if (parse(ref, prefix) or (-1,))[0] > current[0]]
+    same_major = [
+        ref for ref in available_refs if (parse(ref, prefix) or (-1,))[0] == current[0]
+    ]
+    higher_major = [
+        ref for ref in available_refs if (parse(ref, prefix) or (-1,))[0] > current[0]
+    ]
 
     update_candidate = highest(same_major, prefix)
     if update_candidate is not None and parse(update_candidate, prefix) <= current:

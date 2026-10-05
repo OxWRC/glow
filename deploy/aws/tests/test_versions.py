@@ -66,7 +66,11 @@ def test_classify_minor_update_only():
 
 def test_classify_update_and_upgrade_simultaneously():
     result = versions.classify("v1.2.0", ["v1.4.0", "v2.1.0", "v1.0.0"], "v")
-    assert result == {"current": "v1.2.0", "update_to": "v1.4.0", "upgrade_to": "v2.1.0"}
+    assert result == {
+        "current": "v1.2.0",
+        "update_to": "v1.4.0",
+        "upgrade_to": "v2.1.0",
+    }
 
 
 def test_classify_upgrade_only_no_same_major_update():
