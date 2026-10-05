@@ -28,6 +28,7 @@ AUDIT_ROUTES: set[tuple[str, str]] = {
     ("POST", "/admin/schools/"),
     ("PUT", "/admin/schools/{school_id}"),
     ("DELETE", "/admin/schools/{school_id}"),
+    ("POST", "/demo/reset"),
 }
 
 

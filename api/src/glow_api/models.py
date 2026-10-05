@@ -236,3 +236,12 @@ class ErrorDetailResponse(BaseModel):
     """Standard error response format for API errors."""
 
     detail: str
+
+
+class DemoSchool(BaseModel):
+    id: int
+    name: str
+
+
+class DemoInfo(BaseModel):
+    schools: list[DemoSchool]

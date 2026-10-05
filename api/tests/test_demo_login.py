@@ -110,6 +110,8 @@ def test_demo_routes_absent_when_demo_mode_off():
         client = TestClient(app)
         resp = client.post("/demo/login", json={"role": "admin"})
         assert resp.status_code == 404, resp.status_code
+        assert client.get("/demo/info").status_code == 404
+        assert client.post("/demo/reset").status_code == 404
         print("OK")
         """
     )

@@ -14,7 +14,15 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from glow_api.auth import create_access_token
-from glow_api.database import get_db, get_school_by_id, list_schools, upsert_user_by_sub
+from glow_api.data import DataStore, get_datastore
+from glow_api.database import (
+    get_db,
+    get_school_by_id,
+    list_schools,
+    seed_demo,
+    upsert_user_by_sub,
+)
+from glow_api.models import DemoInfo, DemoSchool
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -71,3 +79,22 @@ def demo_login(
         {"sub": sub, "cognito:username": user.username, "email": user.email}
     )
     return DemoLoginResponse(access_token=token)
+
+
+@router.get("/info", response_model=DemoInfo)
+def demo_info(db: Session = Depends(get_db)) -> DemoInfo:
+    schools = sorted(list_schools(db), key=lambda s: s.id)
+    return DemoInfo(schools=[DemoSchool(id=s.id, name=s.name) for s in schools])
+
+
+@router.post("/reset", status_code=status.HTTP_204_NO_CONTENT)
+def demo_reset(
+    db: Session = Depends(get_db), datastore: DataStore = Depends(get_datastore)
+) -> None:
+    df = datastore.to_frozen().df
+    if df.empty:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Data not loaded yet; cannot reset demo",
+        )
+    seed_demo(db, df)

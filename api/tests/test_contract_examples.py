@@ -17,6 +17,7 @@ MODEL_MAP = {
     "MeAuthenticated": models.MeAuthenticated,
     "DimensionsResponse": models.DimensionsResponse,
     "NewQueryResponse": models.NewQueryResponse,
+    "DemoInfo": models.DemoInfo,
 }
 
 
