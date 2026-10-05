@@ -1075,6 +1075,43 @@ def test_prepare_runner_repository_clones_and_checks_out_requested_ref(monkeypat
     assert "checkout_ref=deadbeef" in command
 
 
+def test_prepare_runner_repository_pulls_lfs_objects_after_checkout(monkeypatch):
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        core,
+        "run_ssm_command",
+        lambda instance_id, region, commands, comment, timeout=1800, session=None: (
+            captured.update(commands=commands)
+        ),
+    )
+
+    core.prepare_runner_repository(
+        "i-1234567890", "eu-west-2", "https://example.com/glow.git", "deadbeef"
+    )
+
+    command = captured["commands"][0]
+    checkout = command.index('git -C /opt/glow checkout --force "${checkout_ref}"')
+    assert command.index("git -C /opt/glow lfs install --local") > checkout
+    assert command.index("git -C /opt/glow lfs pull") > checkout
+    # Older AMIs without git-lfs skip with a log line instead of failing.
+    assert "git lfs version" in command
+    assert "git-lfs not installed" in command
+
+
+def test_provision_refuses_snapshot_restore_for_demo_before_any_aws_work(
+    monkeypatch,
+):
+    def fail(*args, **kwargs):
+        raise AssertionError("no AWS work expected")
+
+    monkeypatch.setattr(core, "ensure_state_bucket", fail)
+
+    with pytest.raises(core.DeployError, match="demo deployments"):
+        core.provision(
+            _make_config(demo_mode=True, restore_from_snapshot_id="snap-1234567890")
+        )
+
+
 def test_wait_for_runner_bootstrap_completion_waits_for_ready_file(monkeypatch):
     captured: dict[str, object] = {}
 

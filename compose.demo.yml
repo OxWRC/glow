@@ -42,7 +42,9 @@ services:
       - demo-init
     environment:
       # Same values compose.yml gives api, replacing compose.glow-init.yml's
-      # fixed dev creds (rotated away by activation).
+      # fixed dev creds (rotated away by activation). Not on the ODK network:
+      # glow-init reads api's data from the shared glow_cache volume, never a
+      # live ODK fetch.
       GLOW_ODK_API_URL: ${GLOW_ODK_API_URL:-http://odk-service:8383}
       GLOW_ODK_API_EMAIL: ${GLOW_ODK_API_EMAIL:-}
       GLOW_ODK_API_PASSWORD: ${GLOW_ODK_API_PASSWORD:-}

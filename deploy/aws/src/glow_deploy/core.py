@@ -696,6 +696,15 @@ fi
 
 git -C /opt/glow fetch --tags --prune origin
 git -C /opt/glow checkout --force "${{checkout_ref}}"
+
+# The demo ODK seed dump is an LFS object. Older AMIs lack git-lfs; demo
+# activation then fails on the pointer file, other deployments don't need it.
+if git lfs version >/dev/null 2>&1; then
+  git -C /opt/glow lfs install --local
+  git -C /opt/glow lfs pull
+else
+  echo "[WARN] git-lfs not installed; skipping LFS pull (demo deployments need it)"
+fi
 """
 
     run_ssm_command(
@@ -1320,6 +1329,11 @@ def provision(config: Config) -> dict[str, Any] | None:
     """Initial provision: build AMI, apply Terraform, activate stack."""
     if config.dry_run:
         write_line("Checking configuration with a dry run.")
+    if config.demo_mode and config.restore_from_snapshot_id:
+        raise DeployError(
+            "Snapshot restore is not available for demo deployments: their ODK "
+            "data lives in the demo image, not on the instance volume."
+        )
     write_line(f"[deploy] Provisioning {config.domain_name}")
     write_line(f"[deploy] Git reference: {config.git_ref} ({config.git_commit[:8]})")
 

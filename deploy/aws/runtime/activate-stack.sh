@@ -165,6 +165,15 @@ compute_app_version() {
   info "App version: ${APP_VERSION}"
 }
 
+check_demo_seed() {
+  [[ "${DEMO_MODE}" == "true" ]] || return 0
+  local dump="${WORK_DIR}/odk-central/postgres/seed/dev-seed.dump"
+  if head -c 100 "${dump}" | grep -q '^version https://git-lfs'; then
+    error "${dump} is a Git LFS pointer, not the seed data; install git-lfs and run 'git -C ${WORK_DIR} lfs pull'"
+    exit 1
+  fi
+}
+
 start_stack() {
   step "Building and starting containers"
   cd "${WORK_DIR}"
@@ -235,6 +244,8 @@ configure_demo_odk() {
   # The demo seed already holds both users (password `devpassword`) and the
   # project. Rotate the public password away on every activation: the seed's
   # data lives in the postgres14 container, so a recreate restores it.
+  # ponytail: devpassword is live from start_stack until here, and stays live
+  # if activation dies in between; re-running activation (--update) closes it.
   info "Rotating seeded ODK user passwords"
   printf '%s\n' "${ODK_ADMIN_PASSWORD}" | compose exec -T odk-service \
     node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-set-password >/dev/null
@@ -332,6 +343,7 @@ main() {
   prepare_data_layout
   generate_runtime_env
   sync_cognito_env
+  check_demo_seed
   compute_app_version
   start_stack
   wait_for_odk

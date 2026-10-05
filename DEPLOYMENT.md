@@ -193,6 +193,10 @@ On every activation, `deploy/aws/runtime/activate-stack.sh` does the following:
 
 The seeded ODK data lives inside the `postgres14` container, not on the persistent volume. Recreating that container restores the seed, including `devpassword`, until the next activation rotates it again. Re-run `--update` after any manual container recreation.
 
+The seeded `devpassword` also works from the moment the stack starts until activation rotates it, a window of a few minutes. If activation fails in that window, it stays live. Re-running `--update` closes it.
+
+Demo deployments need the seed dump from Git LFS. Runner AMIs install `git-lfs`, and the repository checkout pulls LFS objects. On an older AMI without `git-lfs`, demo activation stops with an error instead of building from the pointer file. Snapshot restore is refused for demo deployments.
+
 ## Certificate Assumption
 
 Deployment requires an already-issued ACM certificate for:

@@ -18,6 +18,7 @@ dnf install -y \
   awscli \
   docker \
   git \
+  git-lfs \
   jq \
   rsync \
   amazon-cloudwatch-agent \
