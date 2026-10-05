@@ -24,3 +24,5 @@ services:
       GLOW_ODK_API_EMAIL: api@glow.local
       GLOW_ODK_API_PASSWORD: devpassword
       GLOW_ODK_VERIFY_SSL: "false"
+      # `glow-api demo reset` refuses to run without this.
+      GLOW_DEMO_MODE: "true"

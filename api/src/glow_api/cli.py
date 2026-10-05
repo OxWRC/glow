@@ -30,10 +30,8 @@ from glow_api.database import (
     create_school,
     get_school_by_name,
     list_schools,
-    extract_schools_from_dataframe,
-    grant_admins_all_schools,
-    set_geographical_neighbors,
-    set_statistical_neighbors,
+    seed_demo,
+    sync_schools,
 )
 from glow_api.metadata_models import User
 from glow_api.settings import settings
@@ -436,134 +434,21 @@ def schools_sync(
     4. Grants all admin users access to all schools
     5. Creates new users for each school (using the capitalized letters of the school as username and password)
     """
-    from glow_api.data import get_datastore
-    import random
+    df = _load_df_or_exit()
 
     click.echo("Starting school synchronization...")
-
-    # Step 1: Load data and extract schools
-    click.echo("\n1. Extracting schools from loaded data...")
-    datastore = get_datastore()
-    data_snapshot = datastore.to_frozen()
-    df = data_snapshot.df
-
-    # If datastore is empty, load it now
-    if df.empty:
-        click.echo("   Data not yet loaded, loading now...")
-        datastore.startup()
-        data_snapshot = datastore.to_frozen()
-        df = data_snapshot.df
-
-    if df.empty:
-        click.echo("Error: No data loaded. Cannot extract schools.", err=True)
-        sys.exit(1)
-
     with SessionLocal() as db:
         try:
-            schools = extract_schools_from_dataframe(db, df)
-            click.echo(f"   Found {len(schools)} unique schools in data")
-            for school in schools:
-                click.echo(f"     - {school.name}")
+            schools = sync_schools(db, df, min_geographical, min_statistical)
         except ValueError as e:
             click.echo(f"Error: {e}", err=True)
             sys.exit(1)
-
-    # Step 2: Create neighbor relationships
-    click.echo("\n2. Creating neighbor relationships...")
-    click.echo(f"   Ensuring each school has at least {min_geographical} geographical")
-    click.echo(f"   and {min_statistical} statistical neighbors")
-
-    with SessionLocal() as db:
-        schools = list_schools(db)
-
-        if len(schools) < 2:
-            click.echo(
-                "   Warning: Need at least 2 schools to create neighbor relationships."
-            )
-        else:
-            for school in schools:
-                # Get all other schools (potential neighbors)
-                potential_neighbors = [s for s in schools if s.id != school.id]
-
-                if len(potential_neighbors) == 0:
-                    click.echo(f"   {school.name}: No other schools available")
-                    continue
-
-                # Determine how many neighbors to assign
-                num_geo = min(min_geographical, len(potential_neighbors))
-                num_stat = min(min_statistical, len(potential_neighbors))
-
-                # Check current neighbor counts
-                current_geo_count = len(school.geographical_neighbors)
-                current_stat_count = len(school.statistical_neighbors)
-
-                geo_neighbors_to_add = []
-                stat_neighbors_to_add = []
-
-                # Add geographical neighbors if needed
-                if current_geo_count < num_geo:
-                    current_geo_ids = {n.id for n in school.geographical_neighbors}
-                    available = [
-                        s for s in potential_neighbors if s.id not in current_geo_ids
-                    ]
-                    needed = num_geo - current_geo_count
-                    if needed > 0 and available:
-                        new_neighbors = random.sample(
-                            available, min(needed, len(available))
-                        )
-                        geo_neighbors_to_add = [n.id for n in new_neighbors]
-
-                # Add statistical neighbors if needed
-                if current_stat_count < num_stat:
-                    current_stat_ids = {n.id for n in school.statistical_neighbors}
-                    available = [
-                        s for s in potential_neighbors if s.id not in current_stat_ids
-                    ]
-                    needed = num_stat - current_stat_count
-                    if needed > 0 and available:
-                        new_neighbors = random.sample(
-                            available, min(needed, len(available))
-                        )
-                        stat_neighbors_to_add = [n.id for n in new_neighbors]
-
-                # Update geographical neighbors
-                if geo_neighbors_to_add:
-                    all_geo_ids = [
-                        n.id for n in school.geographical_neighbors
-                    ] + geo_neighbors_to_add
-                    set_geographical_neighbors(db, school, all_geo_ids)
-                    click.echo(
-                        f"   {school.name}: Added {len(geo_neighbors_to_add)} geographical neighbors"
-                    )
-                elif current_geo_count >= num_geo:
-                    click.echo(
-                        f"   {school.name}: Already has {current_geo_count} geographical neighbors"
-                    )
-
-                # Update statistical neighbors
-                if stat_neighbors_to_add:
-                    all_stat_ids = [
-                        n.id for n in school.statistical_neighbors
-                    ] + stat_neighbors_to_add
-                    set_statistical_neighbors(db, school, all_stat_ids)
-                    click.echo(
-                        f"   {school.name}: Added {len(stat_neighbors_to_add)} statistical neighbors"
-                    )
-                elif current_stat_count >= num_stat:
-                    click.echo(
-                        f"   {school.name}: Already has {current_stat_count} statistical neighbors"
-                    )
-
-    # Step 3: Set up user->school mappings (admin accesses all)
-    click.echo("\n3. Granting admin users access to all schools...")
-    with SessionLocal() as db:
-        updated_count = grant_admins_all_schools(db)
-        click.echo(f"   Updated {updated_count} admin user(s)")
+        click.echo(f"Found {len(schools)} unique schools in data")
+        for school in schools:
+            click.echo(f"  - {school.name}")
 
         if create_users:
             click.echo("   Creating users for schools...")
-            # Re-fetch: `schools` was bound to the Step 2 session, which has
-            # since closed - using it here raises DetachedInstanceError.
             for school in list_schools(db):
                 username = "".join(c for c in school.name if c.isupper())
                 user = db.execute(
@@ -604,6 +489,41 @@ def schools_sync(
                 )
 
     click.echo("\nSchool synchronization completed successfully!")
+
+
+def _load_df_or_exit():
+    """Return the loaded datastore frame, loading it if needed; exit 1 if empty."""
+    from glow_api.data import get_datastore
+
+    datastore = get_datastore()
+    df = datastore.to_frozen().df
+    if df.empty:
+        click.echo("Data not yet loaded, loading now...")
+        datastore.startup()
+        df = datastore.to_frozen().df
+    if df.empty:
+        click.echo("Error: No data loaded. Cannot extract schools.", err=True)
+        sys.exit(1)
+    return df
+
+
+@cli.group()
+def demo() -> None:
+    """Demo-mode commands."""
+
+
+@demo.command("reset")
+def demo_reset() -> None:
+    """Wipe users and schools, re-seed from loaded data, recreate admin."""
+    if not settings.DEMO_MODE:
+        click.echo(
+            "GLOW_DEMO_MODE is off - refusing to wipe users and schools.", err=True
+        )
+        sys.exit(1)
+    df = _load_df_or_exit()
+    with SessionLocal() as db:
+        seed_demo(db, df)
+    click.echo("Demo data reset.")
 
 
 if __name__ == "__main__":

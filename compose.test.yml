@@ -82,10 +82,9 @@ services:
           fi
           sleep 2
         done
-        # Link real School records to the ODK-seeded data (creates one School
-        # per distinct raw "school" value the submissions carry, keyed by
-        # odk_school_id).
-        glow-api schools sync
+        # Wipe + re-seed: School records from the ODK-seeded data (one per
+        # distinct raw "school" value, keyed by odk_school_id) plus `admin`.
+        glow-api demo reset
         # Focus School Academy / Neighbouring School are deliberately *not*
         # linked to any ODK data -- they exercise the "school onboarded in
         # GLOW but not yet connected to ODK" path (empty query results, not

@@ -49,8 +49,7 @@ services:
           [ -s "$$GLOW_DATA_CACHE_PATH" ] && break
           sleep 2
         done
-        glow-api users create admin --admin || echo "(admin already exists)"
-        glow-api schools sync --no-create-users
+        glow-api demo reset
 
   dashboard:
     build:

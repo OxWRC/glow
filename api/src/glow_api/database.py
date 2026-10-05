@@ -4,6 +4,7 @@ Database configuration and session management for metadata database.
 
 from collections.abc import Generator
 from datetime import datetime, timezone
+import random
 from pathlib import Path
 
 from alembic import command
@@ -12,7 +13,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from glow_api.metadata_models import ApiKey, School, User
+from glow_api.metadata_models import (
+    ApiKey,
+    School,
+    User,
+    school_geographical_neighbors,
+    school_statistical_neighbors,
+    user_schools,
+)
 from glow_api.settings import settings
 
 
@@ -414,3 +422,61 @@ def grant_admins_all_schools(db: Session) -> int:
 
     db.commit()
     return updated_count
+
+
+def sync_schools(
+    db: Session,
+    df,
+    min_geographical: int = 2,
+    min_statistical: int = 2,
+    rng: random.Random | None = None,
+) -> list[School]:
+    """Extract schools from df, top up neighbours, grant admins all schools.
+
+    Pass a seeded `rng` for reproducible neighbour assignment. Raises
+    ValueError if df has no 'school' column.
+    """
+    rng = rng or random
+    extract_schools_from_dataframe(db, df)
+    schools = sorted(list_schools(db), key=lambda s: s.id)
+
+    for school in schools:
+        others = [s for s in schools if s.id != school.id]
+        for current, minimum, setter in (
+            (
+                school.geographical_neighbors,
+                min_geographical,
+                set_geographical_neighbors,
+            ),
+            (school.statistical_neighbors, min_statistical, set_statistical_neighbors),
+        ):
+            have = {n.id for n in current}
+            needed = min(minimum, len(others)) - len(have)
+            available = [s for s in others if s.id not in have]
+            if needed > 0 and available:
+                picked = rng.sample(available, min(needed, len(available)))
+                setter(db, school, [*have, *(n.id for n in picked)])
+
+    grant_admins_all_schools(db)
+    return schools
+
+
+def seed_demo(db: Session, df) -> None:
+    """Reset to the demo state: only schools from df, one `admin` user."""
+    try:
+        for table in (
+            ApiKey.__table__,
+            user_schools,
+            school_geographical_neighbors,
+            school_statistical_neighbors,
+            User.__table__,
+            School.__table__,
+        ):
+            db.execute(table.delete())
+        db.commit()
+        sync_schools(db, df, rng=random.Random(0))
+        create_user(db, username="admin", is_admin=True)
+        grant_admins_all_schools(db)
+    except Exception:
+        db.rollback()
+        raise
