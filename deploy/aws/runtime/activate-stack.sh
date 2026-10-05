@@ -182,8 +182,45 @@ start_stack() {
   step "Building Dashboard"
   compose --progress plain build dashboard
 
+  rotate_demo_odk_passwords
+
   step "Bringing up all containers"
   compose --progress quiet up -d --build --quiet-pull --quiet-build --remove-orphans
+}
+
+rotate_demo_odk_passwords() {
+  [[ "${DEMO_MODE}" == "true" ]] || return 0
+  # The demo seed holds both users with the public password `devpassword`.
+  # Rotate it before nginx (the only path from the ALB to ODK) starts. On
+  # --update nginx is already up and this `up` may recreate postgres14 from a
+  # new seed image, so stop nginx first. odk-service's dependencies publish
+  # no ports, and api/dashboard are not started here.
+  # ponytail: a manual postgres14 recreate outside activation restores
+  # devpassword until the next --update; a seed-time rotation would remove it.
+  step "Rotating seeded ODK user passwords"
+  source "${ADMIN_ENV}"
+  source "${RUNTIME_ENV}"
+  compose stop nginx
+  compose --progress quiet up -d --build --quiet-pull --quiet-build odk-service
+
+  # odk_ping goes through nginx, so poll the service from inside its container
+  # (no curl there); any HTTP answer means migrations and config are done.
+  local retries=60
+  until compose exec -T odk-service node -e \
+    "fetch('http://127.0.0.1:8383/').then(() => process.exit(0), () => process.exit(1))" \
+    >/dev/null 2>&1; do
+    retries=$((retries - 1))
+    if [[ ${retries} -le 0 ]]; then
+      error "ODK service did not become ready"
+      exit 1
+    fi
+    sleep 5
+  done
+
+  printf '%s\n' "${ODK_ADMIN_PASSWORD}" | compose exec -T odk-service \
+    node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-set-password >/dev/null
+  printf '%s\n' "${ODK_API_PASSWORD}" | compose exec -T odk-service \
+    node /usr/odk/lib/bin/cli.js -u "${ODK_API_EMAIL}" user-set-password >/dev/null
 }
 
 wait_for_odk() {
@@ -241,17 +278,8 @@ configure_odk() {
 }
 
 configure_demo_odk() {
-  # The demo seed already holds both users (password `devpassword`) and the
-  # project. Rotate the public password away on every activation: the seed's
-  # data lives in the postgres14 container, so a recreate restores it.
-  # ponytail: devpassword is live from start_stack until here, and stays live
-  # if activation dies in between; re-running activation (--update) closes it.
-  info "Rotating seeded ODK user passwords"
-  printf '%s\n' "${ODK_ADMIN_PASSWORD}" | compose exec -T odk-service \
-    node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-set-password >/dev/null
-  printf '%s\n' "${ODK_API_PASSWORD}" | compose exec -T odk-service \
-    node /usr/odk/lib/bin/cli.js -u "${ODK_API_EMAIL}" user-set-password >/dev/null
-
+  # The demo seed already holds both users and the project; their passwords
+  # were rotated by rotate_demo_odk_passwords, so this login also proves it.
   local token
   token="$(odk_login "${ODK_ADMIN_EMAIL}" "${ODK_ADMIN_PASSWORD}")"
   local project_id
@@ -265,9 +293,9 @@ configure_demo_odk() {
 seed_demo() {
   [[ "${DEMO_MODE}" == "true" ]] || return 0
   step "Seeding demo users and schools"
-  # api's first ODK fetch ran before configure_odk rotated its password and
-  # cached an empty frame. Drop that cache and restart so api refetches;
-  # glow-init then waits for the fresh cache.
+  # The glow_cache volume outlives containers, so api may be serving a frame
+  # fetched from a previous seed (or before ODK was fully up). Drop it and
+  # restart so api refetches; glow-init then waits for the fresh cache.
   compose exec -T api rm -f /cache/data.parquet /cache/data.etag
   compose restart api
   compose run --rm --build glow-init

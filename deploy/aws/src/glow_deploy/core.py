@@ -697,11 +697,11 @@ fi
 git -C /opt/glow fetch --tags --prune origin
 git -C /opt/glow checkout --force "${{checkout_ref}}"
 
-# The demo ODK seed dump is an LFS object. Older AMIs lack git-lfs; demo
-# activation then fails on the pointer file, other deployments don't need it.
+# The demo ODK seed dump is an LFS object; only demo deployments need it, so
+# a failed pull is non-fatal (activation's check_demo_seed stops demo loudly).
 if git lfs version >/dev/null 2>&1; then
   git -C /opt/glow lfs install --local
-  git -C /opt/glow lfs pull
+  git -C /opt/glow lfs pull --include odk-central/postgres/seed/dev-seed.dump || echo "[WARN] LFS pull failed (demo deployments need it)"
 else
   echo "[WARN] git-lfs not installed; skipping LFS pull (demo deployments need it)"
 fi
@@ -1339,6 +1339,17 @@ def provision(config: Config) -> dict[str, Any] | None:
 
     bucket = ensure_state_bucket(config.aws_region, config.domain_name, config.session)
 
+    terraform_init(bucket, config.aws_region, config.session)
+
+    existing = read_terraform_outputs(env=_subprocess_env(config.session))
+    if existing and _is_demo(existing.get("demo_mode")) != config.demo_mode:
+        raise DeployError(
+            f"{config.domain_name} was provisioned with demo mode "
+            f"{'on' if _is_demo(existing.get('demo_mode')) else 'off'}; demo mode "
+            "cannot be changed on an existing deployment. Destroy it and "
+            "provision again."
+        )
+
     ami_id = (
         None
         if config.force_rebuild_ami
@@ -1357,17 +1368,6 @@ def provision(config: Config) -> dict[str, Any] | None:
             config.session,
         )
         write_line(f"[deploy] Built AMI: {ami_id}")
-
-    terraform_init(bucket, config.aws_region, config.session)
-
-    existing = read_terraform_outputs(env=_subprocess_env(config.session))
-    if existing and _is_demo(existing.get("demo_mode")) != config.demo_mode:
-        raise DeployError(
-            f"{config.domain_name} was provisioned with demo mode "
-            f"{'on' if _is_demo(existing.get('demo_mode')) else 'off'}; demo mode "
-            "cannot be changed on an existing deployment. Destroy it and "
-            "provision again."
-        )
 
     write_line("[deploy] Applying Terraform")
     outputs = terraform_apply(config, ami_id)
@@ -1598,6 +1598,8 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+    if args.update and args.demo:
+        parser.error("--demo applies only at provision; omit it with --update")
 
     try:
         # Fail fast if terraform/packer aren't resolvable, rather than partway

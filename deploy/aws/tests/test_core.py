@@ -1096,6 +1096,11 @@ def test_prepare_runner_repository_pulls_lfs_objects_after_checkout(monkeypatch)
     # Older AMIs without git-lfs skip with a log line instead of failing.
     assert "git lfs version" in command
     assert "git-lfs not installed" in command
+    # Only the demo seed, and never fatal: check_demo_seed fails demo loudly.
+    assert (
+        "git -C /opt/glow lfs pull --include odk-central/postgres/seed/dev-seed.dump"
+        " || " in command
+    )
 
 
 def test_provision_refuses_snapshot_restore_for_demo_before_any_aws_work(
@@ -1871,6 +1876,19 @@ def test_provision_refuses_to_switch_existing_deployment_to_demo(monkeypatch):
     assert "apply" not in calls
 
 
+def test_provision_demo_guard_refuses_before_ami_build(monkeypatch):
+    calls = []
+    _provision_stubs(monkeypatch, {"demo_mode": True}, calls)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("no AMI work expected")
+
+    monkeypatch.setattr(core, "find_ami_in_account", fail)
+    monkeypatch.setattr(core, "build_ami_with_packer", fail)
+    with pytest.raises(core.DeployError, match="demo mode"):
+        core.provision(_make_config(demo_mode=False))
+
+
 def test_provision_refuses_to_switch_demo_deployment_to_real(monkeypatch):
     calls = []
     _provision_stubs(monkeypatch, {"demo_mode": True}, calls)
@@ -2010,3 +2028,31 @@ def test_cli_demo_flag_sets_config_demo_mode(monkeypatch):
     )
     assert core.main() == 0
     assert seen[0].demo_mode is True
+
+
+def test_cli_rejects_demo_with_update(monkeypatch, capsys):
+    monkeypatch.setattr(core, "update", lambda config: None)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["glow-deploy", "--domain", "example.com", "--update", "--demo"],
+    )
+    with pytest.raises(SystemExit):
+        core.main()
+    assert "--demo" in capsys.readouterr().err
+
+
+def test_activate_stack_rotates_demo_passwords_before_nginx_starts():
+    script = (AWS_DEPLOY_DIR / "runtime" / "activate-stack.sh").read_text()
+    body = script[script.index("rotate_demo_odk_passwords() {") :]
+    body = body[: body.index("\n}\n")]
+
+    assert '[[ "${DEMO_MODE}" == "true" ]] || return 0' in body
+    # nginx publishes ODK to the ALB; it must be down until rotation is done.
+    assert body.index("compose stop nginx") < body.index("up -d")
+    assert "odk-service" in body[body.index("up -d") :]
+    assert body.count("user-set-password") == 2
+    start = script[script.index("start_stack() {") :]
+    start = start[: start.index("\n}\n")]
+    assert start.index("rotate_demo_odk_passwords") < start.index(
+        "compose --progress quiet up"
+    )

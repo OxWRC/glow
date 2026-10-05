@@ -188,14 +188,12 @@ On every activation, `deploy/aws/runtime/activate-stack.sh` does the following:
 
 - Adds `compose.demo.yml`. ODK Postgres is built from the pre-seeded `dev` target, and `GLOW_DEMO_MODE` / `PUBLIC_DEMO_MODE` are set.
 - Writes the Cognito values blank.
-- Resets the seeded ODK users (`admin@glow.local`, `api@glow.local`) from the public `devpassword` to the generated passwords in `.env.admin` / `.env.runtime`.
+- Resets the seeded ODK users (`admin@glow.local`, `api@glow.local`) from the public `devpassword` to the generated passwords in `.env.admin` / `.env.runtime`. It does this with nginx stopped, before ODK is reachable from the load balancer, so `devpassword` is never exposed during activation.
 - Wipes and re-seeds Glow's users and schools (`glow-api demo reset`).
 
-The seeded ODK data lives inside the `postgres14` container, not on the persistent volume. Recreating that container restores the seed, including `devpassword`, until the next activation rotates it again. Re-run `--update` after any manual container recreation.
+The seeded ODK data lives inside the `postgres14` container, not on the persistent volume. Recreating that container manually, outside activation, restores the seed, and `devpassword` then works until the next `--update` rotates it again. Re-run `--update` after any manual container recreation.
 
-The seeded `devpassword` also works from the moment the stack starts until activation rotates it, a window of a few minutes. If activation fails in that window, it stays live. Re-running `--update` closes it.
-
-Demo deployments need the seed dump from Git LFS. Runner AMIs install `git-lfs`, and the repository checkout pulls LFS objects. On an older AMI without `git-lfs`, demo activation stops with an error instead of building from the pointer file. Snapshot restore is refused for demo deployments.
+Demo deployments need the seed dump from Git LFS. Runner AMIs install `git-lfs`, and the repository checkout pulls the seed dump from LFS (a failed pull only warns, since other deployments don't need it). On an older AMI without `git-lfs`, demo activation stops with an error instead of building from the pointer file. Snapshot restore is refused for demo deployments.
 
 ## Certificate Assumption
 
