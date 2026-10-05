@@ -83,3 +83,45 @@ def test_fetch_form_submissions_304_returns_none(client, monkeypatch):
 
     assert df is None
     assert etag == "unchanged"
+
+
+@pytest.fixture
+def unauthenticated_client(monkeypatch):
+    monkeypatch.setattr(ODKClient, "_try_login", lambda self: False)
+    return ODKClient(
+        base_url="http://odk.test",
+        username="u",
+        password="wrong",
+        project_id=1,
+    )
+
+
+def test_fetch_submissions_raises_when_login_fails(unauthenticated_client):
+    # An empty result here would be indistinguishable from "no submissions",
+    # so DataStore would replace good data (and its cache) with nothing.
+    with pytest.raises(RuntimeError, match="login failed"):
+        unauthenticated_client.fetch_submissions()
+
+
+def test_get_form_metadata_raises_when_login_fails(unauthenticated_client):
+    with pytest.raises(RuntimeError, match="login failed"):
+        unauthenticated_client.get_form_metadata()
+
+
+def test_datastore_keeps_data_and_cache_when_login_fails(
+    unauthenticated_client, tmp_path
+):
+    import pandas as pd
+
+    from glow_api.data import DataStore
+
+    cache_path = tmp_path / "cache.parquet"
+    ds = DataStore(
+        odk_client=unauthenticated_client, refresh_hours=0, cache_path=cache_path
+    )
+    ds._df = pd.DataFrame({"uid": ["S001"]})
+
+    ds.refresh()
+
+    assert list(ds.to_frozen().df["uid"]) == ["S001"]
+    assert not cache_path.exists()

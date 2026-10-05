@@ -84,6 +84,13 @@ class ODKClient:
             return False
         return True
 
+    def _require_login(self) -> None:
+        # Raise rather than return an empty result: callers can't tell "no
+        # submissions" from "couldn't log in", and DataStore only keeps its
+        # previous data (and cache) when the fetch raises.
+        if not self._try_login():
+            raise RuntimeError("ODK Central login failed")
+
     def get(self, *args, **kwargs) -> requests.Response:
         # Add SSL verification setting if not explicitly provided
         if "verify" not in kwargs:
@@ -178,8 +185,7 @@ class ODKClient:
         Returns a per-form mapping where a `None` frame means the endpoint
         returned 304 Not Modified for that form.
         """
-        if not self._try_login():
-            return {}, {}
+        self._require_login()
         existing_etags = etags or {}
         form_frames: dict[str, Optional[pd.DataFrame]] = {}
         new_etags: dict[str, Optional[str]] = {}
@@ -213,8 +219,7 @@ class ODKClient:
 
     def get_form_metadata(self) -> dict[str, Any]:
         """Build per-form, per-version variable metadata maps."""
-        if not self._try_login():
-            return {}
+        self._require_login()
         forms_metadata: dict[str, Any] = {}
         current_versions: dict[str, str] = {}
 
