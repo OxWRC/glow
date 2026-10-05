@@ -27,6 +27,24 @@ Builds are unsigned for now, so the OS will warn about an unidentified
 developer/publisher on first run — click through it (Windows: "More info" →
 "Run anyway"; macOS: right-click the app → "Open").
 
+### Running the GUI from source
+
+For developing the GUI, or trying an unreleased version. Needs `uv`, Node.js,
+and `terraform` + `packer` on `PATH` (or set `GLOW_DEPLOY_TERRAFORM_BIN` /
+`GLOW_DEPLOY_PACKER_BIN`). From the repo root:
+
+```bash
+# Compile the frontend TypeScript into gui/static/js/ (gitignored; re-run after TS changes)
+(cd deploy/aws/src/glow_deploy/gui/frontend && npm ci && npm run build)
+
+# Start the GUI; it opens a browser tab at http://127.0.0.1:<random port>
+uv run --project deploy/aws glow-deploy-gui
+```
+
+From source the version shows as `dev` and the update check is skipped. The
+server exits about 10 seconds after the last tab closes (unless a job is
+running); launching again while one is running reopens the existing tab.
+
 Everything below this section covers the underlying CLI and raw Terraform,
 for advanced use or automation (CI, scripting) where the GUI doesn't fit.
 
