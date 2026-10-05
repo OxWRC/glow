@@ -84,7 +84,7 @@ def _build_verifier() -> _CognitoVerifier | _DevVerifier:
     if not settings.DEMO_MODE:
         raise RuntimeError(
             "No Cognito pool configured (GLOW_COGNITO_USER_POOL_ID) and "
-            "GLOW_DEMO_MODE is off - refusing to start with dev-mode auth."
+            "GLOW_DEMO_MODE is off - refusing to start with demo-mode auth."
         )
     return _DevVerifier()
 

@@ -12,8 +12,9 @@ const API_BASE = config.apiBase;
 export const COGNITO_DOMAIN = config.cognitoDomain;
 export const COGNITO_CLIENT_ID = config.cognitoClientId;
 
-// Dev-only: shows the role-picker login instead of redirecting to Cognito's
-// hosted UI. Mirrors the api service's GLOW_DEMO_MODE (compose.override.yml).
+// Demo mode (local dev and demo deployments): shows the role-picker login
+// instead of redirecting to Cognito's hosted UI. Mirrors the api service's
+// GLOW_DEMO_MODE.
 export const DEMO_MODE = config.demoMode;
 
 export class ApiError extends Error {

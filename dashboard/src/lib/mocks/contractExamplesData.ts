@@ -97,6 +97,18 @@ export const contractExamplesData = [
     },
   },
   {
+    id: "demo.reset.unavailable",
+    method: "POST",
+    path: "/demo/reset",
+    status: 503,
+    request_model: null,
+    response_model: "ErrorDetailResponse",
+    request: null,
+    response: {
+      detail: "Data not loaded yet; cannot reset demo",
+    },
+  },
+  {
     id: "dimensions.dataset",
     method: "GET",
     path: "/dimensions",

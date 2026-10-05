@@ -14,16 +14,23 @@ export function DemoBanner({ locale }: { locale: Locale }) {
   const [infoError, setInfoError] = useState(false);
   const [status, setStatus] = useState("");
 
-  useEffect(() => {
+  function loadInfo() {
     demoInfo()
-      .then((info) => setSchools(info.schools))
+      .then((info) => {
+        setSchools(info.schools);
+        setInfoError(false);
+      })
       .catch(() => setInfoError(true));
-  }, []);
+  }
+
+  useEffect(loadInfo, []);
 
   async function confirmReset() {
     dialogRef.current?.close();
     try {
       await demoReset();
+      // The reset re-inserts schools under new IDs; this banner stays mounted.
+      loadInfo();
       logout();
       navigate(`/${locale}/login`);
       setStatus(t("demo.resetDone"));

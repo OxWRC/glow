@@ -35,7 +35,9 @@ def test_demo_reset_restores_schools(auth_client, db_session):
 
 def test_demo_reset_503_when_data_not_loaded(auth_client_empty_data, sample_schools):
     resp = auth_client_empty_data.post("/demo/reset")
-    assert resp.status_code == 503
+    example = get_example("demo.reset.unavailable")
+    assert resp.status_code == example["status"] == 503
+    assert resp.json() == example["response"]
     # nothing was wiped
     assert auth_client_empty_data.get("/demo/info").json()["schools"]
 

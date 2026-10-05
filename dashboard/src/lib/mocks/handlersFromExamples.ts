@@ -21,6 +21,7 @@ export interface ApiResponseConfig {
   "GET /dimensions"?: string;
   "GET /query"?: string;
   "POST /api/query"?: string;
+  "POST /demo/reset"?: string;
 }
 
 /**
@@ -100,10 +101,17 @@ export function createHandlersFromExamples(
       ),
     );
   }
+  // Success is a bodiless 204, so it has no contract example; failures do.
+  const resetExample = config["POST /demo/reset"]
+    ? getExample(config["POST /demo/reset"])
+    : undefined;
   handlers.push(
-    http.post(
-      `${API_BASE}/demo/reset`,
-      () => new HttpResponse(null, { status: 204 }),
+    http.post(`${API_BASE}/demo/reset`, () =>
+      resetExample
+        ? HttpResponse.json(resetExample.response, {
+            status: resetExample.status,
+          })
+        : new HttpResponse(null, { status: 204 }),
     ),
   );
 

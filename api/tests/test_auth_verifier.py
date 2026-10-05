@@ -178,7 +178,7 @@ class TestBuildVerifierFailsClosed:
         monkeypatch.setattr(auth_module.settings, "COGNITO_USER_POOL_ID", None)
         monkeypatch.setattr(auth_module.settings, "DEMO_MODE", False)
 
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError, match="demo-mode auth"):
             auth_module._build_verifier()
 
     def test_no_pool_and_dev_bypass_on_uses_dev_verifier(self, monkeypatch):
