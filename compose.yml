@@ -21,10 +21,10 @@ services:
       GLOW_MIN_N: ${GLOW_MIN_N:-5}
       GLOW_SECRET_KEY: ${GLOW_SECRET_KEY:-change-me-in-production}
       # Safe-by-default: this is the base/production compose file, so an
-      # unset GLOW_DEV_AUTH_BYPASS must NOT enable dev-mode auth. Local dev
+      # unset GLOW_DEMO_MODE must NOT enable dev-mode auth. Local dev
       # opts in via compose.override.yml, which is never applied on a real
       # deploy (see deploy/aws/runtime/activate-stack.sh).
-      GLOW_DEV_AUTH_BYPASS: ${GLOW_DEV_AUTH_BYPASS:-false}
+      GLOW_DEMO_MODE: ${GLOW_DEMO_MODE:-false}
       # Passthrough only - no `:-` default. An empty-string default would be
       # just as falsy as unset at auth.py's _build_verifier() check, but it
       # would also swallow Compose's own "variable is not set" warning, the

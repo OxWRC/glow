@@ -55,7 +55,7 @@ class TestAuditTimeline:
     def test_school_scoped_query_logs_full_timeline(self, auth_client, sample_schools):
         school_id = sample_schools["Focus School Academy"].id
         token_resp = auth_client.post(
-            "/auth/dev-login", json={"role": "school", "school_id": school_id}
+            "/demo/login", json={"role": "school", "school_id": school_id}
         )
         assert token_resp.status_code == 200
         token = token_resp.json()["access_token"]

@@ -510,7 +510,7 @@ export const en = {
     footer: "GLOW Wellbeing Research · Read-only access",
     loginFailed: "Login failed. Please try again.",
     configError: "Sign-in is not configured. Contact an administrator.",
-    devPickerTitle: "Dev sign-in (bypass)",
+    demoPickerTitle: "Demo sign-in — choose a role",
     devAdmin: "Admin",
     devWrc: "WRC",
     devSchool: "School",

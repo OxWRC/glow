@@ -162,7 +162,7 @@ class TestValidateAuthConfig:
     just via _build_verifier (see TestBuildVerifierFailsClosed above)."""
 
     def test_dev_bypass_and_cognito_pool_both_set_raises(self, monkeypatch):
-        monkeypatch.setattr(auth_module.settings, "DEV_AUTH_BYPASS", True)
+        monkeypatch.setattr(auth_module.settings, "DEMO_MODE", True)
         monkeypatch.setattr(auth_module.settings, "COGNITO_USER_POOL_ID", TEST_POOL_ID)
 
         with pytest.raises(RuntimeError):
@@ -176,14 +176,14 @@ class TestBuildVerifierFailsClosed:
 
     def test_no_pool_and_dev_bypass_off_refuses_to_start(self, monkeypatch):
         monkeypatch.setattr(auth_module.settings, "COGNITO_USER_POOL_ID", None)
-        monkeypatch.setattr(auth_module.settings, "DEV_AUTH_BYPASS", False)
+        monkeypatch.setattr(auth_module.settings, "DEMO_MODE", False)
 
         with pytest.raises(RuntimeError):
             auth_module._build_verifier()
 
     def test_no_pool_and_dev_bypass_on_uses_dev_verifier(self, monkeypatch):
         monkeypatch.setattr(auth_module.settings, "COGNITO_USER_POOL_ID", None)
-        monkeypatch.setattr(auth_module.settings, "DEV_AUTH_BYPASS", True)
+        monkeypatch.setattr(auth_module.settings, "DEMO_MODE", True)
 
         assert isinstance(auth_module._build_verifier(), auth_module._DevVerifier)
 
@@ -191,7 +191,7 @@ class TestBuildVerifierFailsClosed:
         monkeypatch.setattr(auth_module.settings, "COGNITO_USER_POOL_ID", TEST_POOL_ID)
         monkeypatch.setattr(auth_module.settings, "COGNITO_CLIENT_ID", None)
         monkeypatch.setattr(auth_module.settings, "COGNITO_REGION", None)
-        monkeypatch.setattr(auth_module.settings, "DEV_AUTH_BYPASS", False)
+        monkeypatch.setattr(auth_module.settings, "DEMO_MODE", False)
 
         with pytest.raises(RuntimeError):
             auth_module._build_verifier()
@@ -200,7 +200,7 @@ class TestBuildVerifierFailsClosed:
         monkeypatch.setattr(auth_module.settings, "COGNITO_USER_POOL_ID", TEST_POOL_ID)
         monkeypatch.setattr(auth_module.settings, "COGNITO_CLIENT_ID", TEST_CLIENT_ID)
         monkeypatch.setattr(auth_module.settings, "COGNITO_REGION", TEST_REGION)
-        monkeypatch.setattr(auth_module.settings, "DEV_AUTH_BYPASS", False)
+        monkeypatch.setattr(auth_module.settings, "DEMO_MODE", False)
 
         assert isinstance(auth_module._build_verifier(), auth_module._CognitoVerifier)
 
@@ -208,7 +208,7 @@ class TestBuildVerifierFailsClosed:
         monkeypatch.setattr(auth_module.settings, "COGNITO_USER_POOL_ID", TEST_POOL_ID)
         monkeypatch.setattr(auth_module.settings, "COGNITO_CLIENT_ID", TEST_CLIENT_ID)
         monkeypatch.setattr(auth_module.settings, "COGNITO_REGION", TEST_REGION)
-        monkeypatch.setattr(auth_module.settings, "DEV_AUTH_BYPASS", True)
+        monkeypatch.setattr(auth_module.settings, "DEMO_MODE", True)
 
         with pytest.raises(RuntimeError):
             auth_module._build_verifier()

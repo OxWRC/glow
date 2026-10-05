@@ -16,9 +16,9 @@ const { exchangeCodeForToken, me } = vi.hoisted(() => ({
 vi.mock("../lib/api", () => ({
   COGNITO_DOMAIN: "auth.example.test",
   COGNITO_CLIENT_ID: "client-123",
-  DEV_AUTH_BYPASS: false,
+  DEMO_MODE: false,
   ApiError: class extends Error {},
-  devLogin: vi.fn(),
+  demoLogin: vi.fn(),
   exchangeCodeForToken,
   me,
 }));

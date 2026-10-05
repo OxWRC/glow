@@ -1,4 +1,4 @@
-"""Dev-bypass login: only mounted (see main.py) when settings.DEV_AUTH_BYPASS
+"""Demo-mode login: only mounted (see main.py) when settings.DEMO_MODE
 is on - never reachable in a real deployment.
 
 Mints tokens with create_access_token, the same HS256 key/issuer the
@@ -16,23 +16,23 @@ from sqlalchemy.orm import Session
 from glow_api.auth import create_access_token
 from glow_api.database import get_db, get_school_by_id, list_schools, upsert_user_by_sub
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/demo", tags=["demo"])
 
 
-class DevLoginRequest(BaseModel):
+class DemoLoginRequest(BaseModel):
     role: Literal["admin", "wrc", "school"]
     school_id: int | None = None
 
 
-class DevLoginResponse(BaseModel):
+class DemoLoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
 
-@router.post("/dev-login", response_model=DevLoginResponse)
-def dev_login(
-    payload: DevLoginRequest, db: Session = Depends(get_db)
-) -> DevLoginResponse:
+@router.post("/login", response_model=DemoLoginResponse)
+def demo_login(
+    payload: DemoLoginRequest, db: Session = Depends(get_db)
+) -> DemoLoginResponse:
     if payload.role == "admin":
         sub = "dev-admin"
         # /me returns exactly a user's assigned schools (no implicit "admin
@@ -56,7 +56,7 @@ def dev_login(
             if not schools:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No schools seeded to dev-login as",
+                    detail="No schools seeded to demo login as",
                 )
             school_id = schools[0].id
         elif get_school_by_id(db, school_id) is None:
@@ -70,4 +70,4 @@ def dev_login(
     token = create_access_token(
         {"sub": sub, "cognito:username": user.username, "email": user.email}
     )
-    return DevLoginResponse(access_token=token)
+    return DemoLoginResponse(access_token=token)

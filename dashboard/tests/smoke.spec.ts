@@ -12,7 +12,7 @@ const scopedSchool =
   process.env.PLAYWRIGHT_SCOPED_SCHOOL ?? "Beahanberg High School";
 
 /**
- * Drives the dev-bypass role picker on /en/login (the password form it
+ * Drives the demo-mode role picker on /en/login (the password form it
  * replaced called a since-removed /auth/login - see Task 8). Waits for the
  * post-login redirect to the locale root, i.e. a successful authenticated
  * landing.
@@ -32,16 +32,16 @@ async function loginAsRole(
 }
 
 /**
- * The "school" dev-login role needs a school id up front, but GET /schools
+ * The "school" demo login role needs a school id up front, but GET /schools
  * requires auth and the dashboard has no anonymous listing to pick one from
  * (see Task 8's report) - so resolve the seeded, ODK-connected school's id
- * directly against the API via a throwaway admin dev-login, rather than
- * relying on dev-login's own no-id-given row-order fallback.
+ * directly against the API via a throwaway admin demo login, rather than
+ * relying on demo login's own no-id-given row-order fallback.
  */
 async function findSchoolId(name: string): Promise<number> {
   const api = await request.newContext({ baseURL: apiBase });
   try {
-    const loginRes = await api.post("/auth/dev-login", {
+    const loginRes = await api.post("/demo/login", {
       data: { role: "admin" },
     });
     const { access_token: token } = await loginRes.json();
@@ -59,7 +59,7 @@ async function findSchoolId(name: string): Promise<number> {
   }
 }
 
-test("admin can log in via dev-bypass, run a query, and use the admin screen", async ({
+test("admin can log in via demo-mode, run a query, and use the admin screen", async ({
   page,
 }) => {
   await loginAsRole(page, "admin");
@@ -106,7 +106,7 @@ test("admin can log in via dev-bypass, run a query, and use the admin screen", a
   ).toBeVisible();
 });
 
-test("school-scoped dev-bypass role can log in and run a query", async ({
+test("school-scoped demo-mode role can log in and run a query", async ({
   page,
 }) => {
   const schoolId = await findSchoolId(scopedSchool);

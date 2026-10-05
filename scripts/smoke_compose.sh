@@ -20,10 +20,10 @@ import urllib.request
 
 base = "http://127.0.0.1:8000"
 # Password-based /auth/login was removed with Cognito auth (Task 2); this
-# stack has no real Cognito pool, so use the dev-bypass login instead
-# (compose.test.yml sets GLOW_DEV_AUTH_BYPASS for exactly this).
+# stack has no real Cognito pool, so use the demo-mode login instead
+# (compose.test.yml sets GLOW_DEMO_MODE for exactly this).
 login_req = urllib.request.Request(
-    base + "/auth/dev-login",
+    base + "/demo/login",
     data=json.dumps({"role": "admin"}).encode(),
     headers={"Content-Type": "application/json"},
     method="POST",

@@ -12,7 +12,7 @@ import {
   me,
   COGNITO_DOMAIN,
   COGNITO_CLIENT_ID,
-  DEV_AUTH_BYPASS,
+  DEMO_MODE,
 } from "../lib/api";
 import { availableLocales, createI18n, type Locale } from "../lib/i18n";
 
@@ -67,14 +67,14 @@ export function Layout() {
   function logout() {
     clearAuth();
 
-    // Dev-bypass has no real Cognito session to end. With a real pool,
+    // Demo mode has no real Cognito session to end. With a real pool,
     // navigating straight to /login isn't a real sign-out: Cognito's own
     // hosted-UI SSO cookie survives, so the redirect-to-authorize that
     // /login's onMount does immediately re-authenticates the same user
     // without ever showing a login screen. Hit Cognito's hosted /logout
     // first (its logout_urls already allow /{locale}/login - see
     // deploy/aws/terraform/cognito.tf) so the next login actually prompts.
-    if (DEV_AUTH_BYPASS || !COGNITO_DOMAIN || !COGNITO_CLIENT_ID) {
+    if (DEMO_MODE || !COGNITO_DOMAIN || !COGNITO_CLIENT_ID) {
       navigate(`/${locale}/login`);
       return;
     }

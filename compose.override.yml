@@ -16,9 +16,9 @@ services:
       GLOW_ODK_API_EMAIL: api@glow.local
       GLOW_ODK_API_PASSWORD: devpassword
       GLOW_ODK_VERIFY_SSL: "false"
-      # Dev-only: mints local tokens via /auth/dev-login instead of requiring
+      # Dev-only: mints local tokens via /demo/login instead of requiring
       # a real Cognito pool for local dev/demo.
-      GLOW_DEV_AUTH_BYPASS: "true"
+      GLOW_DEMO_MODE: "true"
 
   glow-init:
     extends:
@@ -71,8 +71,8 @@ services:
       VITE_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
       # Dev-only: shows the role-picker login instead of redirecting to a
       # (likely unconfigured) real Cognito hosted UI. Pairs with the api
-      # service's GLOW_DEV_AUTH_BYPASS above.
-      VITE_PUBLIC_DEV_AUTH_BYPASS: "true"
+      # service's GLOW_DEMO_MODE above.
+      VITE_PUBLIC_DEMO_MODE: "true"
     healthcheck:
       # Override compose.yml's wget-based check: the dev target runs on a
       # plain node:22-bookworm-slim base with neither wget nor curl.

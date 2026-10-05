@@ -120,7 +120,7 @@ def upsert_user_by_sub(
     """Find or create the local User row for a given Cognito `sub`, syncing
     is_admin/is_wrc/school_ids to the given values on every call.
 
-    Used by the dev-bypass login (Task 4) and by real-Cognito bootstrap
+    Used by the demo-mode login (Task 4) and by real-Cognito bootstrap
     (Task 5) to link a local row to an identity that only exists as a token
     claim - `get_user_by_sub` then finds a real row for the rest of the auth
     stack. `username` defaults to `cognito_sub` when creating a new row (only

@@ -81,10 +81,10 @@ def _build_verifier() -> _CognitoVerifier | _DevVerifier:
             settings.COGNITO_CLIENT_ID,
             settings.COGNITO_REGION,
         )
-    if not settings.DEV_AUTH_BYPASS:
+    if not settings.DEMO_MODE:
         raise RuntimeError(
             "No Cognito pool configured (GLOW_COGNITO_USER_POOL_ID) and "
-            "GLOW_DEV_AUTH_BYPASS is off - refusing to start with dev-mode auth."
+            "GLOW_DEMO_MODE is off - refusing to start with dev-mode auth."
         )
     return _DevVerifier()
 
@@ -93,7 +93,7 @@ verifier = _build_verifier()
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    """Mint an HS256 dev-mode token (used by the dev-bypass login path)."""
+    """Mint an HS256 dev-mode token (used by the demo-mode login path)."""
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

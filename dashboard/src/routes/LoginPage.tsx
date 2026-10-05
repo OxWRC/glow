@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  devLogin,
+  demoLogin,
   me,
   ApiError,
-  DEV_AUTH_BYPASS,
+  DEMO_MODE,
   COGNITO_DOMAIN,
   COGNITO_CLIENT_ID,
 } from "../lib/api";
@@ -79,7 +79,7 @@ export function LoginPage() {
       window.location.href = `https://${COGNITO_DOMAIN}/oauth2/authorize?${params.toString()}`;
     }
 
-    if (!DEV_AUTH_BYPASS) {
+    if (!DEMO_MODE) {
       redirectToCognito().catch((e: unknown) => {
         setError(e instanceof Error ? e.message : i18n.t("login.loginFailed"));
       });
@@ -94,7 +94,7 @@ export function LoginPage() {
       const trimmed = schoolIdInput.trim();
       const schoolId =
         role === "school" && trimmed ? Number(trimmed) : undefined;
-      const token = await devLogin(role, schoolId);
+      const token = await demoLogin(role, schoolId);
       const identity = await me(token.access_token);
       if (identity.kind !== "authenticated") {
         setError(i18n.t("login.loginFailed"));
@@ -126,10 +126,10 @@ export function LoginPage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
-          {DEV_AUTH_BYPASS ? (
+          {DEMO_MODE ? (
             <>
               <h2 className="text-xl font-semibold text-gray-800 mb-6">
-                {i18n.t("login.devPickerTitle")}
+                {i18n.t("login.demoPickerTitle")}
               </h2>
 
               <div className="space-y-4">

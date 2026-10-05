@@ -13,8 +13,8 @@ export const COGNITO_DOMAIN = config.cognitoDomain;
 export const COGNITO_CLIENT_ID = config.cognitoClientId;
 
 // Dev-only: shows the role-picker login instead of redirecting to Cognito's
-// hosted UI. Mirrors the api service's GLOW_DEV_AUTH_BYPASS (compose.override.yml).
-export const DEV_AUTH_BYPASS = config.devAuthBypass;
+// hosted UI. Mirrors the api service's GLOW_DEMO_MODE (compose.override.yml).
+export const DEMO_MODE = config.demoMode;
 
 export class ApiError extends Error {
   constructor(
@@ -189,14 +189,14 @@ export interface UserUpdate {
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 /**
- * Dev-bypass login (only reachable when the API has GLOW_DEV_AUTH_BYPASS on).
+ * Demo-mode login (only reachable when the API has GLOW_DEMO_MODE on).
  * Mints a local HS256 token for the given role without a real Cognito pool.
  */
-export async function devLogin(
+export async function demoLogin(
   role: "admin" | "wrc" | "school",
   schoolId?: number,
 ): Promise<Token> {
-  return apiFetch<Token>("/auth/dev-login", {
+  return apiFetch<Token>("/demo/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ role, school_id: schoolId ?? null }),

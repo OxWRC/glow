@@ -4,7 +4,7 @@ export interface RuntimeConfig {
   apiBase: string;
   cognitoDomain: string;
   cognitoClientId: string;
-  devAuthBypass: boolean;
+  demoMode: boolean;
 }
 
 declare global {
@@ -49,9 +49,9 @@ export function getRuntimeConfig(): RuntimeConfig {
       injected.PUBLIC_COGNITO_CLIENT_ID ??
       import.meta.env.VITE_PUBLIC_COGNITO_CLIENT_ID ??
       "",
-    devAuthBypass:
-      (injected.PUBLIC_DEV_AUTH_BYPASS ??
-        import.meta.env.VITE_PUBLIC_DEV_AUTH_BYPASS ??
+    demoMode:
+      (injected.PUBLIC_DEMO_MODE ??
+        import.meta.env.VITE_PUBLIC_DEMO_MODE ??
         "false") === "true",
   };
 }

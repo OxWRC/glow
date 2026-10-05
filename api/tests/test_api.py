@@ -209,10 +209,10 @@ def test_me_anonymous(auth_client):
 
 
 def test_me_authenticated(auth_client, sample_schools):
-    """GET /me with a valid dev-login token should return authenticated response with schools."""
+    """GET /me with a valid demo login token should return authenticated response with schools."""
     school = sample_schools["Focus School Academy"]
     login_response = auth_client.post(
-        "/auth/dev-login", json={"role": "school", "school_id": school.id}
+        "/demo/login", json={"role": "school", "school_id": school.id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
@@ -231,8 +231,8 @@ def test_me_authenticated(auth_client, sample_schools):
 
 
 def test_me_authenticated_admin(auth_client, sample_schools):
-    """GET /me with an admin dev-login token should show all schools."""
-    login_response = auth_client.post("/auth/dev-login", json={"role": "admin"})
+    """GET /me with an admin demo login token should show all schools."""
+    login_response = auth_client.post("/demo/login", json={"role": "admin"})
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
 
@@ -383,7 +383,7 @@ def test_dimensions_school_scope_requires_auth(auth_client, sample_schools):
     """GET /dimensions?school_id=X should require authorization for that school."""
     school_id = sample_schools["Focus School Academy"].id
     login_response = auth_client.post(
-        "/auth/dev-login", json={"role": "school", "school_id": school_id}
+        "/demo/login", json={"role": "school", "school_id": school_id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
@@ -408,7 +408,7 @@ def test_dimensions_school_scope_unauthorized(auth_client, sample_schools):
     """GET /dimensions for unauthorized school should return 403."""
     # Login as a user scoped only to Focus School Academy
     login_response = auth_client.post(
-        "/auth/dev-login",
+        "/demo/login",
         json={"role": "school", "school_id": sample_schools["Focus School Academy"].id},
     )
     assert login_response.status_code == status.HTTP_200_OK
@@ -439,7 +439,7 @@ def test_dimensions_school_scope_no_data_loaded(auth_client_empty_data, sample_s
     startup) and the analytic frame has no "school" column."""
     school_id = sample_schools["Focus School Academy"].id
     login_response = auth_client_empty_data.post(
-        "/auth/dev-login", json={"role": "school", "school_id": school_id}
+        "/demo/login", json={"role": "school", "school_id": school_id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
@@ -592,7 +592,7 @@ def test_query_get_school_scope_requires_auth(auth_client, sample_schools):
     """GET /query with school_id should require authorization."""
     school_id = sample_schools["Focus School Academy"].id
     login_response = auth_client.post(
-        "/auth/dev-login", json={"role": "school", "school_id": school_id}
+        "/demo/login", json={"role": "school", "school_id": school_id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
@@ -608,7 +608,7 @@ def test_query_get_school_scope_unauthorized(auth_client, sample_schools):
     """GET /query for unauthorized school should return 403."""
     # Login as a user scoped only to Focus School Academy
     login_response = auth_client.post(
-        "/auth/dev-login",
+        "/demo/login",
         json={"role": "school", "school_id": sample_schools["Focus School Academy"].id},
     )
     assert login_response.status_code == status.HTTP_200_OK
@@ -629,7 +629,7 @@ def test_query_get_school_scope_no_data_loaded(auth_client_empty_data, sample_sc
     "school" column."""
     school_id = sample_schools["Focus School Academy"].id
     login_response = auth_client_empty_data.post(
-        "/auth/dev-login", json={"role": "school", "school_id": school_id}
+        "/demo/login", json={"role": "school", "school_id": school_id}
     )
     assert login_response.status_code == status.HTTP_200_OK
     token = login_response.json()["access_token"]
