@@ -4,12 +4,19 @@ set -euo pipefail
 source /etc/glow-runner.env
 
 DOMAIN_NAME="${DOMAIN_NAME:?DOMAIN_NAME is required}"
+# Read once: later `source "${RUNTIME_ENV}"` calls must not change the mode.
+DEMO_MODE="${GLOW_DEMO_MODE:-false}"
 WORK_DIR="/opt/glow"
 STATE_DIR="/var/lib/glow"
 ADMIN_ENV="${STATE_DIR}/.deploy/.env.admin"
 RUNTIME_ENV="${STATE_DIR}/.deploy/share/.env.runtime"
 FORMS_STATE="${STATE_DIR}/.deploy/share/odk-forms-state.json"
 FORMS_DIR="${WORK_DIR}/odk-forms"
+ODK_PROJECT_NAME="GLOW Data Collection"
+if [[ "${DEMO_MODE}" == "true" ]]; then
+  # Name the demo seed was generated with (scripts/odk/generate_seed_dump.sh).
+  ODK_PROJECT_NAME="GLOW Development"
+fi
 export ODK_API_BASE="http://127.0.0.1:8080/v1"
 export ODK_DOMAIN="odk.${DOMAIN_NAME}"
 
@@ -64,6 +71,12 @@ generate_runtime_env() {
   odk_api_password="$(openssl rand -base64 24 | tr -d '\n')"
   local admin_email="glow-admin@${DOMAIN_NAME}"
   local api_email="glow-api@${DOMAIN_NAME}"
+  if [[ "${DEMO_MODE}" == "true" ]]; then
+    # Reuse the users baked into the demo ODK seed (passwords are rotated by
+    # configure_odk).
+    admin_email="admin@glow.local"
+    api_email="api@glow.local"
+  fi
 
   mkdir -p "$(dirname "${ADMIN_ENV}")" "$(dirname "${RUNTIME_ENV}")"
   cat > "${ADMIN_ENV}" <<EOF
@@ -114,6 +127,13 @@ sync_cognito_env() {
   # any other line (in particular, the generated secrets) already in
   # RUNTIME_ENV.
   step "Syncing Cognito config into runtime environment"
+  if [[ "${DEMO_MODE}" == "true" ]]; then
+    # Demo deployments log in via /demo/login; Cognito must stay unset.
+    GLOW_COGNITO_USER_POOL_ID=""
+    GLOW_COGNITO_CLIENT_ID=""
+    GLOW_COGNITO_REGION=""
+    GLOW_COGNITO_DOMAIN=""
+  fi
   local tmp
   tmp="$(mktemp)"
   grep -vE '^(GLOW_COGNITO_USER_POOL_ID|GLOW_COGNITO_CLIENT_ID|GLOW_COGNITO_REGION|PUBLIC_COGNITO_CLIENT_ID|PUBLIC_COGNITO_DOMAIN|PUBLIC_COGNITO_REGION)=' \
@@ -131,7 +151,11 @@ EOF
 }
 
 compose() {
-  docker compose --profile odk --env-file "${RUNTIME_ENV}" -f "$WORK_DIR/compose.yml" "$@"
+  if [[ "${DEMO_MODE}" == "true" ]]; then
+    docker compose --profile odk --env-file "${RUNTIME_ENV}" -f "$WORK_DIR/compose.yml" -f "$WORK_DIR/compose.demo.yml" "$@"
+  else
+    docker compose --profile odk --env-file "${RUNTIME_ENV}" -f "$WORK_DIR/compose.yml" "$@"
+  fi
 }
 
 compute_app_version() {
@@ -174,6 +198,11 @@ configure_odk() {
   source "${ADMIN_ENV}"
   source "${RUNTIME_ENV}"
 
+  if [[ "${DEMO_MODE}" == "true" ]]; then
+    configure_demo_odk
+    return
+  fi
+
   local create_output
   create_output="$(printf '%s\n' "${ODK_ADMIN_PASSWORD}" | compose exec -T odk-service \
     node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-create 2>&1 || true)"
@@ -202,6 +231,37 @@ configure_odk() {
   odk_assign_role "${project_id}" "${actor_id}" "2" "${token}"
 }
 
+configure_demo_odk() {
+  # The demo seed already holds both users (password `devpassword`) and the
+  # project. Rotate the public password away on every activation: the seed's
+  # data lives in the postgres14 container, so a recreate restores it.
+  info "Rotating seeded ODK user passwords"
+  printf '%s\n' "${ODK_ADMIN_PASSWORD}" | compose exec -T odk-service \
+    node /usr/odk/lib/bin/cli.js -u "${ODK_ADMIN_EMAIL}" user-set-password >/dev/null
+  printf '%s\n' "${ODK_API_PASSWORD}" | compose exec -T odk-service \
+    node /usr/odk/lib/bin/cli.js -u "${ODK_API_EMAIL}" user-set-password >/dev/null
+
+  local token
+  token="$(odk_login "${ODK_ADMIN_EMAIL}" "${ODK_ADMIN_PASSWORD}")"
+  local project_id
+  project_id="$(odk_get_project_by_name "${ODK_PROJECT_NAME}" "${token}")"
+  if [[ "${project_id}" != "${GLOW_ODK_PROJECT_ID}" ]]; then
+    error "Seeded ODK project '${ODK_PROJECT_NAME}' has id '${project_id}', expected ${GLOW_ODK_PROJECT_ID}"
+    exit 1
+  fi
+}
+
+seed_demo() {
+  [[ "${DEMO_MODE}" == "true" ]] || return 0
+  step "Seeding demo users and schools"
+  # api's first ODK fetch ran before configure_odk rotated its password and
+  # cached an empty frame. Drop that cache and restart so api refetches;
+  # glow-init then waits for the fresh cache.
+  compose exec -T api rm -f /cache/data.parquet /cache/data.etag
+  compose restart api
+  compose run --rm --build glow-init
+}
+
 process_forms() {
   if [[ ! -d "${FORMS_DIR}" ]]; then
     info "No forms directory present; skipping upload"
@@ -213,7 +273,7 @@ process_forms() {
   local token
   token="$(odk_login "${ODK_ADMIN_EMAIL}" "${ODK_ADMIN_PASSWORD}")"
   local project_id
-  project_id="$(odk_get_project_by_name "GLOW Data Collection" "${token}")"
+  project_id="$(odk_get_project_by_name "${ODK_PROJECT_NAME}" "${token}")"
 
   local forms_state
   forms_state="$(cat "${FORMS_STATE}")"
@@ -277,6 +337,7 @@ main() {
   wait_for_odk
   configure_odk
   process_forms
+  seed_demo
   verify_stack
   write_metadata
   echo "[SUCCESS] Stack activation complete"

@@ -1,0 +1,80 @@
+# Demo-deployment overlay for compose.yml, applied by
+# deploy/aws/runtime/activate-stack.sh when GLOW_DEMO_MODE=true:
+#   docker compose --profile odk -f compose.yml -f compose.demo.yml ...
+# Production-shaped otherwise: no bind mounts, no dev build targets except the
+# pre-seeded ODK Postgres. Fictional data only.
+
+services:
+  postgres14:
+    build:
+      target: dev
+
+  odk-service:
+    environment:
+      # The dev image's role/database/password are frozen into its data files
+      # at build time (see odk-central/postgres/README.md), so the generated
+      # ODK_POSTGRES_* values can't apply. Only reachable on the internal
+      # odk_internal network.
+      PGDATABASE: odk
+      PGUSER: odk
+      PGPASSWORD: odk
+
+  api:
+    environment:
+      GLOW_DEMO_MODE: "true"
+      # Shared with glow-init so it reuses api's fetched data instead of
+      # racing its own ODK fetch (same pattern as compose.test.yml).
+      GLOW_DATA_CACHE_PATH: /cache/data.parquet
+    volumes:
+      - glow_cache:/cache
+
+  dashboard:
+    environment:
+      PUBLIC_DEMO_MODE: "true"
+
+  glow-init:
+    extends:
+      file: compose.glow-init.yml
+      service: glow-init
+    # Not started by `up`: activate-stack.sh runs it with `compose run` once
+    # the seeded ODK passwords have been rotated and api can fetch data.
+    profiles:
+      - demo-init
+    environment:
+      # Same values compose.yml gives api, replacing compose.glow-init.yml's
+      # fixed dev creds (rotated away by activation).
+      GLOW_ODK_API_URL: ${GLOW_ODK_API_URL:-http://odk-service:8383}
+      GLOW_ODK_API_EMAIL: ${GLOW_ODK_API_EMAIL:-}
+      GLOW_ODK_API_PASSWORD: ${GLOW_ODK_API_PASSWORD:-}
+      GLOW_ODK_PROJECT_ID: ${GLOW_ODK_PROJECT_ID:-1}
+      GLOW_ODK_FORM_ID: ${GLOW_ODK_FORM_ID:-bewell_questionnaire}
+      GLOW_ODK_VERIFY_SSL: ${GLOW_ODK_VERIFY_SSL:-true}
+      GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
+      GLOW_DATA_CACHE_PATH: /cache/data.parquet
+      GLOW_DEMO_MODE: "true"
+    volumes:
+      - glow_cache:/cache
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - api_db
+      - public
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        echo "Waiting for api's ODK data to reach cache..."
+        for i in $$(seq 1 60); do
+          [ -s "$$GLOW_DATA_CACHE_PATH" ] && break
+          if [ "$$i" -eq 60 ]; then
+            echo "Timed out waiting for $$GLOW_DATA_CACHE_PATH" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+        glow-api demo reset
+
+volumes:
+  glow_cache:

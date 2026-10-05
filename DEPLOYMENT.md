@@ -178,6 +178,20 @@ For Docker-based AWS SSO runs, the launcher mounts the host `~/.aws` directory r
 - `--force-rebuild-ami`: rebuild AMI even if one exists
 - `--dry-run`: plan only, do not apply
 - `--update`: update existing instance instead of provision
+- `--demo`: provision a demo deployment (see below); fixed at provision time
+
+## Demo Deployments
+
+`--demo` provisions an instance that serves fictional data with no Cognito. Anyone can log in from the role picker as an admin or a school user. Demo mode is fixed at provision time: `--update` keeps it, and re-provisioning the same domain with a different mode fails.
+
+On every activation, `deploy/aws/runtime/activate-stack.sh` does the following:
+
+- Adds `compose.demo.yml`. ODK Postgres is built from the pre-seeded `dev` target, and `GLOW_DEMO_MODE` / `PUBLIC_DEMO_MODE` are set.
+- Writes the Cognito values blank.
+- Resets the seeded ODK users (`admin@glow.local`, `api@glow.local`) from the public `devpassword` to the generated passwords in `.env.admin` / `.env.runtime`.
+- Wipes and re-seeds Glow's users and schools (`glow-api demo reset`).
+
+The seeded ODK data lives inside the `postgres14` container, not on the persistent volume. Recreating that container restores the seed, including `devpassword`, until the next activation rotates it again. Re-run `--update` after any manual container recreation.
 
 ## Certificate Assumption
 
