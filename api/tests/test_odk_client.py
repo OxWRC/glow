@@ -125,3 +125,22 @@ def test_datastore_keeps_data_and_cache_when_login_fails(
 
     assert list(ds.to_frozen().df["uid"]) == ["S001"]
     assert not cache_path.exists()
+
+
+def _client_with(monkeypatch, **kwargs):
+    monkeypatch.setattr(ODKClient, "_try_login", lambda self: True)
+    return ODKClient(username="u", password="p", project_id=1, **kwargs)
+
+
+def test_host_header_sent_when_configured(monkeypatch):
+    # AWS: ODK's nginx (upstream SSL) answers only Host=odk.<domain> on :80;
+    # anything else hits its catch-all 421 server.
+    client = _client_with(
+        monkeypatch, base_url="http://nginx", host_header="odk.example.org"
+    )
+    assert client.default_headers == {"Host": "odk.example.org"}
+
+
+def test_no_host_header_guessed_from_url(monkeypatch):
+    client = _client_with(monkeypatch, base_url="https://nginx")
+    assert "Host" not in client.default_headers

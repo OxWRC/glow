@@ -21,6 +21,7 @@ services:
       # Auth requires HTTPS, so this goes through nginx, not odk-service
       # directly.
       GLOW_ODK_API_URL: https://nginx
+      GLOW_ODK_HOST_HEADER: odk.local
       GLOW_ODK_API_EMAIL: api@glow.local
       GLOW_ODK_API_PASSWORD: devpassword
       GLOW_ODK_VERIFY_SSL: "false"

@@ -11,6 +11,7 @@ services:
       # ("This authentication method is only available over HTTPS", 401.3) --
       # go through nginx's TLS termination instead, matching dev.
       GLOW_ODK_API_URL: https://nginx
+      GLOW_ODK_HOST_HEADER: odk.local
       GLOW_ODK_API_EMAIL: api@glow.local
       GLOW_ODK_API_PASSWORD: devpassword
       GLOW_ODK_VERIFY_SSL: "false"

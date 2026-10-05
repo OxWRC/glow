@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -2055,4 +2057,49 @@ def test_activate_stack_rotates_demo_passwords_before_nginx_starts():
     start = start[: start.index("\n}\n")]
     assert start.index("rotate_demo_odk_passwords") < start.index(
         "compose --progress quiet up"
+    )
+
+
+def _run_activate_function(name: str, runtime_env: Path, domain: str) -> str:
+    script = AWS_DEPLOY_DIR / "runtime" / "activate-stack.sh"
+    snippet = (
+        f"step() {{ :; }}; info() {{ :; }}; "
+        f"source <(sed -n '/^{name}()/,/^}}/p' '{script}'); {name}"
+    )
+    subprocess.run(
+        ["bash", "-c", snippet],
+        env={
+            "PATH": os.environ["PATH"],
+            "RUNTIME_ENV": str(runtime_env),
+            "DOMAIN_NAME": domain,
+        },
+        check=True,
+        capture_output=True,
+    )
+    return runtime_env.read_text()
+
+
+def test_sync_odk_api_env_migrates_existing_runtime_env(tmp_path):
+    # Runtime envs generated before this fix point the api at https://nginx,
+    # which refuses connections when ODK's nginx runs in upstream-SSL mode.
+    runtime_env = tmp_path / ".env.runtime"
+    runtime_env.write_text(
+        "GLOW_SECRET_KEY=keep-me\n"
+        "GLOW_ODK_API_URL=https://nginx\n"
+        "GLOW_ODK_VERIFY_SSL=false\n"
+    )
+
+    text = _run_activate_function("sync_odk_api_env", runtime_env, "demo.example.org")
+
+    lines = text.splitlines()
+    assert "GLOW_SECRET_KEY=keep-me" in lines
+    assert "GLOW_ODK_API_URL=http://nginx" in lines
+    assert "GLOW_ODK_HOST_HEADER=odk.demo.example.org" in lines
+    assert "GLOW_ODK_API_URL=https://nginx" not in lines
+    assert sum(line.startswith("GLOW_ODK_API_URL=") for line in lines) == 1
+
+    # Idempotent on re-activation.
+    assert (
+        _run_activate_function("sync_odk_api_env", runtime_env, "demo.example.org")
+        == text
     )

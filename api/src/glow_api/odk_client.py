@@ -30,6 +30,7 @@ class ODKClient:
         password: str,
         project_id: int,
         verify_ssl: bool = True,
+        host_header: str = "",
     ):
         """Initialize ODK client.
 
@@ -39,6 +40,8 @@ class ODKClient:
             password: ODK Central password
             project_id: Default project ID
             verify_ssl: Whether to verify SSL certificates (default: True)
+            host_header: Host header to send, when the URL's host isn't the
+                name ODK's nginx serves (e.g. "odk.local" via https://nginx)
         """
         self.access_token = None
         self.token_expires = None
@@ -48,10 +51,8 @@ class ODKClient:
         self.project_id = project_id
         self.verify_ssl = verify_ssl
 
-        # For nginx virtual hosting, set Host header to match SSL cert
-        self.default_headers = {}
-        if "nginx" in base_url.lower():
-            self.default_headers["Host"] = "odk.local"
+        # ODK's nginx routes by server_name; anything else hits its 421 catch-all.
+        self.default_headers = {"Host": host_header} if host_header else {}
 
         self._try_login()
 

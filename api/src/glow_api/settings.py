@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     ODK_API_EMAIL: str = "test@example.com"  # Default for testing
     ODK_API_PASSWORD: str = "test-password"  # Default for testing
     ODK_PROJECT_ID: int = 1  # Default for testing
+    ODK_HOST_HEADER: str = ""  # e.g. odk.local when ODK_API_URL is https://nginx
     ODK_DEMOGRAPHICS_FORM_ID: str = "demographics_questionnaire"
 
     # Data refresh configuration

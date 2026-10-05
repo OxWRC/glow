@@ -521,6 +521,7 @@ def _init_singleton():
         password=settings.ODK_API_PASSWORD,
         project_id=settings.ODK_PROJECT_ID,
         verify_ssl=os.getenv("GLOW_ODK_VERIFY_SSL", "true").lower() != "false",
+        host_header=settings.ODK_HOST_HEADER,
     )
 
     datastore = DataStore(

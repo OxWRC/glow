@@ -88,7 +88,8 @@ EOF
   cat > "${RUNTIME_ENV}" <<EOF
 GLOW_SECRET_KEY=${glow_secret}
 GLOW_MIN_N=5
-GLOW_ODK_API_URL=https://nginx
+GLOW_ODK_API_URL=http://nginx
+GLOW_ODK_HOST_HEADER=odk.${DOMAIN_NAME}
 GLOW_ODK_VERIFY_SSL=false
 GLOW_ODK_API_EMAIL=${api_email}
 GLOW_ODK_API_PASSWORD=${odk_api_password}
@@ -116,6 +117,23 @@ ODK_API_PASSWORD=${odk_api_password}
 ODK_API_URL=http://odk.${DOMAIN_NAME}
 EOF
   chmod 600 "${RUNTIME_ENV}"
+}
+
+sync_odk_api_env() {
+  # ODK's nginx runs with SSL_TYPE=upstream here: it listens on :80 only and
+  # serves just server_name odk.<domain> (other Hosts get its 421 catch-all).
+  # Runtime envs generated before this fix point the api at https://nginx, so
+  # rewrite these two lines on every activation, leaving the rest untouched.
+  step "Syncing ODK API address into runtime environment"
+  local tmp
+  tmp="$(mktemp)"
+  grep -vE '^(GLOW_ODK_API_URL|GLOW_ODK_HOST_HEADER)=' "${RUNTIME_ENV}" > "${tmp}" || true
+  cat >> "${tmp}" <<EOF
+GLOW_ODK_API_URL=http://nginx
+GLOW_ODK_HOST_HEADER=odk.${DOMAIN_NAME}
+EOF
+  install -m 0600 "${tmp}" "${RUNTIME_ENV}"
+  rm -f "${tmp}"
 }
 
 sync_cognito_env() {
@@ -370,6 +388,7 @@ main() {
   step "Starting Glow stack activation"
   prepare_data_layout
   generate_runtime_env
+  sync_odk_api_env
   sync_cognito_env
   check_demo_seed
   compute_app_version
