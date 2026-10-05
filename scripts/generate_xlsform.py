@@ -5,6 +5,7 @@ Generate BeWell XLSForm from i18n strings and the current v2 structure.
 Usage:
     python scripts/generate_xlsform.py -o odk-forms/bewell_questionnaire_v2.xlsx
 """
+
 import argparse
 import pandas as pd
 from pathlib import Path
@@ -108,7 +109,9 @@ BEWELL_GROUPS = {
     },
     "bw_sleep": {
         "label": "Sleep adequacy",
-        "items": ["Is the amount of sleep you get enough to feel awake and concentrate?"],
+        "items": [
+            "Is the amount of sleep you get enough to feel awake and concentrate?"
+        ],
     },
     "bw_physact": {
         "label": "Physical activity days",
@@ -116,7 +119,9 @@ BEWELL_GROUPS = {
     },
     "bw_physdur": {
         "label": "Physical activity duration",
-        "items": ["On active days, how long on average do you spend being physically active?"],
+        "items": [
+            "On active days, how long on average do you spend being physically active?"
+        ],
     },
     "bw_fruitveg": {
         "label": "Fruit and vegetables",
@@ -185,7 +190,9 @@ BEWELL_GROUPS = {
     },
     "bw_iso": {
         "label": "School isolation",
-        "items": ["Think about a typical school week. Are you ever placed in isolation?"],
+        "items": [
+            "Think about a typical school week. Are you ever placed in isolation?"
+        ],
     },
     "bw_isodays": {
         "label": "School isolation days",
@@ -222,11 +229,15 @@ BEWELL_GROUPS = {
     },
     "bw_foodsec": {
         "label": "Food security",
-        "items": ["The food that we bought just did not last. How often was this true?"],
+        "items": [
+            "The food that we bought just did not last. How often was this true?"
+        ],
     },
     "bw_material": {
         "label": "Material wellbeing",
-        "items": ["How happy are you with the things that you have, like money and things you own?"],
+        "items": [
+            "How happy are you with the things that you have, like money and things you own?"
+        ],
     },
     "bw_future": {
         "label": "Future readiness",
@@ -246,7 +257,9 @@ BEWELL_GROUPS = {
     },
     "bw_careershlp": {
         "label": "Careers education helpfulness",
-        "items": ["How helpful has the careers education you have received at school been?"],
+        "items": [
+            "How helpful has the careers education you have received at school been?"
+        ],
     },
     "bw_plans": {
         "label": "Post-Year-11 plans",
@@ -318,7 +331,9 @@ BEWELL_GROUPS = {
     },
     "bw_support": {
         "label": "Access to wellbeing support",
-        "items": ["I have a place to seek support for worries or mental health concerns."],
+        "items": [
+            "I have a place to seek support for worries or mental health concerns."
+        ],
     },
     "bw_mhcontact": {
         "label": "Mental health contact",
@@ -368,67 +383,79 @@ CHOICES = {
 
 def generate_xlsform(output_path: Path):
     """Generate BeWell questionnaire XLSForm."""
-    
+
     # Survey sheet
     survey_rows = []
-    
+
     # Shared metadata fields
-    survey_rows.append({
-        "type": "text",
-        "name": "uid",
-        "label": "Unique ID",
-        "constraint": "",
-        "required": "no",
-    })
-    survey_rows.append({
-        "type": "text",
-        "name": "school",
-        "label": "School",
-        "constraint": "",
-        "required": "no",
-    })
-    
+    survey_rows.append(
+        {
+            "type": "text",
+            "name": "uid",
+            "label": "Unique ID",
+            "constraint": "",
+            "required": "no",
+        }
+    )
+    survey_rows.append(
+        {
+            "type": "text",
+            "name": "school",
+            "label": "School",
+            "constraint": "",
+            "required": "no",
+        }
+    )
+
     # BeWell questions
     for prefix, group in BEWELL_GROUPS.items():
         for i, item_label in enumerate(group["items"], start=1):
             field_name = f"{prefix}_{i}"
             full_label = f"{group['label']}: {item_label}"
-            
-            survey_rows.append({
-                "type": "integer",
-                "name": field_name,
-                "label": full_label,
-                "constraint": ". >= 0 and . <= 5",
-                "required": "no",
-            })
-    
+
+            survey_rows.append(
+                {
+                    "type": "integer",
+                    "name": field_name,
+                    "label": full_label,
+                    "constraint": ". >= 0 and . <= 5",
+                    "required": "no",
+                }
+            )
+
     survey_df = pd.DataFrame(survey_rows)
-    
+
     # Choices sheet
     choices_rows = []
     for list_name, choices in CHOICES.items():
         for choice in choices:
-            choices_rows.append({
-                "list_name": list_name,
-                "name": choice["name"],
-                "label": choice["label"],
-            })
-    
+            choices_rows.append(
+                {
+                    "list_name": list_name,
+                    "name": choice["name"],
+                    "label": choice["label"],
+                }
+            )
+
     choices_df = pd.DataFrame(choices_rows)
-    
+
     # Settings sheet
-        settings_df = pd.DataFrame([{
-        "form_id": "bewell_questionnaire",
-        "version": "2",
-        "form_title": "BeWell Questionnaire (v2)",
-    }])
-    
+    settings_df = pd.DataFrame(
+        [
+            {
+                "form_id": "bewell_questionnaire",
+                "version": "2",
+                "form_title": "BeWell Questionnaire (v2)",
+            }
+        ]
+    )
+
     # Write to Excel
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         survey_df.to_excel(writer, sheet_name="survey", index=False)
         choices_df.to_excel(writer, sheet_name="choices", index=False)
         settings_df.to_excel(writer, sheet_name="settings", index=False)
-    
+
     print(f"✅ XLSForm generated: {output_path}")
     print(f"   - {len(survey_rows)} survey fields")
     print(f"   - {len(choices_rows)} choice options")
@@ -438,17 +465,18 @@ def generate_xlsform(output_path: Path):
 def main():
     parser = argparse.ArgumentParser(description="Generate BeWell XLSForm")
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=Path,
         default=Path("odk-forms/bewell_questionnaire_v2.xlsx"),
         help="Output XLSForm path (default: odk-forms/bewell_questionnaire_v2.xlsx)",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Ensure output directory exists
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    
+
     generate_xlsform(args.output)
 
 
