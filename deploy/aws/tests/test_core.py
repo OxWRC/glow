@@ -1739,7 +1739,6 @@ def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
 
 
 def test_provision_forwards_session_to_every_aws_touching_step(monkeypatch):
-    monkeypatch.setattr(core, "read_terraform_outputs", lambda env=None: {})
     """The whole point of Config.session: every collaborator must see it.
 
     provision() passes session as the *last positional argument* to each of
@@ -1748,6 +1747,7 @@ def test_provision_forwards_session_to_every_aws_touching_step(monkeypatch):
     regression where a future edit swaps to keyword-passing without updating
     every call site.
     """
+    monkeypatch.setattr(core, "read_terraform_outputs", lambda env=None: {})
     sessions_seen: list[object] = []
     session = _FakeSession(_FakeFrozenCredentials("AKIAEXAMPLE", "secret"))
 
@@ -1879,12 +1879,17 @@ def test_provision_demo_blanks_cognito_values(monkeypatch):
     assert [v for k, v in env.items() if k.startswith("GLOW_COGNITO")] == [""] * 4
 
 
-def test_read_existing_outputs_is_empty_when_terraform_output_fails(monkeypatch):
+def test_provision_propagates_terraform_output_errors(monkeypatch):
+    calls = []
+    _provision_stubs(monkeypatch, {}, calls)
+
     def boom(env=None):
-        raise core.DeployError("no state")
+        raise core.DeployError("backend unreachable")
 
     monkeypatch.setattr(core, "read_terraform_outputs", boom)
-    assert core._read_existing_outputs(None) == {}
+    with pytest.raises(core.DeployError, match="backend unreachable"):
+        core.provision(_make_config(demo_mode=True))
+    assert "apply" not in calls
 
 
 def _update_stubs(monkeypatch, outputs, calls):
@@ -1928,6 +1933,13 @@ def test_update_without_demo_output_passes_false_and_real_cognito(monkeypatch):
     core.update(_make_config())
     assert calls[0]["GLOW_DEMO_MODE"] == "false"
     assert calls[0]["GLOW_COGNITO_CLIENT_ID"] == "c"
+
+
+def test_update_ignores_config_demo_mode_when_output_absent(monkeypatch):
+    calls = []
+    _update_stubs(monkeypatch, {"runner_instance_id": "i-1"}, calls)
+    core.update(_make_config(demo_mode=True))
+    assert calls[0]["GLOW_DEMO_MODE"] == "false"
 
 
 @pytest.mark.parametrize("tag,expected", [("true", True), (None, False)])

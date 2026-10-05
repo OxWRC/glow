@@ -981,7 +981,9 @@ def test_new_deployment_demo_checkbox_threads_to_config(client, monkeypatch):
     job_id = response.headers["location"].removeprefix("/jobs/")
     _wait_for_job(client, job_id)
     assert plan_calls[0].demo_mode is True
-    assert 'name="demo_mode" value="True"' in client.get(f"/jobs/{job_id}").text
+    review = client.get(f"/jobs/{job_id}").text
+    assert 'name="demo_mode" value="True"' in review
+    assert "Demo deployment: yes" in review
 
     apply_calls = []
     monkeypatch.setattr(core, "provision", lambda config: apply_calls.append(config))

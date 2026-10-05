@@ -407,14 +407,6 @@ def _is_demo(value: Any) -> bool:
     return value is True or str(value).lower() == "true"
 
 
-def _read_existing_outputs(env: dict[str, str] | None) -> dict[str, Any]:
-    """Outputs of any prior deployment, or ``{}`` if there is none to read."""
-    try:
-        return read_terraform_outputs(env=env)
-    except (DeployError, ValueError):
-        return {}
-
-
 def _runner_env(config: Config, outputs: dict[str, Any], demo: bool) -> dict[str, str]:
     """Environment for the runner userdata re-run; demo has no Cognito."""
     cognito = {} if demo else outputs
@@ -1354,7 +1346,7 @@ def provision(config: Config) -> dict[str, Any] | None:
 
     terraform_init(bucket, config.aws_region, config.session)
 
-    existing = _read_existing_outputs(_subprocess_env(config.session))
+    existing = read_terraform_outputs(env=_subprocess_env(config.session))
     if existing and _is_demo(existing.get("demo_mode")) != config.demo_mode:
         raise DeployError(
             f"{config.domain_name} was provisioned with demo mode "

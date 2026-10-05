@@ -18,6 +18,7 @@
   {% if job.status == "succeeded" and job.meta.get("apply_action") %}
     <h2>Review</h2>
     <p>Resolved commit: <code>{{ job.meta.config.git_commit }}</code></p>
+    {% if "demo_mode" in job.meta.config %}<p>Demo deployment: {{ "yes" if job.meta.config.demo_mode else "no" }}</p>{% endif %}
     {% if job.meta.get("currently_running") or job.meta.get("deploying") %}
     <p>Currently running: <code>{{ job.meta.currently_running or "unknown" }}</code> &rarr; Deploying: <code>{{ job.meta.deploying }}</code></p>
     {% endif %}
