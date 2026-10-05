@@ -37,7 +37,7 @@
 
 This is the riskiest piece of Docker/Postgres plumbing in the plan (writing directly to Postgres's data files at build time, bypassing the official entrypoint's own setup logic). The exact commands below were verified by hand before being written into this plan: built, booted, confirmed sub-second boot-to-ready, confirmed baked data present, and confirmed password auth works over a Docker network from a separate container (not just localhost/trust).
 
-- [ ] **Step 1: Create the seed directory placeholder and `.gitattributes`**
+- [x] **Step 1: Create the seed directory placeholder and `.gitattributes`**
 
 ```bash
 mkdir -p odk-central/postgres/seed
@@ -50,7 +50,7 @@ Create `.gitattributes` at the repo root:
 odk-central/postgres/seed/*.dump filter=lfs diff=lfs merge=lfs -text
 ```
 
-- [ ] **Step 2: Run `git lfs install` (repo-local) if not already configured**
+- [x] **Step 2: Run `git lfs install` (repo-local) if not already configured**
 
 ```bash
 git lfs install
@@ -59,7 +59,7 @@ git lfs env | head -5
 
 Expected: no error; confirms `git-lfs` is available (it already is in this environment — verified during design).
 
-- [ ] **Step 3: Write `odk-central/postgres/bake-seed.sh`**
+- [x] **Step 3: Write `odk-central/postgres/bake-seed.sh`**
 
 ```sh
 #!/bin/sh
@@ -111,7 +111,7 @@ rm -f "$DUMP_PATH"
 chmod +x odk-central/postgres/bake-seed.sh
 ```
 
-- [ ] **Step 4: Write `odk-central/postgres/Dockerfile`**
+- [x] **Step 4: Write `odk-central/postgres/Dockerfile`**
 
 ```dockerfile
 # ODK Central's own Postgres database.
@@ -145,7 +145,7 @@ ENV PGDATA=/var/lib/postgresql/pgdata
 COPY --from=dev-builder /var/lib/postgresql/pgdata /var/lib/postgresql/pgdata
 ```
 
-- [ ] **Step 5: Write `odk-central/postgres/README.md`**
+- [x] **Step 5: Write `odk-central/postgres/README.md`**
 
 ```markdown
 # ODK Postgres seed image
@@ -193,7 +193,7 @@ to that release's migration state.
   unaffected.
 ```
 
-- [ ] **Step 6: Cross-reference the new directory from `odk-central/README.md`**
+- [x] **Step 6: Cross-reference the new directory from `odk-central/README.md`**
 
 Add a new list item under the existing `- postgres14` bullet in the "Why These Local Files Exist" section (after the `redis/` bullet, matching that section's existing style):
 
@@ -212,7 +212,7 @@ Also add a line to the existing "Upgrade Notes" numbered list (after item 2, ren
    dump is tied to the migration state it was generated against.
 ```
 
-- [ ] **Step 7: Test the mechanism with a throwaway dummy dump**
+- [x] **Step 7: Test the mechanism with a throwaway dummy dump**
 
 This validates the Dockerfile/bake-seed.sh mechanism in isolation, before Task 2 produces the real seed data.
 
@@ -254,7 +254,7 @@ rm -f odk-central/postgres/seed/dev-seed.dump
 
 Remove the dummy dump — Task 2 produces the real, committed one. `git status` should show no changes under `odk-central/postgres/seed/` at this point (only `.gitkeep` present).
 
-- [ ] **Step 8: Confirm `base` target is unaffected (regression check)**
+- [x] **Step 8: Confirm `base` target is unaffected (regression check)**
 
 ```bash
 docker build -t glow-odk-postgres-base-test --target base odk-central/postgres
@@ -268,7 +268,7 @@ docker rmi glow-odk-postgres-base-test
 
 Expected: behaves exactly like plain `postgres:14-alpine` — starts empty, accepts the env-var-driven credentials, no baked data.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add odk-central/postgres/Dockerfile odk-central/postgres/bake-seed.sh \
@@ -294,7 +294,7 @@ git commit -m "feat: add base/dev build targets for ODK's Postgres image"
 - Consumes: `odk_login`, `odk_create_project`, `odk_create_user`, `odk_assign_role` from `odk-api-helper.sh` (existing), plus the new `ODK_CURL_INSECURE` env var this task adds to `odk_curl`.
 - Produces: `odk-central/postgres/seed/dev-seed.dump`, which Task 3's compose wiring and Task 1's `dev` target build depend on.
 
-- [ ] **Step 1: Add TLS-insecure support to `odk_curl` in `scripts/odk/odk-api-helper.sh`**
+- [x] **Step 1: Add TLS-insecure support to `odk_curl` in `scripts/odk/odk-api-helper.sh`**
 
 This replaces the temp-directory `curl` PATH-shim hack that `dev-init.sh` and `scripts/smoke_compose.sh` each currently duplicate to talk to ODK Central's self-signed HTTPS cert from the host. `ODK_HOST_HEADER` already exists in this file; this adds the missing `-k` (skip TLS verify) support alongside it.
 
@@ -326,7 +326,7 @@ odk_curl() {
 }
 ```
 
-- [ ] **Step 1a: Fix `ODK_HOST_HEADER`'s default at `scripts/odk/odk-api-helper.sh:26`**
+- [x] **Step 1a: Fix `ODK_HOST_HEADER`'s default at `scripts/odk/odk-api-helper.sh:26`**
 
 This is a real, independent bug discovered while building this task (not part of the original design): line 26 currently reads
 
@@ -344,7 +344,7 @@ ODK_HOST_HEADER="${ODK_HOST_HEADER:-${ODK_DOMAIN:-}}"
 
 This defaults from itself first, falling back to `ODK_DOMAIN` only when `ODK_HOST_HEADER` itself is unset — preserving current behavior for every other caller (`scripts/smoke_compose.sh` sets only `ODK_DOMAIN`, never `ODK_HOST_HEADER`, so it still flows through the fallback unchanged; `dev-init.sh` doesn't use either variable, it uses its own separate curl-wrapper PATH shim).
 
-- [ ] **Step 2: Test the `odk_curl` change in isolation**
+- [x] **Step 2: Test the `odk_curl` change in isolation**
 
 ```bash
 bash -c '
@@ -358,7 +358,7 @@ bash -c '
 
 Expected: an HTTP status code printed (not a TLS verification error) — confirms `-k` is being applied. (badssl.com's self-signed endpoint is a convenient public target for this one check; no network access is needed for the rest of this task.)
 
-- [ ] **Step 3: Write `scripts/odk/seed-gen.compose.yml`**
+- [x] **Step 3: Write `scripts/odk/seed-gen.compose.yml`**
 
 Isolates the scratch stack from anything a developer might already have running: a Docker-managed named volume instead of the usual bind mount (so it can't collide with `docker-mount-data/odk-postgres`, and gets cleaned up by `down -v`), and alternate host ports for `nginx` so port `8080`/`8443` stays free for an active dev stack. Verified during design that Compose's list-merge for `ports:` *appends* rather than replaces by default — the `!override` tag is required to actually replace them.
 
@@ -384,7 +384,7 @@ volumes:
   seed_gen_odk_postgres:
 ```
 
-- [ ] **Step 4: Write `scripts/odk/generate_seed_dump.sh`**
+- [x] **Step 4: Write `scripts/odk/generate_seed_dump.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -559,7 +559,7 @@ echo "   Rebuild the dev image to pick it up: docker compose build postgres14"
 chmod +x scripts/odk/generate_seed_dump.sh
 ```
 
-- [ ] **Step 4a: Write `scripts/odk/slim_mock_data.py`**
+- [x] **Step 4a: Write `scripts/odk/slim_mock_data.py`**
 
 The unfiltered glow-dummies output is 9,263 students across 20 schools, producing ~60,918 ODK submissions once transformed — a ~5-6 hour regeneration at ODK's HTTP seeding rate, discovered while building this task. `transform_mock_data.py` assigns each school a *distinct* test-scenario plan (a unique `target_waves`/`phq_mode`/v1-quirk combination per school — verified via `data/mock_seed/summary.json`'s `plans` array), so dropping schools entirely would silently delete specific boundary-condition coverage. This script preserves all 20 schools but thins students-per-school by keeping only a deterministically-chosen subset of each school's classes (never a partial class — every kept student keeps all their wave-1/2/3 rows intact).
 
@@ -646,7 +646,7 @@ chmod +x scripts/odk/slim_mock_data.py
 
 Expected output when run against a fresh `data/glow_base_raw.csv` (Step 5 below): `Kept 1861 students (5583 wave-rows) across 20 schools`, with South Joana Secondary School and West Pamelia College (the two donor-only schools) each retaining well above 1 student. If the printed donor counts come out at 0 for either school, stop — that would mean the school ordering assumption above no longer matches `transform_mock_data.py`, and the wave-4/5 mappings would silently produce fewer rows than expected.
 
-- [ ] **Step 5: Generate `data/glow_base.csv` (prerequisite, not committed — already gitignored)**
+- [x] **Step 5: Generate `data/glow_base.csv` (prerequisite, not committed — already gitignored)**
 
 ```bash
 cd ../glow-dummies
@@ -660,7 +660,7 @@ python scripts/odk/slim_mock_data.py \
 
 Note: `glow-dummies` is a Julia CLI tool in a sibling checkout (`../glow-dummies`), not a published package — discovered while building this task that `uvx glow-dummies` (the command this plan originally specified, copied from already-stale instructions elsewhere in this repo) does not work. If `../glow-dummies` isn't present or its `examples/glow_model.toml` config is missing, that's a separate, pre-existing documentation gap outside this task's scope — see this task's report for details rather than trying to fix glow-dummies' own repo from here.
 
-- [ ] **Step 6: Run the script and record timing**
+- [x] **Step 6: Run the script and record timing**
 
 ```bash
 time ./scripts/odk/generate_seed_dump.sh
@@ -668,7 +668,7 @@ time ./scripts/odk/generate_seed_dump.sh
 
 Expected: ends with `✅ Wrote odk-central/postgres/seed/dev-seed.dump (N bytes)`. Record the elapsed time and the dump size — update `odk-central/postgres/README.md`'s "Regenerating the seed data" section with the actual figures (replacing any hand-wavy "faster" language) once known.
 
-- [ ] **Step 7: Verify the dump against Task 1's `dev` target for real**
+- [x] **Step 7: Verify the dump against Task 1's `dev` target for real**
 
 ```bash
 docker build -t glow-odk-postgres-dev-real --target dev odk-central/postgres
@@ -687,7 +687,7 @@ docker rmi glow-odk-postgres-dev-real
 
 Expected: boot-to-ready well under a few seconds; `projects` shows at least the one seeded project; `submissions` count is around 12,000-13,000 (per Step 4a's slimming, not the unfiltered dataset's ~60,918), matching `scripts/odk/generate_seed_dump.sh`'s printed totals from Step 6.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add scripts/odk/generate_seed_dump.sh scripts/odk/seed-gen.compose.yml \
@@ -717,7 +717,7 @@ Expected: the file is listed (confirms LFS tracked it, per `.gitattributes` from
 - Consumes: `odk-central/postgres/Dockerfile`'s `base`/`dev` targets (Tasks 1-2) and the committed seed dump (Task 2).
 - Produces: nothing new for later tasks — this is pure compose wiring.
 
-- [ ] **Step 1: Change `postgres14`'s image reference to a build in `compose.yml`**
+- [x] **Step 1: Change `postgres14`'s image reference to a build in `compose.yml`**
 
 In `compose.yml`, replace (around line 105):
 
@@ -737,7 +737,7 @@ with:
 
 Leave the rest of the `postgres14` block (`environment:`, `volumes:`, `networks:`, `restart:`, `healthcheck:`) unchanged.
 
-- [ ] **Step 2: Add the `dev` target override to `compose.override.yml`**
+- [x] **Step 2: Add the `dev` target override to `compose.override.yml`**
 
 Add a new `postgres14:` block (alongside the existing `api`, `dashboard`, `nginx` blocks):
 
@@ -747,7 +747,7 @@ Add a new `postgres14:` block (alongside the existing `api`, `dashboard`, `nginx
       target: dev
 ```
 
-- [ ] **Step 3: Add the `dev` target override to `compose.test.yml`**
+- [x] **Step 3: Add the `dev` target override to `compose.test.yml`**
 
 Add a new `postgres14:` block (alongside the existing `api`, `api-db`, `dashboard` blocks), matching this file's existing convention of `restart: "no"` for test services:
 
@@ -758,7 +758,7 @@ Add a new `postgres14:` block (alongside the existing `api`, `api-db`, `dashboar
     restart: "no"
 ```
 
-- [ ] **Step 4: Verify the merged config for each compose combination**
+- [x] **Step 4: Verify the merged config for each compose combination**
 
 ```bash
 docker compose -f compose.yml config --format json | jq '.services.postgres14.build'
@@ -778,7 +778,7 @@ docker compose -f compose.yml -f compose.test.yml config --format json | jq '.se
 
 Expected: `target: "dev"`, `restart: "no"`.
 
-- [ ] **Step 5: Boot the base stack and confirm no regression**
+- [x] **Step 5: Boot the base stack and confirm no regression**
 
 ```bash
 docker compose -f compose.yml up -d --build postgres14
@@ -788,7 +788,7 @@ docker compose -f compose.yml down -v
 
 Expected: builds `base`, boots empty (0 or near-0 application tables — whatever a truly blank ODK-less Postgres reports), no different from today's `image: postgres:14-alpine` behavior.
 
-- [ ] **Step 6: Boot the dev-override stack and confirm seeded data is present**
+- [x] **Step 6: Boot the dev-override stack and confirm seeded data is present**
 
 ```bash
 docker compose -f compose.yml -f compose.override.yml up -d --build postgres14
@@ -798,7 +798,7 @@ docker compose -f compose.yml -f compose.override.yml down
 
 Expected: submission count matches Task 2's dump, and the `up` completes almost immediately (no restore-on-boot wait).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add compose.yml compose.override.yml compose.test.yml
@@ -818,7 +818,7 @@ git commit -m "feat: build postgres14 from base/dev targets instead of a bare im
 
 Drops: prerequisite checks for `jq`/`uv` (no longer used anywhere in this script), ODK admin/project/API-user creation, mock-data generation/transform/POST-seeding, the timestamp-rewrite call, the `--limit` flag, the curl-wrapper TLS shim, and the `SKIP_SEED` branching (data is now always present). Keeps: prerequisite check for `docker`, `.env`/`.env.dev` credential writing (now fixed values, not generated), starting containers, waiting for ODK/API health, creating the Glow admin user, and schools sync (always runs now).
 
-- [ ] **Step 1: Replace the prerequisite checks (around lines 180-194)**
+- [x] **Step 1: Replace the prerequisite checks (around lines 180-194)**
 
 Replace:
 
@@ -834,7 +834,7 @@ with:
 check_command "docker" "https://docs.docker.com/get-docker/"
 ```
 
-- [ ] **Step 2: Remove the `--limit` option**
+- [x] **Step 2: Remove the `--limit` option**
 
 Remove the `LIMIT=""` variable (line 25) and its `--limit)` case in the argument parser (lines 158-161):
 
@@ -847,7 +847,7 @@ Remove the `LIMIT=""` variable (line 25) and its `--limit)` case in the argument
 
 Remove `--limit N` from `show_help`'s usage text and examples too.
 
-- [ ] **Step 3: Replace the credential-generation block (lines 222-278) with fixed values**
+- [x] **Step 3: Replace the credential-generation block (lines 222-278) with fixed values**
 
 Replace the entire "Step 4: Generate or Reuse Credentials" section through the `.env` update (everything from `step "Generating credentials"` through `info "Updated ODK credentials in .env for docker-compose"`) with:
 
@@ -904,11 +904,11 @@ EOF
 info "Updated ODK credentials in .env for docker-compose"
 ```
 
-- [ ] **Step 4: Remove the ODK admin/project/API-user bootstrap section (old "Step 7")**
+- [x] **Step 4: Remove the ODK admin/project/API-user bootstrap section (old "Step 7")**
 
 Remove everything from `step "Configuring ODK Central"` through the `odk_assign_role` call — i.e. the `source .env.dev` re-read, the ODK CLI `user-create`/`user-promote` calls, the `source ./scripts/odk/odk-api-helper.sh` line, the `CURL_WRAPPER_DIR` temp-curl-wrapper block, and the `odk_login`/`odk_create_project`/`odk_create_user`/`odk_assign_role` calls. None of this is needed — the accounts and project already exist in the baked seed data.
 
-- [ ] **Step 5: Remove the mock-data seeding section (old "Step 8") and drop `SKIP_SEED`**
+- [x] **Step 5: Remove the mock-data seeding section (old "Step 8") and drop `SKIP_SEED`**
 
 Remove the entire block from `SEED_DIR="./data/mock_seed"` through `SKIP_SEED=false` (the `transform_mock_data.py` call, the "Test data not found" instructions, the `seed_odk_test_data.py`/`rewrite_odk_submission_timestamps.py` calls). Also remove the `SKIP_SEED=false` variable declaration near the top (line 26) and both later references to `SKIP_SEED` (the schools-sync conditional and the final summary's status line) — schools sync now always runs, and the summary always reports data as seeded.
 
@@ -946,15 +946,15 @@ with:
 echo "   Status:       ✅ Data seeded (baked into the postgres14 dev image)"
 ```
 
-- [ ] **Step 6: Remove the now-dead curl-wrapper cleanup line at the end of the file**
+- [x] **Step 6: Remove the now-dead curl-wrapper cleanup line at the end of the file**
 
 Remove the final `rm -rf "$CURL_WRAPPER_DIR" 2>/dev/null || true` line — `$CURL_WRAPPER_DIR` no longer exists anywhere in the script.
 
-- [ ] **Step 7: Update the help text and tips**
+- [x] **Step 7: Update the help text and tips**
 
 In `show_help`, remove the `--limit N` line and its usage example (already covered in Step 2). In the final "💡 Tips" section, remove the `- Use --limit 100 for faster seeding...` line.
 
-- [ ] **Step 8: Run the full script end-to-end**
+- [x] **Step 8: Run the full script end-to-end**
 
 ```bash
 ./dev-init.sh --reset
@@ -968,7 +968,7 @@ curl -s http://localhost:8000/dimensions | python3 -c "import json,sys; print(le
 
 Expected: a non-zero variable count, confirming the Glow API is reading real data from the pre-seeded ODK instance.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add dev-init.sh
@@ -988,7 +988,7 @@ git commit -m "feat: drop dev-init.sh's ODK bootstrap now that postgres14 ships 
 
 Drops: the entire ODK bootstrap block (admin creation, project creation, form upload, `seed_smoke_data.py`, the curl-wrapper TLS shim). Also splits the single `up --build` call into an explicit `build` of only `api`/`dashboard` followed by a plain `up` — `--build` on `docker compose up` forces a rebuild of every service in the dependency graph (including `postgres14`, a dependency of `api` via `odk-service`), which would silently defeat Task 6's cached-image-load optimization. Compose already builds a service automatically when its image is missing (e.g. the very first local run, or a CI cache-miss handled by Task 6's own explicit build step) — it just won't force a *rebuild* when a valid image is already present, which is exactly the behavior needed here.
 
-- [ ] **Step 1: Replace the combined build+up call**
+- [x] **Step 1: Replace the combined build+up call**
 
 Replace:
 
@@ -1005,7 +1005,7 @@ docker compose -f compose.yml -f compose.test.yml build api dashboard
 docker compose -f compose.yml -f compose.test.yml up -d --wait
 ```
 
-- [ ] **Step 2: Remove the ODK bootstrap block**
+- [x] **Step 2: Remove the ODK bootstrap block**
 
 Remove everything from the `# Seed ODK Central with the minimal PHQ-9 fixture...` comment through the `seed_smoke_data.py` call — i.e. the `ODK_ADMIN_EMAIL`/`ODK_ADMIN_PASSWORD`/`ODK_API_EMAIL`/`ODK_API_PASSWORD` fixed-value assignments, the ODK CLI `user-create`/`user-promote` calls, the `ODK_CURL_WRAPPER_DIR` temp-curl-wrapper block, the `odk_login`/`odk_create_project`/`odk_create_user`/`odk_assign_role`/`odk_upload_form` calls, and the `seed_smoke_data.py` invocation. The comment above the `GLOW_ODK_API_URL` export block (`# compose.yml's default GLOW_ODK_API_URL...`) stays — that export block itself is unaffected by this change, since `GLOW_ODK_PROJECT_ID` is now always `1` from the baked seed, matching what this script's export already needs.
 
@@ -1015,7 +1015,7 @@ Update the `export GLOW_ODK_PROJECT_ID="$PROJECT_ID"` line (now that `$PROJECT_I
 export GLOW_ODK_PROJECT_ID=1
 ```
 
-- [ ] **Step 3: Run the script and confirm the smoke checks still pass**
+- [x] **Step 3: Run the script and confirm the smoke checks still pass**
 
 ```bash
 bash scripts/smoke_compose.sh
@@ -1023,7 +1023,7 @@ bash scripts/smoke_compose.sh
 
 Expected: completes without any ODK CLI/HTTP bootstrap output, `/dimensions` polling succeeds (now reflecting the full baked dataset instead of the old phq9-only fixture — this is the intended effect of unifying to one dataset), and the final schools listing prints successfully.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add scripts/smoke_compose.sh
@@ -1042,7 +1042,7 @@ git commit -m "feat: drop smoke_compose.sh's ODK bootstrap now that postgres14 s
 
 Adds a cache step for the *built* `postgres14` `dev` image, keyed off content that's present without ever resolving the LFS pointer to its real content. On a cache hit, the real seed dump is never downloaded. On a cache miss (first run, or a change to the Dockerfile/bake script/dump), only that one LFS path is pulled, the image is built, and the result is saved for next time.
 
-- [ ] **Step 1: Add the cache/build/load steps before the existing smoke-test step**
+- [x] **Step 1: Add the cache/build/load steps before the existing smoke-test step**
 
 In `.github/workflows/ci.yml`, insert these steps in the `compose-smoke` job, after `actions/checkout@v7` and before `actions/setup-python@v7` (order relative to the Python/Node setup steps doesn't matter — inserting right after checkout keeps the Docker-related steps grouped together):
 
@@ -1074,7 +1074,7 @@ In `.github/workflows/ci.yml`, insert these steps in the `compose-smoke` job, af
         run: docker load -i /tmp/odk-postgres-dev.tar
 ```
 
-- [ ] **Step 2: Confirm `actions/checkout@v7` is not requesting LFS**
+- [x] **Step 2: Confirm `actions/checkout@v7` is not requesting LFS**
 
 Verify the existing checkout step has no `lfs:` key at all (its default is `false`, which is what's wanted — checking out an LFS-tracked file without `lfs: true` still gets the pointer text, which is exactly what `hashFiles` above needs and all that's needed unless Step 1 above determines a real pull is required):
 
@@ -1084,7 +1084,7 @@ Verify the existing checkout step has no `lfs:` key at all (its default is `fals
 
 No change needed if it already looks like this.
 
-- [ ] **Step 3: Push to a branch and confirm both paths in the Actions run**
+- [x] **Step 3: Push to a branch and confirm both paths in the Actions run**
 
 ```bash
 git push -u origin HEAD
@@ -1094,7 +1094,7 @@ Open the resulting Actions run. On this first run (cache miss, since the key has
 
 Push a trivial unrelated commit (e.g. a comment tweak in `ci.yml` itself, or any change outside `odk-central/postgres/`) and push again. Confirm this second run hits the cache: "Restore cached ODK postgres dev image" reports a hit, "Pull seed dump" and "Build ODK postgres dev image" are both skipped, "Load cached ODK postgres dev image" ran instead, and the overall smoke test still passes.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add .github/workflows/ci.yml

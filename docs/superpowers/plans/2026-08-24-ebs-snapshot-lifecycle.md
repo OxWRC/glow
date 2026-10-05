@@ -32,7 +32,7 @@
 
 Today only the instance is tagged (`runner.tf:69-74`); the root EBS volume itself carries no tags. Add a top-level `volume_tags` argument to `aws_instance.runner` (applies to every EBS volume attached at launch — here, just the root volume) using the same `local.tags` map instance tags already merge from (`terraform/main.tf:5-11`: `ManagedBy`, `project-name`, `Domain`, `Stack`).
 
-- [ ] **Step 1: Add `volume_tags` to the runner instance**
+- [x] **Step 1: Add `volume_tags` to the runner instance**
 
 In `deploy/aws/terraform/runner.tf`, immediately after the `tags = merge(...)` block (ends at line 74) and before the `lifecycle` block (line 76), add:
 
@@ -63,7 +63,7 @@ So the resource reads:
   }
 ```
 
-- [ ] **Step 2: Validate the Terraform syntax**
+- [x] **Step 2: Validate the Terraform syntax**
 
 Run: `cd deploy/aws/terraform && terraform fmt -check -diff && terraform validate`
 
@@ -71,7 +71,7 @@ Run: `cd deploy/aws/terraform && terraform fmt -check -diff && terraform validat
 
 Expected: no diff from `fmt`, and `Success! The configuration is valid.` from `validate`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add deploy/aws/terraform/runner.tf
@@ -94,7 +94,7 @@ git commit -m "feat: tag the runner's root EBS volume with Domain/Component"
   - `delete_snapshot(snapshot_id: str, region: str, session: boto3.Session | None = None) -> None`
 - Consumes: `_client` (`core.py:120`), `write_line` (`core.py:96`), `wait_with_spinner` (`core.py:468`), `DeployError` (`glow_deploy.errors`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `deploy/aws/tests/test_core.py`, after the existing `_FakeEc2Client` class (line 195) — extend it with the new methods these functions need, and add the tests below (place them near `test_list_deployments_maps_tags_from_terraform_managed_instances`, e.g. right after it, before `class _FakeRoute53Client` at line 239):
 
@@ -248,12 +248,12 @@ def test_delete_snapshot_calls_ec2(monkeypatch):
     assert fake_ec2.delete_snapshot_calls == [{"SnapshotId": "snap-1234567890"}]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -k "root_volume_id or create_snapshot or list_snapshots or delete_snapshot" -v`
 Expected: FAIL with `AttributeError: module 'glow_deploy.core' has no attribute 'find_root_volume_id'` (and similarly for the other three).
 
-- [ ] **Step 3: Implement the four functions**
+- [x] **Step 3: Implement the four functions**
 
 In `deploy/aws/src/glow_deploy/core.py`, add after `list_deployments` (after line 969, before `get_cpu_utilization`):
 
@@ -356,12 +356,12 @@ def delete_snapshot(
     write_line(f"[deploy] Deleted snapshot {snapshot_id}")
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -k "root_volume_id or create_snapshot or list_snapshots or delete_snapshot" -v`
 Expected: PASS (6 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add deploy/aws/src/glow_deploy/core.py deploy/aws/tests/test_core.py
@@ -381,7 +381,7 @@ git commit -m "feat: add EBS snapshot CRUD primitives to core.py"
 
 `prepare_runner_repository` (the first mutating call in `update()` — it runs `git checkout --force`) must not run until the pre-update snapshot has completed. Insert the hook right after `wait_for_runner_bootstrap_completion` and before `prepare_runner_repository`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `deploy/aws/tests/test_core.py`, right after `test_update_prepares_repository_before_rerunning_userdata` (after line 858, before `test_provision_prepares_repository_before_rerunning_userdata`):
 
@@ -464,12 +464,12 @@ def test_update_snapshots_volume_before_preparing_repository(monkeypatch):
     ]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -k test_update_snapshots_volume_before_preparing_repository -v`
 Expected: FAIL — the `calls` list won't contain `find_volume`/`snapshot` entries (assertion mismatch).
 
-- [ ] **Step 3: Add the hook to `update()`**
+- [x] **Step 3: Add the hook to `update()`**
 
 In `deploy/aws/src/glow_deploy/core.py`, inside `update()`, between the `wait_for_runner_bootstrap_completion(...)` call and `prepare_runner_repository(...)`:
 
@@ -487,12 +487,12 @@ In `deploy/aws/src/glow_deploy/core.py`, inside `update()`, between the `wait_fo
     prepare_runner_repository(
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -k "test_update" -v`
 Expected: PASS (both the pre-existing `test_update_prepares_repository_before_rerunning_userdata` and the new test).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add deploy/aws/src/glow_deploy/core.py deploy/aws/tests/test_core.py
@@ -512,7 +512,7 @@ git commit -m "feat: snapshot the root volume before update() mutates the instan
 
 `destroy()` currently never looks up `instance_id` — Terraform state (which is where `runner_instance_id` comes from) disappears once `terraform destroy` completes, so the volume ID must be captured *before* that call. `delete_on_termination=false` already means the volume survives termination unaffected by this change; this task adds a snapshot of it plus an explicit `delete_volume` call afterward, replacing today's "leaked forever" behavior.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `deploy/aws/tests/test_core.py`, after the snapshot-primitive tests added in Task 2 (or anywhere before `_make_config`, e.g. right before `def _make_config`):
 
@@ -629,12 +629,12 @@ class _FakeEc2Client:
         self.delete_volume_calls.append(kwargs)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -k test_destroy -v`
 Expected: FAIL — `calls` is missing `find_volume`/`snapshot` entries, and `AttributeError: 'SimpleNamespace' object has no attribute` is not raised, but the assertions on `calls`/`delete_volume_calls` fail because `destroy()` doesn't do any of this yet.
 
-- [ ] **Step 3: Implement the hook in `destroy()`**
+- [x] **Step 3: Implement the hook in `destroy()`**
 
 Replace the body of `destroy()` in `deploy/aws/src/glow_deploy/core.py` (lines 1156-1202) with:
 
@@ -701,17 +701,17 @@ Replace the body of `destroy()` in `deploy/aws/src/glow_deploy/core.py` (lines 1
 
 (Only change to the docstring: none needed, it already documents the placeholder-values rationale which still holds.)
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -k "test_destroy or test_update" -v`
 Expected: PASS (4 tests: the 2 new destroy tests plus the 2 update tests, confirming no regression).
 
-- [ ] **Step 5: Run the full core test suite**
+- [x] **Step 5: Run the full core test suite**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -v`
 Expected: PASS, all tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add deploy/aws/src/glow_deploy/core.py deploy/aws/tests/test_core.py
@@ -732,7 +732,7 @@ git commit -m "feat: snapshot and delete the root volume after destroy()"
 
 Mechanism: create a volume from the snapshot in the target instance's AZ, attach it as a secondary device, run an SSM script that stops the compose stack, rsyncs `glow-postgres`/`odk-postgres` out of the mounted volume into `/var/lib/glow/{glow,odk}-postgres` (the real data dirs — see `deploy/aws/runtime/activate-stack.sh`'s `STATE_DIR=/var/lib/glow`), restarts the stack, then detaches and deletes the temporary volume. The attached device is located via the AWS-documented `/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_<volume-id-without-dashes>` symlink, since Nitro instances remap the requested device name.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `deploy/aws/tests/test_core.py`, near the other snapshot tests (after the `test_delete_snapshot_calls_ec2` test added in Task 2):
 
@@ -896,12 +896,12 @@ def test_provision_skips_restore_when_no_snapshot_requested(monkeypatch):
     assert calls == []
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -k "restore_snapshot_data or restores_snapshot or skips_restore" -v`
 Expected: FAIL — `restore_snapshot_data` doesn't exist yet, and `_make_config(restore_from_snapshot_id=...)` fails with `TypeError: __init__() got an unexpected keyword argument`.
 
-- [ ] **Step 3: Add the `Config` field**
+- [x] **Step 3: Add the `Config` field**
 
 In `deploy/aws/src/glow_deploy/core.py`, in the `Config` dataclass (`core.py:57-69`), add the new field after `certificate_arn`:
 
@@ -923,7 +923,7 @@ class Config:
     session: boto3.Session | None = None
 ```
 
-- [ ] **Step 4: Implement `restore_snapshot_data`**
+- [x] **Step 4: Implement `restore_snapshot_data`**
 
 Add after `delete_snapshot` (added in Task 2) in `deploy/aws/src/glow_deploy/core.py`:
 
@@ -1002,7 +1002,7 @@ def restore_snapshot_data(
     write_line("[deploy] Restore complete")
 ```
 
-- [ ] **Step 5: Hook the conditional restore step into `provision()`**
+- [x] **Step 5: Hook the conditional restore step into `provision()`**
 
 In `deploy/aws/src/glow_deploy/core.py`, inside `provision()`, right after `verify_runner_health(instance_id, config.aws_region, config.session)` (currently line 1073) and before the final `write_line("[deploy] Deployment complete!")`:
 
@@ -1017,17 +1017,17 @@ In `deploy/aws/src/glow_deploy/core.py`, inside `provision()`, right after `veri
     write_line("[deploy] Deployment complete!")
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -k "restore_snapshot_data or restores_snapshot or skips_restore" -v`
 Expected: PASS (3 tests).
 
-- [ ] **Step 7: Run the full core test suite**
+- [x] **Step 7: Run the full core test suite**
 
 Run: `cd deploy/aws && python -m pytest tests/test_core.py -v`
 Expected: PASS, all tests.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add deploy/aws/src/glow_deploy/core.py deploy/aws/tests/test_core.py
@@ -1047,7 +1047,7 @@ git commit -m "feat: add data-only snapshot restore into provisioned deployments
 - Consumes: `core.list_snapshots`, `core.delete_snapshot` (Task 2).
 - Produces: new route `POST /deployments/{domain}/snapshots/{snapshot_id}/delete`; `deployment_detail.html`'s context gains a `snapshots` key.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `deploy/aws/tests/gui/test_routes.py`, after `test_deployment_detail_404s_for_unknown_domain` (after line 411, before `test_update_plan_then_apply_updates`):
 
@@ -1097,12 +1097,12 @@ def test_deployment_detail_delete_snapshot_route(client, monkeypatch):
     assert delete_calls == ["snap-1"]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd deploy/aws && python -m pytest tests/gui/test_routes.py -k "lists_snapshots_for_the_domain or delete_snapshot_route" -v`
 Expected: FAIL — `test_deployment_detail_lists_snapshots_for_the_domain` fails because `snapshots` isn't in the template context (`AttributeError`/`jinja2.exceptions.UndefinedError` surfaced as a 500, or the assertion on response text fails); `test_deployment_detail_delete_snapshot_route` fails with 404 (no such route).
 
-- [ ] **Step 3: Add the route changes**
+- [x] **Step 3: Add the route changes**
 
 In `deploy/aws/src/glow_deploy/gui/routes/deployments.py`, change the `deployment_detail` route (currently lines 189-203) to fetch and pass snapshots — rename the unused `_session` param to `session` since it's now needed:
 
@@ -1136,7 +1136,7 @@ def delete_deployment_snapshot(
     return RedirectResponse(f"/deployments/{domain}", status_code=303)
 ```
 
-- [ ] **Step 4: Add the Snapshots card to the template**
+- [x] **Step 4: Add the Snapshots card to the template**
 
 In `deploy/aws/src/glow_deploy/gui/templates/deployment_detail.html`, add after the `</details>` that closes the Update card (the last line before `{% endblock %}`):
 
@@ -1166,17 +1166,17 @@ In `deploy/aws/src/glow_deploy/gui/templates/deployment_detail.html`, add after 
 {% endblock %}
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd deploy/aws && python -m pytest tests/gui/test_routes.py -k "lists_snapshots_for_the_domain or delete_snapshot_route" -v`
 Expected: PASS (2 tests).
 
-- [ ] **Step 6: Run the full GUI route test suite**
+- [x] **Step 6: Run the full GUI route test suite**
 
 Run: `cd deploy/aws && python -m pytest tests/gui/test_routes.py -v`
 Expected: PASS, all tests (confirms the `_session` → `session` rename didn't break anything else).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add deploy/aws/src/glow_deploy/gui/routes/deployments.py deploy/aws/src/glow_deploy/gui/templates/deployment_detail.html deploy/aws/tests/gui/test_routes.py
@@ -1199,7 +1199,7 @@ git commit -m "feat: show and manage a deployment's snapshots on its detail page
 
 A separate global delete route (rather than reusing the per-domain one from Task 6) is needed because an orphaned snapshot's domain no longer has a live deployment page to redirect back to — this route redirects to `/snapshots` instead of `/deployments/{domain}`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `deploy/aws/tests/gui/test_routes.py`, after the two tests added in Task 6:
 
@@ -1253,12 +1253,12 @@ def test_snapshots_page_delete_route_redirects_to_snapshots_list(client, monkeyp
     assert delete_calls == ["snap-2"]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd deploy/aws && python -m pytest tests/gui/test_routes.py -k "snapshots_page" -v`
 Expected: FAIL with 404 (neither route exists).
 
-- [ ] **Step 3: Add the routes**
+- [x] **Step 3: Add the routes**
 
 In `deploy/aws/src/glow_deploy/gui/routes/deployments.py`, add at the end of the file:
 
@@ -1275,7 +1275,7 @@ def delete_global_snapshot(request: Request, snapshot_id: str, session=Depends(r
     return RedirectResponse("/snapshots", status_code=303)
 ```
 
-- [ ] **Step 4: Create the template**
+- [x] **Step 4: Create the template**
 
 Create `deploy/aws/src/glow_deploy/gui/templates/snapshots.html`:
 
@@ -1312,7 +1312,7 @@ Create `deploy/aws/src/glow_deploy/gui/templates/snapshots.html`:
 {% endblock %}
 ```
 
-- [ ] **Step 5: Link it from the nav**
+- [x] **Step 5: Link it from the nav**
 
 In `deploy/aws/src/glow_deploy/gui/templates/base.html`, add a nav link in the `topbar`, before the sign-out form:
 
@@ -1328,17 +1328,17 @@ In `deploy/aws/src/glow_deploy/gui/templates/base.html`, add a nav link in the `
   </header>
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `cd deploy/aws && python -m pytest tests/gui/test_routes.py -k "snapshots_page" -v`
 Expected: PASS (2 tests).
 
-- [ ] **Step 7: Run the full GUI route test suite**
+- [x] **Step 7: Run the full GUI route test suite**
 
 Run: `cd deploy/aws && python -m pytest tests/gui/test_routes.py -v`
 Expected: PASS, all tests.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add deploy/aws/src/glow_deploy/gui/routes/deployments.py deploy/aws/src/glow_deploy/gui/templates/snapshots.html deploy/aws/src/glow_deploy/gui/templates/base.html deploy/aws/tests/gui/test_routes.py
@@ -1358,7 +1358,7 @@ git commit -m "feat: add a global /snapshots page listing snapshots across all d
 - Consumes: `core.list_snapshots` (Task 2), `Config.restore_from_snapshot_id` (Task 5).
 - No new route or job kind — `restore_from_snapshot_id` flows through the existing `config_fields` dict, so `job_progress.html`'s existing generic hidden-field loop (`{% for key, value in job.meta.config.items() %}`) already replays it from the plan job to the apply form with no template change needed there.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `deploy/aws/tests/gui/test_routes.py`, near the other new-deployment tests (search the file for `"/deployments/new/plan"` to find that section and add nearby):
 
@@ -1441,12 +1441,12 @@ def test_new_deployment_plan_then_apply_threads_restore_snapshot_id(client, monk
     assert apply_calls[0].restore_from_snapshot_id == "snap-1"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd deploy/aws && python -m pytest tests/gui/test_routes.py -k "restore_snapshot_id or lists_snapshots_for_restore" -v`
 Expected: FAIL — `list_snapshots` isn't called by `new_deployment_form` (template has no `snapshots` var, so `"snap-1" in response.text` fails), and `restore_from_snapshot_id` isn't a recognized form field so it's silently dropped (the hidden-input assertion and `apply_calls[0].restore_from_snapshot_id` assertion fail — `Config` already has the field from Task 5, so this fails on missing wiring, not a missing dataclass field).
 
-- [ ] **Step 3: Wire up the routes**
+- [x] **Step 3: Wire up the routes**
 
 In `deploy/aws/src/glow_deploy/gui/routes/deployments.py`:
 
@@ -1574,7 +1574,7 @@ def new_deployment_apply(
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 ```
 
-- [ ] **Step 4: Add the dropdown to the template**
+- [x] **Step 4: Add the dropdown to the template**
 
 In `deploy/aws/src/glow_deploy/gui/templates/new_deployment.html`, add before the final `<button type="submit" class="button">Start deployment</button>`:
 
@@ -1590,17 +1590,17 @@ In `deploy/aws/src/glow_deploy/gui/templates/new_deployment.html`, add before th
     <button type="submit" class="button">Start deployment</button>
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd deploy/aws && python -m pytest tests/gui/test_routes.py -k "restore_snapshot_id or lists_snapshots_for_restore" -v`
 Expected: PASS (2 tests).
 
-- [ ] **Step 6: Run the full test suite (core + GUI)**
+- [x] **Step 6: Run the full test suite (core + GUI)**
 
 Run: `cd deploy/aws && python -m pytest tests/ -v`
 Expected: PASS, all tests, no regressions.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add deploy/aws/src/glow_deploy/gui/routes/deployments.py deploy/aws/src/glow_deploy/gui/templates/new_deployment.html deploy/aws/tests/gui/test_routes.py
