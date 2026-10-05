@@ -37,8 +37,10 @@ export const Collapsed: Story = {
     const canvas = within(canvasElement);
     const summary = canvas.getByText(/click to see login details/i);
     await expect(summary).toBeVisible();
-    await expect(canvas.queryByRole("table")).toBeNull();
+    const details = summary.closest("details")!;
+    await expect(details).not.toHaveAttribute("open");
     await userEvent.click(summary);
+    await expect(details).toHaveAttribute("open");
     await expect(await canvas.findByRole("table")).toBeVisible();
   },
 };

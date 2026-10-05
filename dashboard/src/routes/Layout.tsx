@@ -99,23 +99,15 @@ export function Layout() {
 
   const banner = DEMO_MODE ? <DemoBanner locale={locale} /> : null;
 
-  if (location.pathname.endsWith("/login")) {
-    return (
-      <>
-        {banner}
-        <Outlet />
-      </>
-    );
-  }
+  const isLogin = location.pathname.endsWith("/login");
 
   const displayName =
     identity?.kind === "authenticated" ? identity.username : null;
   const isHome = location.pathname === `/${locale}`;
   const isAdminRoute = location.pathname.startsWith(`/${locale}/admin`);
 
-  return (
+  const chrome = (
     <div className="min-h-screen bg-gray-50">
-      {banner}
       {/* Navbar */}
       <nav className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -288,5 +280,15 @@ export function Layout() {
         <Outlet />
       </main>
     </div>
+  );
+
+  // One fragment shared by both branches keeps the banner at a stable tree
+  // position, so navigating to /login after a demo reset doesn't remount it
+  // and lose its "Demo reset" status.
+  return (
+    <>
+      {banner}
+      {isLogin ? <Outlet /> : chrome}
+    </>
   );
 }
