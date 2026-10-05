@@ -163,7 +163,7 @@ export function LoginPage() {
                     disabled={loading}
                     onClick={() => loginAs("admin")}
                   >
-                    {i18n.t("login.devAdmin")}
+                    {i18n.t("login.demoAdmin")}
                   </button>
                   <button
                     type="button"

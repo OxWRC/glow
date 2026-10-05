@@ -14,6 +14,7 @@ import {
   COGNITO_CLIENT_ID,
   DEMO_MODE,
 } from "../lib/api";
+import { DemoBanner } from "../lib/components/DemoBanner";
 import { availableLocales, createI18n, type Locale } from "../lib/i18n";
 
 type HealthStatus = "unknown" | "ok" | "down";
@@ -96,7 +97,16 @@ export function Layout() {
     );
   }
 
-  if (location.pathname.endsWith("/login")) return <Outlet />;
+  const banner = DEMO_MODE ? <DemoBanner locale={locale} /> : null;
+
+  if (location.pathname.endsWith("/login")) {
+    return (
+      <>
+        {banner}
+        <Outlet />
+      </>
+    );
+  }
 
   const displayName =
     identity?.kind === "authenticated" ? identity.username : null;
@@ -105,6 +115,7 @@ export function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {banner}
       {/* Navbar */}
       <nav className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

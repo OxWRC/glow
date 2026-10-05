@@ -76,6 +76,27 @@ export const contractExamplesData = [
     },
   },
   {
+    id: "demo.info",
+    method: "GET",
+    path: "/demo/info",
+    status: 200,
+    request_model: null,
+    response_model: "DemoInfo",
+    request: null,
+    response: {
+      schools: [
+        {
+          id: 1,
+          name: "Focus School Academy",
+        },
+        {
+          id: 2,
+          name: "Riverside Primary",
+        },
+      ],
+    },
+  },
+  {
     id: "dimensions.dataset",
     method: "GET",
     path: "/dimensions",

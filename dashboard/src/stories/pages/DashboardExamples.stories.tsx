@@ -158,6 +158,11 @@ export const AdminUser: Story = {
       { timeout: 3000 },
     );
 
+    // Demo mode is off here, so no demo banner.
+    await expect(
+      canvas.queryByRole("complementary", { name: "Demo deployment" }),
+    ).toBeNull();
+
     await waitFor(
       async () => {
         const schoolSelect = canvas.getByRole("combobox", { name: /School/i });

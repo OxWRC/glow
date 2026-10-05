@@ -203,6 +203,27 @@ export async function demoLogin(
   });
 }
 
+export interface DemoSchool {
+  id: number;
+  name: string;
+}
+
+export interface DemoInfo {
+  schools: DemoSchool[];
+}
+
+/** Demo-mode only: public list of seeded schools (for login hints). */
+export async function demoInfo(): Promise<DemoInfo> {
+  return apiFetch<DemoInfo>("/demo/info");
+}
+
+/** Demo-mode only: wipe and reseed the demo data. */
+export async function demoReset(): Promise<void> {
+  // 204 No Content, so apiFetch (which parses JSON) doesn't apply.
+  const res = await fetch(`${API_BASE}/demo/reset`, { method: "POST" });
+  if (!res.ok) throw new ApiError(res.status, "Demo reset failed");
+}
+
 /**
  * Token response from Cognito's own /oauth2/token endpoint (not our API -
  * apiFetch/API_BASE don't apply here). Note the API's Cognito token

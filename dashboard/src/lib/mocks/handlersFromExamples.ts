@@ -89,6 +89,24 @@ export function createHandlersFromExamples(
     );
   }
 
+  // Demo banner endpoints
+  const demoInfoExample = getExample("demo.info");
+  if (demoInfoExample) {
+    handlers.push(
+      http.get(`${API_BASE}/demo/info`, () =>
+        HttpResponse.json(demoInfoExample.response, {
+          status: demoInfoExample.status,
+        }),
+      ),
+    );
+  }
+  handlers.push(
+    http.post(
+      `${API_BASE}/demo/reset`,
+      () => new HttpResponse(null, { status: 204 }),
+    ),
+  );
+
   // Query handler (GET /query)
   const getQueryExampleId = config["GET /query"];
   if (getQueryExampleId) {
