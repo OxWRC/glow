@@ -17,9 +17,8 @@ const PALETTE = [
 
 const GREY = "#9CA3AF";
 
-// Group styles for faceted line charts. Colour encodes the variable, so groups
-// get a dash + point shape pair instead.
-// ponytail: cycles after 5 groups; add patterns if larger groupings get used.
+// Line styles paired with PALETTE so faceted lines differ by more than colour.
+// ponytail: cycles after 5 series; add patterns if larger groupings get used.
 const DASHES = [[], [6, 4], [2, 3], [10, 4, 2, 4], [1, 6]];
 const POINTS: PointStyle[] = [
   "circle",
@@ -682,56 +681,21 @@ export function newQueryToChartData(
       type: "line",
     };
   } else {
-    // Single period: horizontal bar chart
-    const periodId = periods[0];
-    const labels: string[] = [];
-    const data: (number | null)[] = [];
-
-    variables.forEach((variableSlice) => {
-      const periodSlice = variableSlice.periods[periodId];
-      if (
-        !periodSlice ||
-        periodSlice.suppressed ||
-        !periodSlice.cells ||
-        periodSlice.cells.length === 0
-      ) {
-        labels.push(chartLabels.columnLabel(variableSlice.variable));
-        data.push(null);
-      } else {
-        // If no dimensions, single value per variable
-        if (dimensions.length === 0) {
-          labels.push(chartLabels.columnLabel(variableSlice.variable));
-          const mean = periodSlice.cells[0].mean;
-          data.push(mean !== undefined ? mean : null);
-        } else {
-          // With dimensions, each cell represents a coordinate
-          // For simplicity, show variable + first dimension value
-          periodSlice.cells.forEach((cell) => {
-            const dimLabel = dimensions
-              .map((d) => `${d}=${cell[d]}`)
-              .join(", ");
-            labels.push(
-              `${chartLabels.columnLabel(variableSlice.variable)} (${dimLabel})`,
-            );
-            const mean = cell.mean;
-            data.push(mean !== undefined ? mean : null);
-          });
-        }
-      }
-    });
+    // Single period: horizontal bar per variable, one coloured series per
+    // group (or a single series when ungrouped)
+    const { groups } = groupMeans(response, chartLabels.columnLabel);
+    const datasets: ChartDataset[] = [...groups].map(([label, means], gi) => ({
+      label: dimensions.length > 0 ? label : chartLabels.meanLabel,
+      data: means.map(([mean]) => mean),
+      backgroundColor: PALETTE[gi % PALETTE.length] + "CC",
+      borderColor: PALETTE[gi % PALETTE.length],
+      borderWidth: 1,
+    }));
 
     return {
       data: {
-        labels,
-        datasets: [
-          {
-            label: chartLabels.meanLabel,
-            data,
-            backgroundColor: PALETTE[0] + "CC",
-            borderColor: PALETTE[0],
-            borderWidth: 1,
-          },
-        ],
+        labels: variables.map((v) => chartLabels.columnLabel(v.variable)),
+        datasets,
       },
       options: baseOptions(
         chartLabels.meanLabel,
@@ -744,29 +708,16 @@ export function newQueryToChartData(
   }
 }
 
-export type FacetMode = "variable" | "group";
-
-export interface ChartFacet {
-  title: string;
-  data: ChartJsData;
-}
-
 /**
- * Split a multi-period, dimensioned NewQueryResponse into small-multiple line
- * charts: one per variable (lines = groups) or one per group (lines =
- * variables). Colour always tracks the variable and dash/point the group, so
- * toggling the mode never changes what a line looks like. All facets share a
- * y-axis ceiling so they can be compared by eye.
+ * Means keyed by group label (dimension values, e.g. "Sex: M"), as
+ * [variable][period] grids in first-seen order. Suppressed or missing cells
+ * are null. An ungrouped response has a single "" group.
  */
-export function newQueryToFacets(
+function groupMeans(
   response: NewQueryResponse,
-  mode: FacetMode,
-  labelOptions: ChartLabelOptions = {},
-): { facets: ChartFacet[]; options: Record<string, unknown> } {
-  const chartLabels = resolveChartLabels(labelOptions);
+  columnLabel: (column: string) => string,
+) {
   const { variables, periods, dimensions } = response;
-
-  // Group label -> mean per variable per period, in first-seen order
   const groups = new Map<string, (number | null)[][]>();
   let max = 0;
   variables.forEach((v, vi) =>
@@ -775,7 +726,7 @@ export function newQueryToFacets(
       if (!slice || slice.suppressed) return;
       for (const cell of slice.cells ?? []) {
         const label = dimensions
-          .map((d) => `${chartLabels.columnLabel(d)}: ${cell[d]}`)
+          .map((d) => `${columnLabel(d)}: ${cell[d]}`)
           .join(", ");
         if (!groups.has(label))
           groups.set(
@@ -788,18 +739,49 @@ export function newQueryToFacets(
       }
     }),
   );
+  return { groups, max };
+}
 
+export type FacetMode = "variable" | "group";
+
+export interface ChartFacet {
+  title: string;
+  data: ChartJsData;
+}
+
+/**
+ * Split a multi-period, dimensioned NewQueryResponse into small-multiple line
+ * charts: one per variable (lines = groups) or one per group (lines =
+ * variables). All facets share a y-axis ceiling so they can be compared by
+ * eye.
+ */
+export function newQueryToFacets(
+  response: NewQueryResponse,
+  mode: FacetMode,
+  labelOptions: ChartLabelOptions = {},
+): { facets: ChartFacet[]; options: Record<string, unknown> } {
+  const chartLabels = resolveChartLabels(labelOptions);
+  const { variables, periods } = response;
+
+  const { groups, max } = groupMeans(response, chartLabels.columnLabel);
   const groupLabels = [...groups.keys()];
-  const line = (vi: number, gi: number, label: string): ChartDataset => ({
+  // Colour, dash and point all follow the series (the thing that differs
+  // between lines in one chart); colour alone fails colour-blind readers.
+  const line = (
+    vi: number,
+    gi: number,
+    label: string,
+    series: number,
+  ): ChartDataset => ({
     label,
     data: groups.get(groupLabels[gi])![vi],
     tension: 0.3,
     fill: false,
-    backgroundColor: PALETTE[vi % PALETTE.length],
-    borderColor: PALETTE[vi % PALETTE.length],
+    backgroundColor: PALETTE[series % PALETTE.length],
+    borderColor: PALETTE[series % PALETTE.length],
     borderWidth: 2,
-    borderDash: DASHES[gi % DASHES.length],
-    pointStyle: POINTS[gi % POINTS.length],
+    borderDash: DASHES[series % DASHES.length],
+    pointStyle: POINTS[series % POINTS.length],
   });
   const variableLabels = variables.map((v) =>
     chartLabels.columnLabel(v.variable),
@@ -811,14 +793,14 @@ export function newQueryToFacets(
           title,
           data: {
             labels: periods,
-            datasets: groupLabels.map((g, gi) => line(vi, gi, g)),
+            datasets: groupLabels.map((g, gi) => line(vi, gi, g, gi)),
           },
         }))
       : groupLabels.map((title, gi) => ({
           title,
           data: {
             labels: periods,
-            datasets: variableLabels.map((v, vi) => line(vi, gi, v)),
+            datasets: variableLabels.map((v, vi) => line(vi, gi, v, vi)),
           },
         }));
 

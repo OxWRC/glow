@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { newQueryToFacets } from "./chartUtils";
+import { newQueryToChartData, newQueryToFacets } from "./chartUtils";
 import type { NewQueryResponse } from "./api";
 import { getExample } from "./mocks/contractExamples";
 
@@ -31,21 +31,17 @@ describe("newQueryToFacets", () => {
     expect(facets[1].data.datasets[0].data).toEqual([3.8, 3.9]);
   });
 
-  it("styles colour by variable and dash by group in both modes", () => {
+  it("varies colour and dash between lines within each chart", () => {
     const byVar = newQueryToFacets(response, "variable", labels).facets;
     const byGroup = newQueryToFacets(response, "group", labels).facets;
-    // variable 2, group F
-    const a = byVar[1].data.datasets[1];
-    const b = byGroup[1].data.datasets[1];
-    expect(a.borderColor).toBe(b.borderColor);
-    expect(a.borderDash).toEqual(b.borderDash);
-    expect(a.pointStyle).toBe(b.pointStyle);
-    // groups differ in dash, variables differ in colour
-    expect(byVar[0].data.datasets[0].borderDash).not.toEqual(
-      byVar[0].data.datasets[1].borderDash,
-    );
-    expect(byGroup[0].data.datasets[0].borderColor).not.toBe(
-      byGroup[0].data.datasets[1].borderColor,
+    for (const facet of [...byVar, ...byGroup]) {
+      const [a, b] = facet.data.datasets;
+      expect(a.borderColor).not.toBe(b.borderColor);
+      expect(a.borderDash).not.toEqual(b.borderDash);
+    }
+    // A group keeps its colour across the per-variable charts
+    expect(byVar[0].data.datasets[1].borderColor).toBe(
+      byVar[1].data.datasets[1].borderColor,
     );
   });
 
@@ -53,5 +49,38 @@ describe("newQueryToFacets", () => {
     const { options } = newQueryToFacets(response, "group", labels);
     const y = (options.scales as Record<string, Record<string, unknown>>).y;
     expect(y.suggestedMax).toBe(3.9);
+  });
+});
+
+describe("newQueryToChartData, single period with a grouping", () => {
+  const single = getExample("query.period-based.with-dimensions")
+    ?.response as NewQueryResponse;
+
+  it("draws a bar per variable with a coloured series per group", () => {
+    const { data, type } = newQueryToChartData(single, labels);
+    expect(type).toBe("horizontalBar");
+    expect(data.labels).toEqual(["bw_wbeing_1"]);
+    expect(data.datasets.map((d) => d.label)).toEqual(["d_sex: M", "d_sex: F"]);
+    expect(data.datasets.map((d) => d.data)).toEqual([[3.2], [3.8]]);
+    expect(data.datasets[0].borderColor).not.toBe(data.datasets[1].borderColor);
+  });
+
+  it("leaves a suppressed variable as a gap in every group", () => {
+    const suppressed: NewQueryResponse = {
+      ...single,
+      variables: [
+        ...single.variables,
+        {
+          variable: "x__other",
+          periods: { "2023-2024": { suppressed: true } },
+        },
+      ],
+    };
+    const { data } = newQueryToChartData(suppressed, labels);
+    expect(data.labels).toEqual(["bw_wbeing_1", "other"]);
+    expect(data.datasets.map((d) => d.data)).toEqual([
+      [3.2, null],
+      [3.8, null],
+    ]);
   });
 });
