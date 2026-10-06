@@ -27,6 +27,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -1088,6 +1089,31 @@ def find_root_volume_id(
     raise DeployError(f"no root volume found for instance {instance_id}")
 
 
+# Lifecycle events a snapshot can record in its Reason tag. scheduled/manual
+# have no producer yet; they're fixed here so future ones tag consistently.
+SNAPSHOT_REASONS = ("post-create", "pre-update", "pre-destroy", "scheduled", "manual")
+
+
+def snapshot_source_tags(
+    instance_id: str, region: str, session: boto3.Session | None = None
+) -> dict[str, str]:
+    """Tags linking a snapshot to the deployment and app version it came from.
+
+    Read from the runner instance's own tags, so must be called while the
+    instance still exists (before ``terraform destroy`` in ``destroy()``).
+    """
+    ec2 = _client(session, "ec2", region)
+    response = ec2.describe_instances(InstanceIds=[instance_id])
+    instance = response["Reservations"][0]["Instances"][0]
+    tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+    source = {"InstanceId": instance_id}
+    for key in ("GitRef", "GitCommit"):
+        if tags.get(key):
+            source[key] = tags[key]
+    source["DemoMode"] = "true" if tags.get("GlowDemoMode") == "true" else "false"
+    return source
+
+
 def create_snapshot(
     volume_id: str,
     domain: str,
@@ -1095,6 +1121,7 @@ def create_snapshot(
     region: str,
     session: boto3.Session | None = None,
     wait: bool = True,
+    source_tags: dict[str, str] | None = None,
 ) -> str:
     """Snapshot an EBS volume and tag it.
 
@@ -1106,19 +1133,26 @@ def create_snapshot(
     that aren't deleting the volume (``update()``'s pre-update hook) should
     pass ``wait=False`` to avoid blocking on the whole snapshot duration.
     """
+    if reason not in SNAPSHOT_REASONS:
+        raise ValueError(f"unknown snapshot reason {reason!r}")
     ec2 = _client(session, "ec2", region)
     write_line(f"[deploy] Snapshotting volume {volume_id} ({reason})")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    tags = {
+        "Name": f"glow-{domain}-{reason}-{timestamp}",
+        **(source_tags or {}),
+        "Domain": domain,
+        "Component": "glow-runner-snapshot",
+        "Reason": reason,
+        "GlowGUIVersion": GUI_VERSION,
+    }
     response = ec2.create_snapshot(
         VolumeId=volume_id,
         Description=f"glow-deploy {reason} snapshot for {domain}",
         TagSpecifications=[
             {
                 "ResourceType": "snapshot",
-                "Tags": [
-                    {"Key": "Domain", "Value": domain},
-                    {"Key": "Component", "Value": "glow-runner-snapshot"},
-                    {"Key": "Reason", "Value": reason},
-                ],
+                "Tags": [{"Key": k, "Value": v} for k, v in tags.items()],
             }
         ],
     )
@@ -1164,6 +1198,10 @@ def list_snapshots(
                 "started_at": snap.get("StartTime"),
                 "size_gb": snap.get("VolumeSize"),
                 "state": snap.get("State"),
+                "instance_id": tags.get("InstanceId"),
+                "git_ref": tags.get("GitRef"),
+                "git_commit": tags.get("GitCommit"),
+                "demo": tags.get("DemoMode") == "true",
             }
         )
     return snapshots
@@ -1407,6 +1445,24 @@ def provision(config: Config) -> dict[str, Any] | None:
             "before this can be wired up safely."
         )
 
+    # Baseline snapshot so later pre-update/pre-destroy ones are incremental.
+    # Not waited on (EBS completes it in the background); a failure costs only
+    # that speed-up, so it must not fail an otherwise healthy provision.
+    try:
+        create_snapshot(
+            find_root_volume_id(instance_id, config.aws_region, config.session),
+            config.domain_name,
+            "post-create",
+            config.aws_region,
+            config.session,
+            wait=False,
+            source_tags=snapshot_source_tags(
+                instance_id, config.aws_region, config.session
+            ),
+        )
+    except Exception as err:
+        write_line(f"[deploy] WARNING: post-create snapshot not started: {err}")
+
     write_line("[deploy] Deployment complete!")
     write_line(f"[deploy] Instance ID: {instance_id}")
     write_line(f"[deploy] ALB DNS: {alb_dns}")
@@ -1445,6 +1501,9 @@ def update(config: Config) -> None:
         config.aws_region,
         config.session,
         wait=False,
+        source_tags=snapshot_source_tags(
+            instance_id, config.aws_region, config.session
+        ),
     )
 
     prepare_runner_repository(
@@ -1502,10 +1561,14 @@ def destroy(config: Config) -> None:
     env = _subprocess_env(config.session)
 
     volume_id = None
+    source_tags = None
     try:
         outputs = read_terraform_outputs(env=env)
         instance_id = outputs["runner_instance_id"]
         volume_id = find_root_volume_id(instance_id, config.aws_region, config.session)
+        source_tags = snapshot_source_tags(
+            instance_id, config.aws_region, config.session
+        )
     except (KeyError, DeployError):
         write_line(
             "[deploy] Could not determine the root volume before destroying — "
@@ -1556,6 +1619,7 @@ def destroy(config: Config) -> None:
             "pre-destroy",
             config.aws_region,
             config.session,
+            source_tags=source_tags,
         )
         ec2 = _client(config.session, "ec2", config.aws_region)
         ec2.delete_volume(VolumeId=volume_id)

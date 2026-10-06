@@ -1031,3 +1031,32 @@ def test_home_badges_demo_deployments(client, monkeypatch):
     )
     monkeypatch.setattr(core, "get_cpu_utilization", lambda ids, region, session: {})
     assert ">Demo<" in client.get("/deployments").text
+
+
+def test_snapshots_page_shows_deployment_link_details(client, monkeypatch):
+    _sign_in(client)
+    monkeypatch.setattr(
+        core,
+        "list_snapshots",
+        lambda region, session: [
+            {
+                "snapshot_id": "snap-1",
+                "domain": "demo.example.com",
+                "reason": "post-create",
+                "started_at": "2026-01-01T00:00:00Z",
+                "size_gb": 100,
+                "state": "pending",
+                "instance_id": "i-0abc",
+                "git_ref": "v0.2.0",
+                "git_commit": "abc1234def",
+                "demo": True,
+            }
+        ],
+    )
+
+    response = client.get("/snapshots")
+
+    assert "post-create" in response.text
+    assert "i-0abc" in response.text
+    assert "v0.2.0" in response.text
+    assert "Demo data" in response.text

@@ -366,6 +366,29 @@ AMI rebuilds are only needed for:
 - Dependency changes in `install-runner-deps.sh`
 - Explicit instance replacement
 
+## Snapshots
+
+The tool snapshots the runner's root volume at these lifecycle events:
+
+| `Reason` tag | When | Waits for completion? |
+|---|---|---|
+| `post-create` | end of a successful provision (baseline, so later snapshots are incremental; a failure only warns) | no |
+| `pre-update` | before each `--update` | no |
+| `pre-destroy` | before the volume is deleted on destroy | yes (up to 30 min; on timeout the volume is kept and the snapshot continues in AWS) |
+
+`scheduled` and `manual` are reserved `Reason` values with no producer yet.
+
+Each snapshot is tagged to link it to its deployment:
+
+- `Name`: `glow-<domain>-<reason>-<UTC timestamp>`
+- `Domain`, `Component=glow-runner-snapshot`, `Reason`
+- `InstanceId`: the source runner instance, which differs between successive deployments of the same domain
+- `GitRef` and `GitCommit`: the app version whose data is on disk
+- `DemoMode`
+- `GlowGUIVersion`: the tool version that took the snapshot
+
+Snapshots taken before these tags existed carry only `Domain`, `Component` and `Reason`.
+
 ## Notes
 
 - If this account has a public Route 53 hosted zone for the domain (or a parent of it), the ACM certificate and the dashboard/api/odk DNS records are created and validated automatically; otherwise pass `--certificate-arn` and manage DNS externally

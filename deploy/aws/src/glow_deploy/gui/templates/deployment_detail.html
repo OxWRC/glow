@@ -66,7 +66,7 @@
       <ul class="list-plain">
         {% for snap in snapshots %}
         <li>
-          <span>{{ snap.started_at }} — {{ snap.reason }} ({{ snap.size_gb }} GB, {{ snap.state }})</span>
+          <span>{{ snap.started_at }} — {{ snap.reason }}{% if snap.git_ref %}, {{ snap.git_ref }}{% endif %} ({{ snap.size_gb }} GB, {{ snap.state }})</span>
           <form method="post" action="/deployments/{{ deployment.domain }}/snapshots/{{ snap.snapshot_id }}/delete"
                 onsubmit="return confirm('Delete this snapshot? This cannot be undone.')">
             <button type="submit" class="button button-danger-ghost">Delete</button>

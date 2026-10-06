@@ -11,11 +11,14 @@
       <div class="deployment-row">
         <strong>{{ snap.domain or "(unknown domain)" }}</strong>
         <span class="badge">{{ snap.reason }} — {{ snap.state }}</span>
+        {% if snap.demo %}<span class="badge">Demo data</span>{% endif %}
       </div>
       <dl>
         <dt>Snapshot ID</dt><dd>{{ snap.snapshot_id }}</dd>
         <dt>Created</dt><dd>{{ snap.started_at }}</dd>
         <dt>Size</dt><dd>{{ snap.size_gb }} GB</dd>
+        <dt>Source instance</dt><dd>{{ snap.instance_id or "—" }}</dd>
+        <dt>App version</dt><dd>{{ snap.git_ref or "—" }}{% if snap.git_commit %} ({{ snap.git_commit[:7] }}){% endif %}</dd>
       </dl>
       <div class="links">
         <form method="post" action="/snapshots/{{ snap.snapshot_id }}/delete"

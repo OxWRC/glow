@@ -399,6 +399,10 @@ def test_list_snapshots_maps_tags_and_filters_by_domain(monkeypatch):
             "started_at": "2026-01-01T00:00:00Z",
             "size_gb": 100,
             "state": "completed",
+            "instance_id": None,
+            "git_ref": None,
+            "git_commit": None,
+            "demo": False,
         }
     ]
     filters = fake_ec2.describe_snapshots_calls[0]["Filters"]
@@ -1324,10 +1328,14 @@ def test_destroy_captures_volume_before_terraform_destroy_then_snapshots_and_del
         ),
     )
     monkeypatch.setattr(
+        core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
+    )
+    monkeypatch.setattr(
         core,
         "create_snapshot",
-        lambda volume_id, domain, reason, region, session=None: (
-            calls.append(("snapshot", volume_id, domain, reason)) or "snap-1234567890"
+        lambda volume_id, domain, reason, region, session=None, source_tags=None: (
+            calls.append(("snapshot", volume_id, domain, reason, source_tags))
+            or "snap-1234567890"
         ),
     )
     fake_ec2 = _FakeEc2Client()
@@ -1342,7 +1350,13 @@ def test_destroy_captures_volume_before_terraform_destroy_then_snapshots_and_del
     assert calls == [
         ("find_volume", "i-1234567890"),
         ("run_command", run_command_calls[0][1]),
-        ("snapshot", "vol-abc123", "example.com", "pre-destroy"),
+        (
+            "snapshot",
+            "vol-abc123",
+            "example.com",
+            "pre-destroy",
+            {"InstanceId": "i-src"},
+        ),
     ]
     assert fake_ec2.delete_volume_calls == [{"VolumeId": "vol-abc123"}]
 
@@ -1377,6 +1391,9 @@ def test_destroy_still_runs_terraform_destroy_when_root_volume_cannot_be_determi
         lambda instance_id, region, session=None: (
             calls.append(("find_volume", instance_id)) or "vol-abc123"
         ),
+    )
+    monkeypatch.setattr(
+        core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
     )
     monkeypatch.setattr(
         core,
@@ -1471,6 +1488,9 @@ def test_destroy_dry_run_does_not_snapshot_or_delete_volume(monkeypatch):
         lambda instance_id, region, session=None: "vol-abc123",
     )
     monkeypatch.setattr(
+        core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
+    )
+    monkeypatch.setattr(
         core,
         "create_snapshot",
         lambda *args, **kwargs: calls.append(("snapshot",)) or "snap-1234567890",
@@ -1540,9 +1560,12 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
         lambda instance_id, region, session=None: "vol-abc123",
     )
     monkeypatch.setattr(
+        core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
+    )
+    monkeypatch.setattr(
         core,
         "create_snapshot",
-        lambda volume_id, domain, reason, region, session=None, wait=True: (
+        lambda volume_id, domain, reason, region, session=None, wait=True, **kw: (
             "snap-1234567890"
         ),
     )
@@ -1650,10 +1673,13 @@ def test_update_snapshots_volume_before_preparing_repository(monkeypatch):
         ),
     )
     monkeypatch.setattr(
+        core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
+    )
+    monkeypatch.setattr(
         core,
         "create_snapshot",
-        lambda volume_id, domain, reason, region, session=None, wait=True: (
-            calls.append(("snapshot", volume_id, domain, reason, wait))
+        lambda volume_id, domain, reason, region, session=None, wait=True, source_tags=None: (
+            calls.append(("snapshot", volume_id, domain, reason, wait, source_tags))
             or "snap-1234567890"
         ),
     )
@@ -1685,7 +1711,14 @@ def test_update_snapshots_volume_before_preparing_repository(monkeypatch):
         ("wait", "i-1234567890"),
         ("bootstrap", "i-1234567890"),
         ("find_volume", "i-1234567890"),
-        ("snapshot", "vol-abc123", "example.com", "pre-update", False),
+        (
+            "snapshot",
+            "vol-abc123",
+            "example.com",
+            "pre-update",
+            False,
+            {"InstanceId": "i-src"},
+        ),
         ("prepare", "i-1234567890"),
         ("rerun", "i-1234567890"),
         ("verify", "i-1234567890"),
@@ -1851,6 +1884,19 @@ def _provision_stubs(monkeypatch, existing, calls):
         lambda i, r, d, env=None, session=None: calls.append(env),
     )
     monkeypatch.setattr(core, "verify_runner_health", lambda *a: None)
+    monkeypatch.setattr(
+        core, "find_root_volume_id", lambda instance_id, region, session=None: "vol-1"
+    )
+    monkeypatch.setattr(
+        core,
+        "snapshot_source_tags",
+        lambda instance_id, region, session=None: {"InstanceId": instance_id},
+    )
+    monkeypatch.setattr(
+        core,
+        "create_snapshot",
+        lambda *args, **kwargs: calls.append(("snapshot", args, kwargs)) or "snap-1",
+    )
 
 
 def test_terraform_apply_writes_demo_mode_tfvars(monkeypatch):
@@ -1956,6 +2002,9 @@ def _update_stubs(monkeypatch, outputs, calls):
     monkeypatch.setattr(core, "wait_for_ssm_online", lambda *a: None)
     monkeypatch.setattr(core, "wait_for_runner_bootstrap_completion", lambda *a: None)
     monkeypatch.setattr(core, "find_root_volume_id", lambda *a: "vol-1")
+    monkeypatch.setattr(
+        core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
+    )
     monkeypatch.setattr(core, "create_snapshot", lambda *a, **k: None)
     monkeypatch.setattr(core, "prepare_runner_repository", lambda *a: None)
     monkeypatch.setattr(
@@ -2103,3 +2152,133 @@ def test_sync_odk_api_env_migrates_existing_runtime_env(tmp_path):
         _run_activate_function("sync_odk_api_env", runtime_env, "demo.example.org")
         == text
     )
+
+
+def test_create_snapshot_tags_link_snapshot_to_deployment_and_event(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    core.create_snapshot(
+        "vol-abc123",
+        "demo.example.org",
+        "post-create",
+        "eu-west-2",
+        session=None,
+        wait=False,
+        source_tags={
+            "InstanceId": "i-1",
+            "GitRef": "v0.2.0",
+            "GitCommit": "abc123",
+            "DemoMode": "true",
+        },
+    )
+
+    tags = {
+        t["Key"]: t["Value"]
+        for t in fake_ec2.create_snapshot_calls[0]["TagSpecifications"][0]["Tags"]
+    }
+    assert tags["Domain"] == "demo.example.org"
+    assert tags["Component"] == "glow-runner-snapshot"
+    assert tags["Reason"] == "post-create"
+    assert tags["InstanceId"] == "i-1"
+    assert tags["GitRef"] == "v0.2.0"
+    assert tags["GitCommit"] == "abc123"
+    assert tags["DemoMode"] == "true"
+    assert tags["GlowGUIVersion"] == core.GUI_VERSION
+    assert tags["Name"].startswith("glow-demo.example.org-post-create-")
+
+
+def test_create_snapshot_rejects_unknown_reason(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    with pytest.raises(ValueError, match="reason"):
+        core.create_snapshot("vol-1", "d.example.org", "whenever", "eu-west-2")
+    assert fake_ec2.create_snapshot_calls == []
+
+
+def test_snapshot_source_tags_reads_app_version_and_mode_from_instance(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+
+    def instance_with(tags):
+        return {"Reservations": [{"Instances": [{"InstanceId": "i-1", "Tags": tags}]}]}
+
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    fake_ec2.describe_instances_response = instance_with(
+        [
+            {"Key": "GitRef", "Value": "v0.2.0"},
+            {"Key": "GitCommit", "Value": "abc123"},
+            {"Key": "GlowDemoMode", "Value": "true"},
+        ]
+    )
+    assert core.snapshot_source_tags("i-1", "eu-west-2") == {
+        "InstanceId": "i-1",
+        "GitRef": "v0.2.0",
+        "GitCommit": "abc123",
+        "DemoMode": "true",
+    }
+
+    # Instances provisioned before demo mode existed carry no GlowDemoMode tag.
+    fake_ec2.describe_instances_response = instance_with([])
+    assert core.snapshot_source_tags("i-1", "eu-west-2") == {
+        "InstanceId": "i-1",
+        "DemoMode": "false",
+    }
+
+
+def test_list_snapshots_maps_deployment_link_tags(monkeypatch):
+    fake_ec2 = _FakeEc2ClientForSnapshots()
+    fake_ec2.describe_snapshots_response = {
+        "Snapshots": [
+            {
+                "SnapshotId": "snap-1",
+                "Tags": [
+                    {"Key": "Reason", "Value": "post-create"},
+                    {"Key": "InstanceId", "Value": "i-1"},
+                    {"Key": "GitRef", "Value": "v0.2.0"},
+                    {"Key": "GitCommit", "Value": "abc123"},
+                    {"Key": "DemoMode", "Value": "true"},
+                ],
+            }
+        ]
+    }
+    monkeypatch.setattr(core, "_client", lambda session, service, region: fake_ec2)
+
+    [snap] = core.list_snapshots("eu-west-2")
+
+    assert snap["instance_id"] == "i-1"
+    assert snap["git_ref"] == "v0.2.0"
+    assert snap["git_commit"] == "abc123"
+    assert snap["demo"] is True
+
+
+def test_provision_takes_post_create_snapshot_without_waiting(monkeypatch):
+    calls = []
+    _provision_stubs(monkeypatch, {}, calls)
+
+    core.provision(_make_config())
+
+    [(_, args, kwargs)] = [
+        c for c in calls if isinstance(c, tuple) and c[0] == "snapshot"
+    ]
+    assert args[:3] == ("vol-1", "example.com", "post-create")
+    assert kwargs["wait"] is False
+    assert kwargs["source_tags"] == {"InstanceId": "i-1"}
+
+
+def test_provision_succeeds_when_post_create_snapshot_fails(monkeypatch):
+    calls = []
+    _provision_stubs(monkeypatch, {}, calls)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("throttled")
+
+    monkeypatch.setattr(core, "create_snapshot", boom)
+    lines = []
+    monkeypatch.setattr(core, "write_line", lambda line, **kw: lines.append(line))
+
+    core.provision(_make_config())
+
+    assert any("post-create snapshot" in line and "throttled" in line for line in lines)
+    assert any("Deployment complete" in line for line in lines)
