@@ -109,6 +109,13 @@ Not yet of concern.
 
 ## Development
 
+### Regression tests before fixes
+
+This applies to every subcomponent.
+Before fixing a bug, write a test that reproduces it (where possible) and observe it fail.
+Then make the fix and show the test passes.
+If a reproducing test isn't feasible, say why in the commit message.
+
 We use docker compose to keep stuff working in development environments.
 Always ensure that the development environment exposes the backend and frontend appropriately.
 
