@@ -1,3 +1,4 @@
+import type { PointStyle } from "chart.js";
 import type { NewQueryResponse } from "./api";
 import { parseCSV } from "./csvUtils";
 
@@ -16,6 +17,18 @@ const PALETTE = [
 
 const GREY = "#9CA3AF";
 
+// Group styles for faceted line charts. Colour encodes the variable, so groups
+// get a dash + point shape pair instead.
+// ponytail: cycles after 5 groups; add patterns if larger groupings get used.
+const DASHES = [[], [6, 4], [2, 3], [10, 4, 2, 4], [1, 6]];
+const POINTS: PointStyle[] = [
+  "circle",
+  "triangle",
+  "rect",
+  "rectRot",
+  "crossRot",
+];
+
 export interface ChartDataset {
   label: string;
   data: (number | null)[];
@@ -24,6 +37,8 @@ export interface ChartDataset {
   borderWidth: number;
   tension?: number;
   fill?: boolean;
+  borderDash?: number[];
+  pointStyle?: PointStyle;
 }
 
 export interface ChartJsData {
@@ -41,6 +56,7 @@ export interface ChartLabelOptions {
   columnLabel?: (column: string) => string;
   countLabel?: string;
   meanLabel?: string;
+  periodLabel?: string;
   min?: number;
   max?: number;
 }
@@ -58,6 +74,7 @@ function resolveChartLabels(options: ChartLabelOptions = {}) {
     columnLabel: options.columnLabel ?? ((column: string) => column),
     countLabel: options.countLabel ?? "Count",
     meanLabel: options.meanLabel ?? "Mean",
+    periodLabel: options.periodLabel ?? "Period",
   };
 }
 
@@ -658,7 +675,7 @@ export function newQueryToChartData(
           legend: { position: "top" as const },
         },
         scales: {
-          x: { title: { display: true, text: "Period" } },
+          x: { title: { display: true, text: chartLabels.periodLabel } },
           y: yScaleConfig,
         },
       },
@@ -725,6 +742,106 @@ export function newQueryToChartData(
       type: "horizontalBar",
     };
   }
+}
+
+export type FacetMode = "variable" | "group";
+
+export interface ChartFacet {
+  title: string;
+  data: ChartJsData;
+}
+
+/**
+ * Split a multi-period, dimensioned NewQueryResponse into small-multiple line
+ * charts: one per variable (lines = groups) or one per group (lines =
+ * variables). Colour always tracks the variable and dash/point the group, so
+ * toggling the mode never changes what a line looks like. All facets share a
+ * y-axis ceiling so they can be compared by eye.
+ */
+export function newQueryToFacets(
+  response: NewQueryResponse,
+  mode: FacetMode,
+  labelOptions: ChartLabelOptions = {},
+): { facets: ChartFacet[]; options: Record<string, unknown> } {
+  const chartLabels = resolveChartLabels(labelOptions);
+  const { variables, periods, dimensions } = response;
+
+  // Group label -> mean per variable per period, in first-seen order
+  const groups = new Map<string, (number | null)[][]>();
+  let max = 0;
+  variables.forEach((v, vi) =>
+    periods.forEach((periodId, pi) => {
+      const slice = v.periods[periodId];
+      if (!slice || slice.suppressed) return;
+      for (const cell of slice.cells ?? []) {
+        const label = dimensions
+          .map((d) => `${chartLabels.columnLabel(d)}: ${cell[d]}`)
+          .join(", ");
+        if (!groups.has(label))
+          groups.set(
+            label,
+            variables.map(() => periods.map(() => null)),
+          );
+        const mean = cell.mean ?? null;
+        groups.get(label)![vi][pi] = mean;
+        if (mean !== null) max = Math.max(max, mean);
+      }
+    }),
+  );
+
+  const groupLabels = [...groups.keys()];
+  const line = (vi: number, gi: number, label: string): ChartDataset => ({
+    label,
+    data: groups.get(groupLabels[gi])![vi],
+    tension: 0.3,
+    fill: false,
+    backgroundColor: PALETTE[vi % PALETTE.length],
+    borderColor: PALETTE[vi % PALETTE.length],
+    borderWidth: 2,
+    borderDash: DASHES[gi % DASHES.length],
+    pointStyle: POINTS[gi % POINTS.length],
+  });
+  const variableLabels = variables.map((v) =>
+    chartLabels.columnLabel(v.variable),
+  );
+
+  const facets =
+    mode === "variable"
+      ? variableLabels.map((title, vi) => ({
+          title,
+          data: {
+            labels: periods,
+            datasets: groupLabels.map((g, gi) => line(vi, gi, g)),
+          },
+        }))
+      : groupLabels.map((title, gi) => ({
+          title,
+          data: {
+            labels: periods,
+            datasets: variableLabels.map((v, vi) => line(vi, gi, v)),
+          },
+        }));
+
+  const y: Record<string, unknown> = {
+    beginAtZero: true,
+    suggestedMax: max,
+    title: { display: true, text: chartLabels.meanLabel },
+  };
+  if (labelOptions.min !== undefined) y.min = labelOptions.min;
+  if (labelOptions.max !== undefined) y.max = labelOptions.max;
+
+  return {
+    facets,
+    options: {
+      plugins: {
+        legend: { position: "top" as const, labels: { usePointStyle: true } },
+      },
+      scales: {
+        x: { title: { display: true, text: chartLabels.periodLabel } },
+        y,
+      },
+    },
+  };
 }
 
 /**

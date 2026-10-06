@@ -12,6 +12,8 @@ import {
 import {
   newQueryToChartData,
   newQueryToCSVWithLabels,
+  newQueryToFacets,
+  type FacetMode,
 } from "../lib/chartUtils";
 import { useAuth, useCurrentSchools } from "../auth/AuthContext";
 import { ChartCard } from "../lib/components/ChartCard";
@@ -64,6 +66,7 @@ export function DashboardPage() {
   const [queryResult, setQueryResult] = useState<NewQueryResponse | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
+  const [facetMode, setFacetMode] = useState<FacetMode>("variable");
 
   // Mount only, like the old page's onMount: nothing in here is meant to re-run
   // when the token or the auth store's schools change later.
@@ -206,6 +209,22 @@ export function DashboardPage() {
         ? newQueryToChartData(queryResult, i18n.chartFormatters)
         : null,
     [queryResult, i18n],
+  );
+  // Grouped trends: one line chart per variable (or per group) so the grouping
+  // isn't flattened away.
+  const facetOutput = useMemo(
+    () =>
+      queryResult &&
+      queryResult.dimensions.length > 0 &&
+      queryResult.periods.length > 1
+        ? newQueryToFacets(
+            queryResult,
+            // The toggle is hidden for one variable; don't strand a stale mode
+            queryResult.variables.length > 1 ? facetMode : "variable",
+            i18n.chartFormatters,
+          )
+        : null,
+    [queryResult, facetMode, i18n],
   );
   const chartData = chartOutput?.data ?? { labels: [], datasets: [] };
   const chartType = chartOutput?.type ?? "bar";
@@ -410,6 +429,33 @@ export function DashboardPage() {
                     title={variableLabels}
                     type={chartType}
                     data={chartData}
+                    options={facetOutput?.options ?? chartOutput?.options}
+                    facets={facetOutput?.facets}
+                    toolbar={
+                      facetOutput &&
+                      queryResult.variables.length > 1 && (
+                        <fieldset className="flex items-center gap-2 text-sm">
+                          <legend className="sr-only">
+                            {i18n.t("chart.facetBy")}
+                          </legend>
+                          <span aria-hidden="true">
+                            {i18n.t("chart.facetBy")}:
+                          </span>
+                          {(["variable", "group"] as const).map((mode) => (
+                            <label key={mode} className="flex gap-1">
+                              <input
+                                type="radio"
+                                name="facet-mode"
+                                value={mode}
+                                checked={facetMode === mode}
+                                onChange={() => setFacetMode(mode)}
+                              />
+                              {i18n.t(`chart.facetBy_${mode}`)}
+                            </label>
+                          ))}
+                        </fieldset>
+                      )
+                    }
                     csv={chartCSV}
                     filename="explore-results"
                   />

@@ -104,6 +104,7 @@ export function createI18n(activeLocale: Locale) {
       columnLabel: (column: string) => formatColumnLabel(column, dictionary),
       countLabel: lookupText(dictionary, "chart.count") ?? "Count",
       meanLabel: lookupText(dictionary, "chart.mean") ?? "Mean",
+      periodLabel: lookupText(dictionary, "chart.period") ?? "Period",
     },
   };
 }

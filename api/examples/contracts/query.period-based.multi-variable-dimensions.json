@@ -1,0 +1,59 @@
+{
+  "id": "query.period-based.multi-variable-dimensions",
+  "method": "GET",
+  "path": "/query?v=bewell_questionnaire__bw_wbeing_1&v=bewell_questionnaire__bw_wbeing_2&d=d_sex",
+  "status": 200,
+  "request_model": null,
+  "response_model": "NewQueryResponse",
+  "request": null,
+  "response": {
+    "query": {
+      "school_id": null,
+      "variables": [
+        "bewell_questionnaire__bw_wbeing_1",
+        "bewell_questionnaire__bw_wbeing_2"
+      ],
+      "dimensions": ["d_sex"],
+      "variable_prefixes": []
+    },
+    "dimensions": ["d_sex"],
+    "periods": ["2023-2024", "2024-2025"],
+    "variables": [
+      {
+        "variable": "bewell_questionnaire__bw_wbeing_1",
+        "periods": {
+          "2023-2024": {
+            "suppressed": false,
+            "cells": [
+              { "mean": 3.2, "n": 6, "d_sex": "M" },
+              { "mean": 3.8, "n": 7, "d_sex": "F" }
+            ]
+          },
+          "2024-2025": {
+            "suppressed": false,
+            "cells": [
+              { "mean": 3.4, "n": 6, "d_sex": "M" },
+              { "mean": 3.9, "n": 8, "d_sex": "F" }
+            ]
+          }
+        }
+      },
+      {
+        "variable": "bewell_questionnaire__bw_wbeing_2",
+        "periods": {
+          "2023-2024": {
+            "suppressed": false,
+            "cells": [
+              { "mean": 2.9, "n": 6, "d_sex": "M" },
+              { "mean": 3.1, "n": 7, "d_sex": "F" }
+            ]
+          },
+          "2024-2025": {
+            "suppressed": true,
+            "suppression_reason": "small-n"
+          }
+        }
+      }
+    ]
+  }
+}

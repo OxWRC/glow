@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, within, userEvent } from "storybook/test";
 import { ChartCard } from "./ChartCard";
-import type { ChartJsData } from "../chartUtils";
+import { newQueryToFacets, type ChartJsData } from "../chartUtils";
+import type { NewQueryResponse } from "../api";
+import { getExample } from "../mocks/contractExamples";
 
 // A few stories below use a single dataset with a per-bar array of colors
 // (Chart.js supports this) to recreate the old Svelte demo's visual, even
@@ -593,5 +595,44 @@ State Local High,3.1,95`,
     await new Promise((resolve) => setTimeout(resolve, 100));
     const showTableBtn = canvas.getByRole("button", { name: /show table/i });
     await expect(showTableBtn).toHaveAttribute("aria-pressed", "false");
+  },
+};
+
+// ============================================================================
+// Story 9: Faceted Trends
+// Grouped multi-period data drawn as one small-multiple line chart per variable
+// ============================================================================
+
+const groupedTrends = newQueryToFacets(
+  getExample("query.period-based.multi-variable-dimensions")
+    ?.response as NewQueryResponse,
+  "variable",
+);
+
+export const FacetedTrends: Story = {
+  args: {
+    title: "Well-being by Sex Over Time",
+    type: "line",
+    data: { labels: [], datasets: [] },
+    facets: groupedTrends.facets,
+    options: groupedTrends.options,
+    csv: `Variable,Period,d_sex,Mean,N
+bw_wbeing_1,2023-2024,M,3.20,6
+bw_wbeing_1,2023-2024,F,3.80,7`,
+    filename: "wellbeing-faceted",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    // One captioned figure (and canvas) per variable
+    const figures = canvas.getAllByRole("figure");
+    await expect(figures).toHaveLength(2);
+    await expect(
+      within(figures[0]).getByText("bewell_questionnaire__bw_wbeing_1"),
+    ).toBeInTheDocument();
+    await expect(canvasElement.querySelectorAll("canvas")).toHaveLength(2);
+
+    // Still a single table for the whole result
+    await expect(canvas.getAllByRole("table")).toHaveLength(1);
   },
 };

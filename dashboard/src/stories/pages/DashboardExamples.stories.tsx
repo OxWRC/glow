@@ -136,6 +136,48 @@ export const Default: Story = {
   },
 };
 
+// Grouped trends: two variables by sex across periods draw small multiples,
+// switchable between one graph per variable and one per group
+export const GroupedTrends: Story = {
+  parameters: {
+    msw: withApiResponses({
+      "GET /me": "me.authenticated",
+      "GET /dimensions": "dimensions.dataset",
+      "GET /query": "query.period-based.multi-variable-dimensions",
+    }),
+  },
+  decorators: [withAuth(mockUser)],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    const queryButton = await canvas.findByRole(
+      "button",
+      { name: /Run Query/i },
+      { timeout: 3000 },
+    );
+    await waitFor(() => expect(queryButton).not.toBeDisabled());
+    await userEvent.click(queryButton);
+
+    // Default: one graph per variable
+    const perVariable = await canvas.findByRole(
+      "radio",
+      { name: "Variable" },
+      { timeout: 3000 },
+    );
+    await expect(perVariable).toBeChecked();
+    const captions = () =>
+      canvas.getAllByRole("figure").map((f) => f.textContent);
+    await expect(captions()).toEqual([
+      "BeWell questionnaire: Psychological wellbeing: I've been feeling optimistic about the future",
+      "BeWell questionnaire: Psychological wellbeing: I've been feeling useful",
+    ]);
+
+    // Switch to one graph per group
+    await userEvent.click(canvas.getByRole("radio", { name: "Group" }));
+    await waitFor(() => expect(captions()).toEqual(["Sex: M", "Sex: F"]));
+  },
+};
+
 // Admin user can see all schools
 export const AdminUser: Story = {
   parameters: {

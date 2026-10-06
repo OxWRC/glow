@@ -382,7 +382,11 @@ export const en = {
       "Some values are suppressed to protect student privacy because the cell counts are small.",
     count: "Count",
     mean: "Mean",
+    period: "Period",
     neighbour: "Neighbour",
+    facetBy: "One graph per",
+    facetBy_variable: "Variable",
+    facetBy_group: "Group",
   },
   table: {
     noData: "No data available.",

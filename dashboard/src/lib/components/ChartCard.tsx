@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import { Bar, Line } from "react-chartjs-2";
 import {
@@ -12,7 +12,7 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import type { ChartJsData } from "../chartUtils";
+import type { ChartFacet, ChartJsData } from "../chartUtils";
 import { downloadCSV } from "../csvUtils";
 import { createI18n, availableLocales, type Locale } from "../i18n";
 import { DataTable } from "./DataTable";
@@ -41,6 +41,10 @@ interface ChartCardProps {
   suppressions?: Record<string, Record<number, string>>;
   filename?: string;
   noNeighborData?: boolean;
+  /** Small-multiple line charts, drawn instead of `data` when given. */
+  facets?: ChartFacet[];
+  /** Extra header controls, e.g. a facet-mode switch. */
+  toolbar?: ReactNode;
 }
 
 export function ChartCard({
@@ -52,6 +56,8 @@ export function ChartCard({
   suppressions = {},
   filename = "data",
   noNeighborData = false,
+  facets,
+  toolbar,
 }: ChartCardProps) {
   const { locale: localeParam } = useParams<{ locale: string }>();
   const locale: Locale = availableLocales.includes(localeParam as Locale)
@@ -61,13 +67,16 @@ export function ChartCard({
 
   const [showTable, setShowTable] = useState(true);
 
-  const hasData = data.datasets.length > 0;
+  const hasData = facets ? facets.length > 0 : data.datasets.length > 0;
   const hasSuppressions = Object.keys(suppressions).length > 0;
 
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     indexAxis: type === "horizontalBar" ? ("y" as const) : ("x" as const),
+    animation: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+      ? (false as const)
+      : undefined,
     ...options,
   };
 
@@ -81,6 +90,7 @@ export function ChartCard({
       <div className="flex items-start justify-between gap-4">
         <h3 className="font-semibold text-gray-800">{title}</h3>
         <div className="flex items-center gap-2 shrink-0">
+          {toolbar}
           {hasData && (
             <button
               className="btn-secondary btn-sm"
@@ -105,7 +115,22 @@ export function ChartCard({
       </div>
 
       {/* Chart */}
-      {hasData ? (
+      {hasData && facets ? (
+        <div
+          className={`grid gap-4 ${facets.length > 1 ? "md:grid-cols-2" : ""}`}
+        >
+          {facets.map((facet) => (
+            <figure key={facet.title} className="space-y-2">
+              <figcaption className="text-sm font-medium text-gray-700">
+                {facet.title}
+              </figcaption>
+              <div className="relative h-64">
+                <Line data={facet.data} options={chartOptions} />
+              </div>
+            </figure>
+          ))}
+        </div>
+      ) : hasData ? (
         <div className="relative h-64">
           {type === "line" ? (
             <Line data={data} options={chartOptions} />
