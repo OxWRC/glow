@@ -9,9 +9,8 @@ the guard that keeps the two modes from being enabled together).
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import (
-    APIKeyHeader,
     HTTPAuthorizationCredentials,
     OAuth2PasswordBearer,
 )
@@ -20,14 +19,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
-from glow_api.api_keys import hash_api_key
 from glow_api.database import (
-    get_api_key_by_hash,
     get_db,
     get_school_by_id,
-    get_user_by_id,
     get_user_by_sub,
-    touch_api_key_last_used,
 )
 from glow_api.metadata_models import School, User
 from glow_api.models import UserRead
@@ -35,7 +30,6 @@ from glow_api.settings import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 DEV_ISSUER = "glow-dev"
 
@@ -135,7 +129,6 @@ def _user_model_to_read(user: User) -> UserRead:
         school_names=[s.name for s in user.schools],
         is_active=user.is_active,
         is_admin=user.is_admin,
-        is_wrc=user.is_wrc,
         email=user.email,
     )
 
@@ -181,37 +174,6 @@ async def get_current_user(
     if token is None:
         return None
     return _authenticate_token(token, db)
-
-
-async def require_api_key_user(
-    api_key: str | None = Security(api_key_header),
-    db: Session = Depends(get_db),
-) -> UserRead:
-    """Auth dependency for API-key-based (script) access to WRC routes.
-
-    Separate from require_current_user's JWT path entirely - a WRC API key
-    never grants anything a JWT-authenticated session does, and vice versa.
-    """
-    invalid_key_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or expired API key",
-        headers={"WWW-Authenticate": "ApiKey"},
-    )
-    if api_key is None:
-        raise invalid_key_exception
-
-    record = get_api_key_by_hash(db, hash_api_key(api_key))
-    if record is None or record.revoked_at is not None:
-        raise invalid_key_exception
-    if record.expires_at < datetime.now(timezone.utc):
-        raise invalid_key_exception
-
-    user = get_user_by_id(db, record.user_id)
-    if user is None or not user.is_active or not user.is_wrc:
-        raise invalid_key_exception
-
-    touch_api_key_last_used(db, record)
-    return _user_model_to_read(user)
 
 
 def get_optional_school_user(

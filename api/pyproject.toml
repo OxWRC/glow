@@ -1,6 +1,6 @@
 [project]
 name = "glow-api"
-version = "0.2.0"
+version = "0.3.0"
 description = "Read-only API for GLOW longitudinal questionnaire data"
 requires-python = ">=3.12"
 dependencies = [

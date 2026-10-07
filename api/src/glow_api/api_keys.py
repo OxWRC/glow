@@ -9,7 +9,6 @@ import hashlib
 import secrets
 
 KEY_PREFIX = "glow_"
-DISPLAY_PREFIX_LEN = 12
 
 
 def generate_api_key() -> str:
@@ -18,7 +17,3 @@ def generate_api_key() -> str:
 
 def hash_api_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode()).hexdigest()
-
-
-def display_prefix(raw_key: str) -> str:
-    return raw_key[:DISPLAY_PREFIX_LEN]

@@ -137,17 +137,6 @@ def admin_user(db_session, sample_schools):
 
 
 @pytest.fixture(scope="function")
-def wrc_user(db_session):
-    """Create a WRC user in the test DB (no direct school access)."""
-    user = create_user(
-        db_session,
-        username="wrcuser",
-        is_wrc=True,
-    )
-    return user
-
-
-@pytest.fixture(scope="function")
 def sample_df():
     df = _make_df(SAMPLE_CSV)
     # Compute derived scores like the real DataStore does
@@ -321,40 +310,3 @@ def admin_client(db_session, admin_user, sample_schools, sample_df):
     app.dependency_overrides.clear()
     # Restore original datastore
     data_module.datastore = original_datastore
-
-
-@pytest.fixture(scope="function")
-def wrc_client(db_session, wrc_user, sample_schools, sample_df):
-    """TestClient with an authenticated WRC user."""
-    from glow_api.models import UserRead
-
-    def override_get_db():
-        yield db_session
-
-    fake_store = _make_mock_datastore(sample_df)
-
-    def override_get_current_user():
-        return UserRead(
-            id=wrc_user.id,
-            username=wrc_user.username,
-            school_ids=[],
-            school_names=[],
-            is_active=True,
-            is_admin=False,
-            is_wrc=True,
-        )
-
-    def override_get_datastore():
-        return fake_store
-
-    from glow_api.data import get_datastore
-
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[require_current_user] = override_get_current_user
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[get_datastore] = override_get_datastore
-
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
-
-    app.dependency_overrides.clear()

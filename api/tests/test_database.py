@@ -41,53 +41,6 @@ def test_extract_schools_from_dataframe_backfills_legacy_name_matched_school(
     assert len(database.list_schools(db_session)) == 1
 
 
-def test_create_user_wrc_forces_empty_schools(db_session):
-    school = database.create_school(db_session, name="Some School")
-    user = database.create_user(
-        db_session,
-        username="wrcuser",
-        is_wrc=True,
-        school_ids=[school.id],
-    )
-    assert user.is_wrc is True
-    assert user.schools == []
-
-
-def test_update_user_wrc_forces_empty_schools(db_session):
-    school = database.create_school(db_session, name="Some School")
-    user = database.create_user(db_session, username="plainuser")
-
-    updated = database.update_user(
-        db_session, user, is_wrc=True, school_ids=[school.id]
-    )
-    assert updated.is_wrc is True
-    assert updated.schools == []
-
-
-def test_update_user_already_wrc_rejects_new_schools(db_session):
-    school = database.create_school(db_session, name="Some School")
-    user = database.create_user(db_session, username="wrcuser", is_wrc=True)
-
-    updated = database.update_user(db_session, user, school_ids=[school.id])
-    assert updated.is_wrc is True
-    assert updated.schools == []
-
-
-def test_update_user_flip_to_wrc_clears_existing_schools_no_school_ids_arg(db_session):
-    """Promoting an existing user to is_wrc=True must clear their schools
-    even when the update call doesn't touch school_ids at all - e.g. `users
-    update USERNAME --wrc` with no `--schools`."""
-    school = database.create_school(db_session, name="Some School")
-    user = database.create_user(
-        db_session, username="plainuser", school_ids=[school.id]
-    )
-    assert user.schools != []
-
-    updated = database.update_user(db_session, user, is_wrc=True)
-    assert updated.is_wrc is True
-    assert updated.schools == []
-
-
 def test_upsert_user_by_sub_links_existing_username_instead_of_duplicating(
     db_session,
 ):
@@ -100,7 +53,7 @@ def test_upsert_user_by_sub_links_existing_username_instead_of_duplicating(
     assert existing.cognito_sub is None
 
     linked = database.upsert_user_by_sub(
-        db_session, "sub-123", username="alice", is_admin=True, is_wrc=False
+        db_session, "sub-123", username="alice", is_admin=True
     )
 
     assert linked.id == existing.id

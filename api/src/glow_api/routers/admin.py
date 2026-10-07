@@ -61,7 +61,6 @@ def list_all_users(
                 school_names=[s.name for s in u.schools],
                 is_active=u.is_active,
                 is_admin=u.is_admin,
-                is_wrc=u.is_wrc,
                 email=u.email,
             )
         )
@@ -107,7 +106,6 @@ def create_new_user(
         school_names=[s.name for s in user.schools],
         is_active=user.is_active,
         is_admin=user.is_admin,
-        is_wrc=user.is_wrc,
         email=user.email,
     )
 
@@ -123,11 +121,6 @@ def update_existing_user(
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-        )
-    if user.is_wrc and payload.school_ids is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot assign schools to a WRC user",
         )
 
     updated = update_user(
@@ -152,7 +145,6 @@ def update_existing_user(
         school_names=[s.name for s in updated.schools],
         is_active=updated.is_active,
         is_admin=updated.is_admin,
-        is_wrc=updated.is_wrc,
         email=updated.email,
     )
 

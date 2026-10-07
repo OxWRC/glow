@@ -23,7 +23,6 @@ class TestDemoLogin:
         body = me.json()
         assert body["username"] == "dev-admin"
         assert body["is_admin"] is True
-        assert body["is_wrc"] is False
         # /me returns exactly a user's assigned schools, no implicit
         # admin-sees-everything expansion - dev-admin must be assigned every
         # currently-seeded school itself, or the dashboard's school picker
@@ -31,18 +30,6 @@ class TestDemoLogin:
         assert {s["id"] for s in body["schools"]} == {
             school.id for school in sample_schools.values()
         }
-
-    def test_wrc_role_logs_in_as_wrc(self, auth_client):
-        resp = auth_client.post("/demo/login", json={"role": "wrc"})
-        assert resp.status_code == 200
-        token = resp.json()["access_token"]
-
-        me = auth_client.get("/me", headers={"Authorization": f"Bearer {token}"})
-        assert me.status_code == 200
-        body = me.json()
-        assert body["username"] == "dev-wrc"
-        assert body["is_wrc"] is True
-        assert body["is_admin"] is False
 
     def test_school_role_logs_in_scoped_to_that_school(
         self, auth_client, sample_schools
@@ -59,7 +46,6 @@ class TestDemoLogin:
         body = me.json()
         assert body["username"] == f"dev-school-{school.id}"
         assert body["is_admin"] is False
-        assert body["is_wrc"] is False
         assert [s["id"] for s in body["schools"]] == [school.id]
 
     def test_school_role_defaults_to_first_seeded_school(

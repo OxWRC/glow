@@ -20,9 +20,7 @@ from glow_api.settings import settings
 def test_seed_demo_wipes_users_keys_and_restores_schools(db_session, sample_df):
     seed_demo(db_session, sample_df)
     school_names = {s.name for s in list_schools(db_session)}
-    visitor = create_user(
-        db_session, username="visitor", school_ids=[], is_admin=False, is_wrc=False
-    )
+    visitor = create_user(db_session, username="visitor", school_ids=[], is_admin=False)
     create_api_key(
         db_session,
         user_id=visitor.id,

@@ -135,7 +135,6 @@ def test_bootstrap_idempotent_when_cognito_user_already_exists(monkeypatch, db_e
             "--password",
             "TempPass123!",
             "--bootstrap",
-            "--wrc",
         ],
         monkeypatch,
         db_engine,
@@ -146,7 +145,6 @@ def test_bootstrap_idempotent_when_cognito_user_already_exists(monkeypatch, db_e
     with Session() as session:
         user = session.query(User).filter_by(username="bob").one()
         assert user.cognito_sub == "sub-existing"
-        assert user.is_wrc is True
     # AdminSetUserPassword still runs so a re-run also resets the password.
     assert fake_client.set_password_calls[0]["Username"] == "bob"
 

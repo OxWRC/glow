@@ -12,7 +12,7 @@ from glow_api.data import get_datastore
 from glow_api.database import run_migrations
 from glow_api.logging_config import configure_logging
 from glow_api.request_logging import RequestLoggingMiddleware
-from glow_api.routers import admin, auth, dimensions, me, query, schools, wrc
+from glow_api.routers import admin, auth, dimensions, me, query, schools
 from glow_api.settings import settings
 
 configure_logging()
@@ -91,7 +91,6 @@ app.include_router(me.router)
 app.include_router(dimensions.router)
 app.include_router(schools.router)
 app.include_router(query.router)
-app.include_router(wrc.router)
 
 if settings.DEMO_MODE:
     # Only mounted in demo mode - kept out of the route table entirely

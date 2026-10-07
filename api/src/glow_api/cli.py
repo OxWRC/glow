@@ -114,7 +114,6 @@ def _bootstrap_cognito_user(
     password: str,
     permanent: bool,
     is_admin: bool,
-    is_wrc: bool,
     school_ids: list[int],
 ) -> User:
     """Create/find `username` in Cognito, then upsert the local row by its `sub`.
@@ -153,7 +152,6 @@ def _bootstrap_cognito_user(
         cognito_sub,
         username=username,
         is_admin=is_admin,
-        is_wrc=is_wrc,
         school_ids=school_ids,
     )
 
@@ -176,13 +174,6 @@ def _bootstrap_cognito_user(
 )
 @click.option(
     "--admin", "is_admin", is_flag=True, default=False, help="Grant admin privileges."
-)
-@click.option(
-    "--wrc",
-    "is_wrc",
-    is_flag=True,
-    default=False,
-    help="Grant WRC privileges (clears any schools).",
 )
 @click.option(
     "--bootstrap",
@@ -208,7 +199,6 @@ def users_create(
     password: str | None,
     schools: str,
     is_admin: bool,
-    is_wrc: bool,
     bootstrap: bool,
     permanent_password: bool,
 ) -> None:
@@ -252,7 +242,6 @@ def users_create(
                 password=password,
                 permanent=permanent_password,
                 is_admin=is_admin,
-                is_wrc=is_wrc,
                 school_ids=school_ids,
             )
         else:
@@ -266,19 +255,16 @@ def users_create(
                 username=username,
                 school_ids=school_ids,
                 is_admin=is_admin,
-                is_wrc=is_wrc,
             )
         # Eagerly load school names before session closes
         school_names = [s.name for s in user.schools]
         user_id = user.id
         user_username = user.username
         user_is_admin = user.is_admin
-        user_is_wrc = user.is_wrc
 
     admin_flag = " [ADMIN]" if user_is_admin else ""
-    wrc_flag = " [WRC]" if user_is_wrc else ""
     click.echo(
-        f"User '{user_username}' created (id={user_id}){admin_flag}{wrc_flag}. Schools: {school_names}"
+        f"User '{user_username}' created (id={user_id}){admin_flag}. Schools: {school_names}"
     )
 
 
@@ -294,24 +280,14 @@ def users_create(
     default=None,
     help="Set user active or inactive.",
 )
-@click.option(
-    "--wrc/--no-wrc",
-    "is_wrc",
-    default=None,
-    help="Grant or revoke WRC privileges (clears schools when granted).",
-)
 def users_update(
     username: str,
     schools: str | None,
     active: bool | None,
-    is_wrc: bool | None,
 ) -> None:
-    """Update a user's schools, active status, or WRC flag."""
-    if schools is None and active is None and is_wrc is None:
-        click.echo(
-            "Nothing to update. Provide --schools, --active/--inactive, "
-            "or --wrc/--no-wrc."
-        )
+    """Update a user's schools, or active status."""
+    if schools is None and active is None:
+        click.echo("Nothing to update. Provide --schools or --active/--inactive.")
         return
 
     school_ids: list[int] | None = None
@@ -334,7 +310,7 @@ def users_update(
         if user is None:
             click.echo(f"User '{username}' not found.", err=True)
             sys.exit(1)
-        update_user(db, user, school_ids=school_ids, is_active=active, is_wrc=is_wrc)
+        update_user(db, user, school_ids=school_ids, is_active=active)
 
     click.echo(f"User '{username}' updated.")
 

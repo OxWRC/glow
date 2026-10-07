@@ -28,7 +28,7 @@ router = APIRouter(prefix="/demo", tags=["demo"])
 
 
 class DemoLoginRequest(BaseModel):
-    role: Literal["admin", "wrc", "school"]
+    role: Literal["admin", "school"]
     school_id: int | None = None
 
 
@@ -54,9 +54,6 @@ def demo_login(
             is_admin=True,
             school_ids=[s.id for s in list_schools(db)],
         )
-    elif payload.role == "wrc":
-        sub = "dev-wrc"
-        user = upsert_user_by_sub(db, sub, username=sub, is_wrc=True)
     else:
         school_id = payload.school_id
         if school_id is None:

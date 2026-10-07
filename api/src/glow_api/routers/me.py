@@ -64,7 +64,6 @@ def get_me(
         id=user.id,
         username=user.username,
         is_admin=user.is_admin,
-        is_wrc=user.is_wrc,
         email=user.email,
         schools=schools,
     )

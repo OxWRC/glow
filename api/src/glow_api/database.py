@@ -123,11 +123,10 @@ def upsert_user_by_sub(
     cognito_sub: str,
     username: str | None = None,
     is_admin: bool = False,
-    is_wrc: bool = False,
     school_ids: list[int] | None = None,
 ) -> User:
     """Find or create the local User row for a given Cognito `sub`, syncing
-    is_admin/is_wrc/school_ids to the given values on every call.
+    is_admin/school_ids to the given values on every call.
 
     Used by the demo-mode login (Task 4) and by real-Cognito bootstrap
     (Task 5) to link a local row to an identity that only exists as a token
@@ -142,10 +141,6 @@ def upsert_user_by_sub(
     `cognito_sub` to it rather than attempting to insert a second row and
     hitting the `username` unique constraint.
     """
-    if is_wrc:
-        # WRC users never have direct school access, regardless of what was
-        # passed for schools (mirrors create_user/update_user).
-        school_ids = []
     user = get_user_by_sub(db, cognito_sub)
     if user is None and username is not None:
         user = get_user_by_username(db, username)
@@ -156,12 +151,10 @@ def upsert_user_by_sub(
             username=username or cognito_sub,
             cognito_sub=cognito_sub,
             is_admin=is_admin,
-            is_wrc=is_wrc,
         )
         db.add(user)
     else:
         user.is_admin = is_admin
-        user.is_wrc = is_wrc
     if school_ids is not None:
         schools = db.query(School).filter(School.id.in_(school_ids)).all()
         user.schools = schools
@@ -175,19 +168,13 @@ def create_user(
     username: str,
     is_active: bool = True,
     is_admin: bool = False,
-    is_wrc: bool = False,
     school_ids: list[int] | None = None,
     commit: bool = True,
 ) -> User:
-    if is_wrc:
-        # WRC users never have direct school access, regardless of what
-        # was passed for schools.
-        school_ids = []
     user = User(
         username=username,
         is_active=is_active,
         is_admin=is_admin,
-        is_wrc=is_wrc,
     )
     if school_ids:
         schools = db.query(School).filter(School.id.in_(school_ids)).all()
@@ -203,20 +190,12 @@ def update_user(
     user: User,
     is_active: bool | None = None,
     is_admin: bool | None = None,
-    is_wrc: bool | None = None,
     school_ids: list[int] | None = None,
 ) -> User:
     if is_active is not None:
         user.is_active = is_active
     if is_admin is not None:
         user.is_admin = is_admin
-    if is_wrc is not None:
-        user.is_wrc = is_wrc
-    if user.is_wrc:
-        # WRC users never have direct school access, regardless of what
-        # was passed for schools (including nothing at all - flipping
-        # is_wrc=True must clear any schools the user already had).
-        school_ids = []
     if school_ids is not None:
         schools = db.query(School).filter(School.id.in_(school_ids)).all()
         user.schools = schools
@@ -400,20 +379,11 @@ def get_api_key_by_id(db: Session, key_id: int) -> ApiKey | None:
     return db.query(ApiKey).filter(ApiKey.id == key_id).first()
 
 
-def list_api_keys_for_user(db: Session, user_id: int) -> list[ApiKey]:
-    return db.query(ApiKey).filter(ApiKey.user_id == user_id).all()
-
-
 def revoke_api_key(db: Session, api_key: ApiKey) -> ApiKey:
     api_key.revoked_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(api_key)
     return api_key
-
-
-def touch_api_key_last_used(db: Session, api_key: ApiKey) -> None:
-    api_key.last_used_at = datetime.now(timezone.utc)
-    db.commit()
 
 
 def grant_admins_all_schools(db: Session, commit: bool = True) -> int:
