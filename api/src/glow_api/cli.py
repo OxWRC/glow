@@ -9,29 +9,38 @@ Usage:
     python -m glow_api.cli schools create NAME
     python -m glow_api.cli schools sync
     python -m glow_api.cli db init
+    python -m glow_api.cli api-keys create --name NAME [--expires-in-days DAYS]
+    python -m glow_api.cli api-keys list
+    python -m glow_api.cli api-keys revoke KEY_ID
 """
 
 import json
 import sys
+from datetime import UTC, datetime
 
 import boto3
 import click
 from sqlalchemy import select
 
+from glow_api import audit
+from glow_api.api_keys import issue_api_key, key_status
 from glow_api.database import (
     SessionLocal,
+    create_school,
     create_user,
     delete_user,
-    get_user_by_username,
-    list_users,
-    run_migrations,
-    update_user,
-    upsert_user_by_sub,
-    create_school,
+    get_api_key_by_id,
     get_school_by_name,
+    get_user_by_username,
+    list_api_keys,
     list_schools,
+    list_users,
+    revoke_api_key,
+    run_migrations,
     seed_demo,
     sync_schools,
+    update_user,
+    upsert_user_by_sub,
 )
 from glow_api.metadata_models import User
 from glow_api.settings import settings
@@ -500,6 +509,90 @@ def demo_reset() -> None:
     with SessionLocal() as db:
         seed_demo(db, df)
     click.echo("Demo data reset.")
+
+
+# ---------------------------------------------------------------------------
+# api-keys commands
+# ---------------------------------------------------------------------------
+
+
+def _audit_cli(action: str, **fields) -> None:
+    # CLI actions bypass the HTTP request-logging middleware, so write the
+    # audit line directly.
+    audit.write_audit_line(
+        {
+            "actor": "cli",
+            "action": action,
+            "ts": datetime.now(UTC).isoformat(),
+            **fields,
+        }
+    )
+
+
+@cli.group("api-keys")
+def api_keys() -> None:
+    """Pseudonymous data export API keys."""
+
+
+@api_keys.command("create")
+@click.option("--name", required=True, help="Who/what the key is for.")
+@click.option(
+    "--expires-in-days",
+    type=click.IntRange(1, 365),
+    default=None,
+    help=f"Lifetime in days (default {settings.API_KEY_EXPIRE_DAYS}).",
+)
+def api_keys_create(name: str, expires_in_days: int | None) -> None:
+    """Issue a key. The raw key is printed once and never again."""
+    with SessionLocal() as db:
+        record, raw_key = issue_api_key(db, name, expires_in_days, None)
+        key_id, expires_at = record.id, record.expires_at
+    _audit_cli("api_key_created", api_key_id=key_id, name=name)
+    click.echo(f"Created API key {key_id} '{name}', expires {expires_at:%Y-%m-%d}.")
+    click.echo("Copy it now - it will not be shown again:")
+    click.echo(raw_key)
+
+
+@api_keys.command("list")
+def api_keys_list() -> None:
+    """List keys (never shows the secret)."""
+    now = datetime.now(UTC)
+    with SessionLocal() as db:
+        rows = [
+            (
+                k.id,
+                k.name,
+                k.prefix,
+                key_status(k, now),
+                k.expires_at,
+                k.last_used_at,
+                k.use_count or 0,
+            )
+            for k in list_api_keys(db)
+        ]
+    if not rows:
+        click.echo("No API keys.")
+        return
+    for key_id, name, prefix, status, expires_at, last_used_at, use_count in rows:
+        last_used = f"{last_used_at:%Y-%m-%d %H:%M}" if last_used_at else "never"
+        click.echo(
+            f"  [{key_id}] {name} ({prefix}...) {status}, "
+            f"expires {expires_at:%Y-%m-%d}, last used {last_used}, uses {use_count}"
+        )
+
+
+@api_keys.command("revoke")
+@click.argument("key_id", type=int)
+def api_keys_revoke(key_id: int) -> None:
+    """Revoke a key immediately."""
+    with SessionLocal() as db:
+        record = get_api_key_by_id(db, key_id)
+        if record is None:
+            click.echo(f"API key {key_id} not found.")
+            sys.exit(1)
+        revoke_api_key(db, record)
+    _audit_cli("api_key_revoked", api_key_id=key_id)
+    click.echo(f"API key {key_id} revoked.")
 
 
 if __name__ == "__main__":
