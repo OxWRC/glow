@@ -9,8 +9,9 @@ the guard that keeps the two modes from being enabled together).
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import (
+    APIKeyHeader,
     HTTPAuthorizationCredentials,
     OAuth2PasswordBearer,
 )
@@ -19,17 +20,22 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
+from glow_api.api_keys import hash_api_key
 from glow_api.database import (
+    get_api_key_by_hash,
     get_db,
     get_school_by_id,
     get_user_by_sub,
+    record_api_key_use,
 )
-from glow_api.metadata_models import School, User
+from glow_api.metadata_models import ApiKey, School, User
 from glow_api.models import UserRead
 from glow_api.settings import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 DEV_ISSUER = "glow-dev"
 
@@ -168,8 +174,8 @@ async def get_current_user(
     db: Session = Depends(get_db),
 ) -> UserRead | None:
     """Same as require_current_user, but returns None (rather than 401ing)
-    when no bearer token is present at all - for routes that also accept an
-    API key, where the absence of a JWT isn't itself an error.
+    when no bearer token is present at all - for routes that serve both
+    anonymous and authenticated callers.
     """
     if token is None:
         return None
@@ -275,3 +281,30 @@ def get_optional_school_user(
         school_id=school_id,
     )
     return _user_model_to_read(user), school
+
+
+async def require_api_key(
+    api_key: str | None = Security(api_key_header),
+    db: Session = Depends(get_db),
+) -> ApiKey:
+    """Auth for the pseudonymous export only. Never accepts a JWT, and no
+    JWT-authenticated route accepts this."""
+    record = get_api_key_by_hash(db, hash_api_key(api_key)) if api_key else None
+    if (
+        record is None
+        or record.revoked_at is not None
+        or record.expires_at < datetime.now(timezone.utc)
+    ):
+        request_context.record_event(
+            "auth_assessed", outcome="invalid_api_key", success=False
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired API key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+    record_api_key_use(db, record)
+    request_context.record_event(
+        "auth_assessed", outcome="success", success=True, api_key_id=record.id
+    )
+    return record

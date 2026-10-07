@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, RootModel
 
@@ -239,3 +239,13 @@ class ApiKeyCreated(BaseModel):
     key: str
     created_at: datetime
     expires_at: datetime
+
+
+class ExportResponse(BaseModel):
+    dataset_version: str
+    rules_sha256: str
+    min_n: int
+    generated_at: datetime
+    suppressed: bool
+    coarsening: dict[str, int]
+    rows: list[dict[str, Any]]
