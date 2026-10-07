@@ -3,14 +3,21 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
 import pytest
 
 from glow_api import audit as audit_module
 from glow_api.api_keys import issue_api_key
 from glow_api.audit import AUDIT_ROUTES
+from glow_api.auth import create_access_token
 from glow_api.data import get_datastore
-from glow_api.database import get_api_key_by_id
-from glow_api.export import ExportCache, get_export_cache, get_suppression_rules
+from glow_api.database import get_api_key_by_id, upsert_user_by_sub
+from glow_api.export import (
+    ExportCache,
+    dataset_version,
+    get_export_cache,
+    get_suppression_rules,
+)
 from glow_api.main import app
 from glow_api.settings import settings
 from glow_api.suppression import parse_rules
@@ -79,9 +86,13 @@ def test_export_requires_valid_key(auth_client, db_session):
         assert auth_client.get("/export", headers={"X-API-Key": raw}).status_code == 401
 
 
-def test_export_rejects_jwt_only(client):
-    # `client` authenticates a dashboard user via JWT override; no key.
-    assert client.get("/export").status_code == 401
+def test_export_rejects_jwt_only(auth_client, db_session):
+    upsert_user_by_sub(db_session, "jwt-only-sub", username="jwtonly", is_admin=True)
+    token = create_access_token({"sub": "jwt-only-sub", "cognito:username": "jwtonly"})
+    headers = {"Authorization": f"Bearer {token}"}
+    # The token itself is good: a JWT route accepts it.
+    assert auth_client.get("/me", headers=headers).status_code == 200
+    assert auth_client.get("/export", headers=headers).status_code == 401
 
 
 def test_export_coarsens_until_threshold(export_client):
@@ -159,6 +170,61 @@ def test_export_records_key_use(export_client, db_session):
     db_session.refresh(record)
     assert record.use_count == 2
     assert record.last_used_at is not None
+
+
+def _use_count(db_session):
+    record = get_api_key_by_id(db_session, 1)
+    db_session.refresh(record)
+    return record.use_count
+
+
+def test_failed_exports_do_not_count_as_key_use(export_client, db_session):
+    _use_rules(UNLISTED_CITY_RULES)
+    assert export_client.get("/export").status_code == 500
+    store = app.dependency_overrides[get_datastore]()
+    full = store._df
+    store._df = full.iloc[0:0]
+    assert export_client.get("/export").status_code == 503
+    assert _use_count(db_session) == 0
+    store._df = full
+    _use_rules(TEST_RULES)
+    _get(export_client)
+    assert _use_count(db_session) == 1
+
+
+def test_export_blocks_when_school_not_a_dimension(export_client):
+    _use_rules(
+        parse_rules(
+            "min_n: 5\n"
+            "dimensions: [class, yearGroup, d_sex, d_ethnicity, d_age, d_city,"
+            " d_country]\n"
+            "escalation: []\n"
+        )
+    )
+    response = export_client.get("/export")
+    assert response.status_code == 500
+    assert "school" in response.json()["detail"]
+
+
+def test_export_handles_namespaced_columns(export_client):
+    store = app.dependency_overrides[get_datastore]()
+    store._df["form__bw_wbeing_9"] = 3
+    store._extract_whitelists(store._df)
+    row = _get(export_client)["rows"][0]
+    assert row["form__bw_wbeing_9"] == 3
+
+    store._df["form__d_religion"] = "None"
+    response = export_client.get("/export")
+    assert response.status_code == 500
+    assert "form__d_religion" in response.json()["detail"]
+
+
+def test_dataset_version_handles_list_cells():
+    df = pd.DataFrame({"uid": ["S1"], "geo": [[51.7, -1.2]]})
+    first = dataset_version(df)
+    assert isinstance(first, str)
+    df.at[0, "geo"] = [51.8, -1.2]
+    assert dataset_version(df) != first
 
 
 def test_export_blocks_unlisted_demographic(export_client):

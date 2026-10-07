@@ -9,13 +9,13 @@ the guard that keeps the two modes from being enabled together).
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import jwt
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import (
     APIKeyHeader,
     HTTPAuthorizationCredentials,
     OAuth2PasswordBearer,
 )
-import jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -26,7 +26,6 @@ from glow_api.database import (
     get_db,
     get_school_by_id,
     get_user_by_sub,
-    record_api_key_use,
 )
 from glow_api.metadata_models import ApiKey, School, User
 from glow_api.models import UserRead
@@ -303,7 +302,6 @@ async def require_api_key(
             detail="Invalid or expired API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
-    record_api_key_use(db, record)
     request_context.record_event(
         "auth_assessed", outcome="success", success=True, api_key_id=record.id
     )

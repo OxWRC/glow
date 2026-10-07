@@ -22,6 +22,8 @@ dimensions:
   - d_age
   - d_city
   - d_country
+  - d_genderIdentity
+  - d_sexualOrientation
 
 hierarchies:
   school:
@@ -62,11 +64,17 @@ hierarchies:
     - map: [{input_regex: ".*", output: "*"}]
   d_country:
     - map: [{input_regex: ".*", output: "*"}]
+  d_genderIdentity:
+    - map: [{input_regex: ".*", output: "*"}]
+  d_sexualOrientation:
+    - map: [{input_regex: ".*", output: "*"}]
 
 # Least analytically valuable first.
 escalation:
   - sex
   - ethnicity
+  - d_genderIdentity
+  - d_sexualOrientation
   - class
   - d_city
   - d_country

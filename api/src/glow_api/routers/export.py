@@ -1,10 +1,12 @@
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 
 from glow_api import request_context
 from glow_api.auth import require_api_key
 from glow_api.data import DataStore, get_datastore
+from glow_api.database import get_db, record_api_key_use
 from glow_api.export import (
     ExportCache,
     UnlistedDemographicError,
@@ -22,7 +24,8 @@ router = APIRouter(tags=["export"])
 
 @router.get("/export", response_model=ExportResponse)
 def pseudonymous_export(
-    _: ApiKey = Depends(require_api_key),
+    api_key: ApiKey = Depends(require_api_key),
+    db: Session = Depends(get_db),
     datastore: DataStore = Depends(get_datastore),
     rules: Rules = Depends(get_suppression_rules),
     cache: ExportCache = Depends(get_export_cache),
@@ -46,6 +49,7 @@ def pseudonymous_export(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Export blocked: {exc}",
         )
+    record_api_key_use(db, api_key)
     request_context.record_event(
         "export_served",
         dataset_version=version,

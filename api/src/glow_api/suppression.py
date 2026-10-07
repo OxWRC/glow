@@ -164,21 +164,28 @@ def _coarsen(series: pd.Series, levels: list[list[Rule]], n: int) -> pd.Series:
     return series.map(mapping)
 
 
-def _smallest_group(current: dict[str, pd.Series], ids: pd.Series) -> float:
-    """Distinct students in the smallest non-empty combination of dimensions."""
+def _smallest_group(keys: dict[str, pd.Series], ids: pd.Series) -> float:
+    """Distinct students in the smallest non-empty combination of keys."""
     if ids.empty:
         return math.inf
-    if not current:
+    if not keys:
         return ids.nunique()
-    frame = pd.DataFrame({**current, "_id": ids})
-    return frame.groupby(list(current), dropna=False)["_id"].nunique().min()
+    frame = pd.DataFrame({**keys, "_id": ids})
+    return frame.groupby(list(keys), dropna=False)["_id"].nunique().min()
 
 
 def suppress(
-    df: pd.DataFrame, rules: Rules, min_n: int, id_column: str = "uid"
+    df: pd.DataFrame,
+    rules: Rules,
+    min_n: int,
+    id_column: str = "uid",
+    fixed_columns: tuple[str, ...] = ("period_id",),
 ) -> tuple[pd.DataFrame | None, dict[str, int]]:
     """Coarsen dimensions along `escalation` until every non-empty combination
     covers at least min_n distinct students.
+
+    `fixed_columns` present in df join every combination but are never
+    coarsened, so each released per-period cell clears min_n too.
 
     Returns (frame with dimension columns replaced by their coarsened labels,
     level per dimension), or (None, levels) when escalation runs out first,
@@ -186,6 +193,7 @@ def suppress(
     ignored; escalation steps for them are consumed without effect.
     """
     dims = [d for d in rules.dimensions if d in df.columns]
+    fixed = {c: df[c] for c in fixed_columns if c in df.columns and c not in dims}
     raw = {d: df[d].map(label) for d in dims}
     levels = {d: 0 for d in dims}
     pending = iter(rules.escalation)
@@ -193,7 +201,7 @@ def suppress(
         current = {
             d: _coarsen(raw[d], rules.hierarchies.get(d, []), levels[d]) for d in dims
         }
-        if _smallest_group(current, df[id_column]) >= min_n:
+        if _smallest_group({**current, **fixed}, df[id_column]) >= min_n:
             out = df.copy()
             for d in dims:
                 out[d] = current[d]

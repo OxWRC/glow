@@ -163,3 +163,36 @@ def test_shipped_rules_file_loads():
     assert rules.min_n == 5
     assert "school" in rules.dimensions
     assert "class" in rules.dimensions
+    assert "d_genderIdentity" in rules.dimensions
+    assert "d_sexualOrientation" in rules.dimensions
+
+
+PERIOD_RULES = parse_rules(
+    """
+min_n: 5
+dimensions: [school, d_sex]
+hierarchies:
+  school: [{map: [{input_regex: ".*", output: "*"}]}]
+  d_sex: [{map: [{input_regex: ".*", output: "*"}]}]
+escalation: [d_sex, school]
+"""
+)
+
+
+def _period_frame(p2_students):
+    rows = [(f"S{i}", "A", "F", "P1") for i in range(5)]
+    rows += [(f"S{i}", "A", "F", "P2") for i in p2_students]
+    return pd.DataFrame(rows, columns=["uid", "school", "d_sex", "period_id"])
+
+
+def test_per_period_cells_must_clear_min_n():
+    # 5 girls at A in P1, but only S0 in P2: the (A, *, P2) cell is 1 student.
+    out, coarsening = suppress(_period_frame([0]), PERIOD_RULES, min_n=5)
+    assert out is None
+    assert "period_id" not in coarsening
+
+
+def test_period_is_grouped_but_never_coarsened():
+    out, coarsening = suppress(_period_frame(range(5)), PERIOD_RULES, min_n=5)
+    assert coarsening == {"school": 0, "d_sex": 0}
+    assert list(out["period_id"]) == ["P1"] * 5 + ["P2"] * 5

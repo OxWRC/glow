@@ -33,7 +33,10 @@ class UnlistedDemographicError(RuntimeError):
 
 def dataset_version(df: pd.DataFrame) -> str:
     digest = hashlib.sha256(",".join(map(str, df.columns)).encode())
-    digest.update(pd.util.hash_pandas_object(df, index=False).values.tobytes())
+    # astype(str): list/dict cells (e.g. ODK geopoints) are unhashable.
+    digest.update(
+        pd.util.hash_pandas_object(df.astype(str), index=False).values.tobytes()
+    )
     return digest.hexdigest()[:16]
 
 
@@ -44,10 +47,16 @@ def _is_demographic(column: str) -> bool:
 
 
 def unlisted_demographics(frozen: DataFrameWithWhitelists, rules: Rules) -> list[str]:
+    """Columns that would be released without suppression governing them.
+    school/class must be dimensions too: their ids are in every row."""
     return sorted(
         c
         for c in frozen.df.columns
-        if (c in frozen.categorical_whitelist or _is_demographic(c))
+        if (
+            c in frozen.categorical_whitelist
+            or _is_demographic(c)
+            or (c in ID_COLUMNS and c != "uid")
+        )
         and c not in rules.dimensions
     )
 

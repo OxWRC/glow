@@ -393,8 +393,14 @@ def revoke_api_key(db: Session, api_key: ApiKey) -> ApiKey:
 
 
 def record_api_key_use(db: Session, api_key: ApiKey) -> None:
-    api_key.last_used_at = datetime.now(timezone.utc)
-    api_key.use_count = (api_key.use_count or 0) + 1
+    # SQL-side increment: concurrent uses can't overwrite each other's count.
+    db.query(ApiKey).filter(ApiKey.id == api_key.id).update(
+        {
+            ApiKey.use_count: ApiKey.use_count + 1,
+            ApiKey.last_used_at: datetime.now(timezone.utc),
+        },
+        synchronize_session=False,
+    )
     db.commit()
 
 
