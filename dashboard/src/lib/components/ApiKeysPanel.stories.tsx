@@ -30,11 +30,13 @@ export const KeyStatuses: Story = {
     await expect(within(active).getByText("Active")).toBeVisible();
     await expect(within(active).getByText("4")).toBeVisible();
     await expect(
-      within(active).getByRole("button", { name: /Revoke/ }),
+      within(active).getByRole("button", { name: "Revoke WRC analysis 2026" }),
     ).toBeVisible();
     const expired = canvas.getByRole("row", { name: /Old pipeline/ });
     await expect(within(expired).getByText("Expired")).toBeVisible();
-    await expect(within(expired).getByText("CLI")).toBeVisible();
+    await expect(
+      within(expired).getByText("CLI or deleted user"),
+    ).toBeVisible();
     const revoked = canvas.getByRole("row", { name: /Leaked test key/ });
     await expect(within(revoked).getByText("Revoked")).toBeVisible();
     await expect(within(revoked).getByText("Never")).toBeVisible();
@@ -139,6 +141,79 @@ export const CreateRevealsKeyOnce: Story = {
   },
 };
 
+let createFailedListCalls = 0;
+
+export const CreateFails: Story = {
+  beforeEach: () => {
+    createFailedListCalls = 0;
+  },
+  parameters: {
+    msw: {
+      handlers: [
+        http.get("/api/admin/api-keys", () => {
+          createFailedListCalls += 1;
+          return HttpResponse.json(listExample.response);
+        }),
+        http.post(
+          "/api/admin/api-keys",
+          () => new HttpResponse("Internal Server Error", { status: 500 }),
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole("row", { name: /WRC analysis 2026/ });
+    const rowsBefore = canvas.getAllByRole("row").length;
+    await userEvent.type(canvas.getByLabelText("Name"), "Doomed key");
+    await userEvent.click(canvas.getByRole("button", { name: "Create key" }));
+    await expect(await canvas.findByRole("alert")).toHaveTextContent(
+      /server encountered an error/,
+    );
+    await expect(canvas.queryByRole("dialog")).toBeNull();
+    await expect(canvas.getAllByRole("row")).toHaveLength(rowsBefore);
+    await expect(createFailedListCalls).toBe(1);
+  },
+};
+
+export const CopyFails: Story = {
+  beforeEach: () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("denied")) },
+    });
+    return () => {
+      delete (navigator as { clipboard?: unknown }).clipboard;
+    };
+  },
+  parameters: {
+    msw: {
+      handlers: [
+        listOk,
+        http.post("/api/admin/api-keys", () =>
+          HttpResponse.json(createdExample.response, { status: 201 }),
+        ),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole("row", { name: /WRC analysis 2026/ });
+    await userEvent.type(canvas.getByLabelText("Name"), "Copy test");
+    await userEvent.click(canvas.getByRole("button", { name: "Create key" }));
+    const dialog = await canvas.findByRole("dialog", {
+      name: "Copy your new key",
+    });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Copy" }));
+    await expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /Couldn.t copy/,
+    );
+    await expect(
+      within(dialog).getByText(createdExample.response.key),
+    ).toBeVisible();
+  },
+};
+
 const revokeSpy = fn();
 let revoked = false;
 
@@ -170,7 +245,9 @@ export const RevokeConfirm: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const row = await canvas.findByRole("row", { name: /WRC analysis 2026/ });
-    await userEvent.click(within(row).getByRole("button", { name: /Revoke/ }));
+    await userEvent.click(
+      within(row).getByRole("button", { name: "Revoke WRC analysis 2026" }),
+    );
     let dialog = await canvas.findByRole("dialog", { name: "Revoke key?" });
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Cancel" }),

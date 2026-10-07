@@ -5,6 +5,14 @@ import { createI18n, type Locale } from "../i18n";
 const TH =
   "px-6 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider text-xs";
 
+type KeyStatus = "active" | "expired" | "revoked";
+
+const BADGE: Record<KeyStatus, string> = {
+  active: "badge-green",
+  expired: "badge-yellow",
+  revoked: "badge-red",
+};
+
 function errMsg(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
@@ -29,6 +37,7 @@ export function ApiKeysPanel({
 
   const [revealKey, setRevealKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const revealRef = useRef<HTMLDialogElement>(null);
 
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
@@ -74,6 +83,7 @@ export function ApiKeysPanel({
         expires_in_days: Number(days),
       });
       setCopied(false);
+      setCopyFailed(false);
       setRevealKey(made.key);
       setName("");
       setDays("90");
@@ -87,8 +97,12 @@ export function ApiKeysPanel({
 
   async function copyKey() {
     if (revealKey === null) return;
-    await navigator.clipboard.writeText(revealKey);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(revealKey);
+      setCopied(true);
+    } catch {
+      setCopyFailed(true);
+    }
   }
 
   async function confirmRevoke() {
@@ -109,11 +123,10 @@ export function ApiKeysPanel({
   const today = now ?? new Date();
   const date = (iso: string) => new Date(iso).toLocaleDateString(locale);
 
-  function status(k: ApiKey) {
-    if (k.revoked_at) return { label: t("apiKeys.revoked"), cls: "badge-red" };
-    if (new Date(k.expires_at) < today)
-      return { label: t("apiKeys.expired"), cls: "badge-yellow" };
-    return { label: t("apiKeys.active"), cls: "badge-green" };
+  function status(k: ApiKey): KeyStatus {
+    if (k.revoked_at) return "revoked";
+    if (new Date(k.expires_at) < today) return "expired";
+    return "active";
   }
 
   return (
@@ -225,14 +238,18 @@ export function ApiKeysPanel({
                     </td>
                     <td className="px-6 py-4">{k.use_count}</td>
                     <td className="px-6 py-4">
-                      <span className={`badge ${s.cls}`}>{s.label}</span>
+                      <span className={`badge ${BADGE[s]}`}>
+                        {t(`apiKeys.${s}`)}
+                      </span>
                     </td>
                     <td className="px-6 py-4">
-                      {s.cls === "badge-green" && (
+                      {s === "active" && (
                         <button
                           type="button"
                           className="btn-danger btn-sm"
-                          aria-label={`${t("apiKeys.revoke")} ${k.name}`}
+                          aria-label={t("apiKeys.revokeNamed", {
+                            name: k.name,
+                          })}
                           onClick={() => {
                             setRevokeError(null);
                             setRevokeTarget(k);
@@ -267,6 +284,11 @@ export function ApiKeysPanel({
           <code className="block break-all rounded bg-gray-100 p-3">
             {revealKey}
           </code>
+          {copyFailed && (
+            <p role="alert" className="text-sm text-red-700">
+              {t("apiKeys.copyFailed")}
+            </p>
+          )}
           <div className="flex justify-end gap-3">
             <button type="button" className="btn-secondary" onClick={copyKey}>
               {copied ? t("apiKeys.copied") : t("apiKeys.copy")}
