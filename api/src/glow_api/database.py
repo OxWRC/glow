@@ -352,18 +352,19 @@ def extract_schools_from_dataframe(
 # API key CRUD operations
 def create_api_key(
     db: Session,
-    user_id: int,
+    *,
     name: str,
     key_hash: str,
     prefix: str,
     expires_at: datetime,
+    created_by_user_id: int | None,
 ) -> ApiKey:
     api_key = ApiKey(
-        user_id=user_id,
         name=name,
         key_hash=key_hash,
         prefix=prefix,
         expires_at=expires_at,
+        created_by_user_id=created_by_user_id,
     )
     db.add(api_key)
     db.commit()
@@ -379,11 +380,22 @@ def get_api_key_by_id(db: Session, key_id: int) -> ApiKey | None:
     return db.query(ApiKey).filter(ApiKey.id == key_id).first()
 
 
+def list_api_keys(db: Session) -> list[ApiKey]:
+    return db.query(ApiKey).order_by(ApiKey.created_at.desc(), ApiKey.id.desc()).all()
+
+
 def revoke_api_key(db: Session, api_key: ApiKey) -> ApiKey:
-    api_key.revoked_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(api_key)
+    if api_key.revoked_at is None:
+        api_key.revoked_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(api_key)
     return api_key
+
+
+def record_api_key_use(db: Session, api_key: ApiKey) -> None:
+    api_key.last_used_at = datetime.now(timezone.utc)
+    api_key.use_count = (api_key.use_count or 0) + 1
+    db.commit()
 
 
 def grant_admins_all_schools(db: Session, commit: bool = True) -> int:

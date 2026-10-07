@@ -81,10 +81,11 @@ class User(Base):
 
 
 class ApiKey(Base):
+    """Admin-issued key for the pseudonymous data export (GET /export)."""
+
     __tablename__ = "api_keys"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
     prefix = Column(String, nullable=False)
     key_hash = Column(String, nullable=False, unique=True, index=True)
@@ -94,8 +95,13 @@ class ApiKey(Base):
     expires_at = Column(UTCDateTime, nullable=False)
     revoked_at = Column(UTCDateTime, nullable=True)
     last_used_at = Column(UTCDateTime, nullable=True)
+    use_count = Column(Integer, nullable=False, default=0, server_default="0")
+    # Null for CLI-issued keys, or once the issuing admin is deleted.
+    created_by_user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
-    user = relationship("User")
+    created_by = relationship("User")
 
 
 class School(Base):

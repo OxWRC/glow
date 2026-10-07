@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional, Union
 
@@ -208,3 +209,33 @@ class DemoSchool(BaseModel):
 
 class DemoInfo(BaseModel):
     schools: list[DemoSchool]
+
+
+class ApiKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    # Falls back to settings.API_KEY_EXPIRE_DAYS. Bounded so a key can't be
+    # issued with effectively-infinite/no expiry.
+    expires_in_days: Optional[int] = Field(None, gt=0, le=365)
+
+
+class ApiKeyRead(BaseModel):
+    id: int
+    name: str
+    prefix: str
+    created_by: Optional[str] = None
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    use_count: int
+
+
+class ApiKeyCreated(BaseModel):
+    """Response for key creation - the only time the raw key is ever returned."""
+
+    id: int
+    name: str
+    prefix: str
+    key: str
+    created_at: datetime
+    expires_at: datetime

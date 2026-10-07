@@ -2,24 +2,31 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
+from glow_api.api_keys import api_key_read, issue_api_key
 from glow_api.auth import require_current_user
 from glow_api.database import (
     create_school,
     create_user,
     delete_school,
     delete_user,
+    get_api_key_by_id,
     get_db,
     get_school_by_id,
     get_user_by_id,
     get_user_by_username,
+    list_api_keys,
     list_schools,
     list_users,
+    revoke_api_key,
     set_geographical_neighbors,
     set_statistical_neighbors,
     update_school,
     update_user,
 )
 from glow_api.models import (
+    ApiKeyCreate,
+    ApiKeyCreated,
+    ApiKeyRead,
     SchoolCreate,
     SchoolRead,
     SchoolUpdate,
@@ -323,3 +330,54 @@ def get_current_admin(
 ) -> UserRead:
     """Return the current user's details, including is_admin flag."""
     return current_user
+
+
+# ---------------------------------------------------------------------------
+# API keys (pseudonymous export)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api-keys", response_model=list[ApiKeyRead])
+def list_keys(
+    _: UserRead = Depends(_require_admin), db: Session = Depends(get_db)
+) -> list[ApiKeyRead]:
+    return [api_key_read(k) for k in list_api_keys(db)]
+
+
+@router.post(
+    "/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED
+)
+def create_key(
+    body: ApiKeyCreate,
+    admin: UserRead = Depends(_require_admin),
+    db: Session = Depends(get_db),
+) -> ApiKeyCreated:
+    record, raw_key = issue_api_key(db, body.name, body.expires_in_days, admin.id)
+    request_context.record_event(
+        "api_key_created", actor=admin.username, api_key_id=record.id, name=record.name
+    )
+    return ApiKeyCreated(
+        id=record.id,
+        name=record.name,
+        prefix=record.prefix,
+        key=raw_key,
+        created_at=record.created_at,
+        expires_at=record.expires_at,
+    )
+
+
+@router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_key(
+    key_id: int,
+    admin: UserRead = Depends(_require_admin),
+    db: Session = Depends(get_db),
+) -> None:
+    record = get_api_key_by_id(db, key_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
+        )
+    revoke_api_key(db, record)
+    request_context.record_event(
+        "api_key_revoked", actor=admin.username, api_key_id=key_id
+    )

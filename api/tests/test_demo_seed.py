@@ -23,11 +23,11 @@ def test_seed_demo_wipes_users_keys_and_restores_schools(db_session, sample_df):
     visitor = create_user(db_session, username="visitor", school_ids=[], is_admin=False)
     create_api_key(
         db_session,
-        user_id=visitor.id,
         name="k",
         key_hash="h",
         prefix="glow_x",
         expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        created_by_user_id=visitor.id,
     )
     delete_school(db_session, list_schools(db_session)[0])
 

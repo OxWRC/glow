@@ -1,0 +1,44 @@
+{
+  "id": "admin.api-keys.list",
+  "method": "GET",
+  "path": "/admin/api-keys",
+  "status": 200,
+  "request_model": null,
+  "response_model": "ApiKeyReadList",
+  "request": null,
+  "response": [
+    {
+      "id": 3,
+      "name": "WRC analysis 2026",
+      "prefix": "glow_Xq7bR2k",
+      "created_by": "adminuser",
+      "created_at": "2026-10-01T09:00:00Z",
+      "expires_at": "2026-12-30T09:00:00Z",
+      "revoked_at": null,
+      "last_used_at": "2026-10-06T14:12:00Z",
+      "use_count": 4
+    },
+    {
+      "id": 2,
+      "name": "Old pipeline",
+      "prefix": "glow_a9Lm0Pq",
+      "created_by": null,
+      "created_at": "2026-06-01T09:00:00Z",
+      "expires_at": "2026-08-30T09:00:00Z",
+      "revoked_at": null,
+      "last_used_at": "2026-08-01T10:00:00Z",
+      "use_count": 12
+    },
+    {
+      "id": 1,
+      "name": "Leaked test key",
+      "prefix": "glow_Zz81nQe",
+      "created_by": "adminuser",
+      "created_at": "2026-05-01T09:00:00Z",
+      "expires_at": "2027-05-01T09:00:00Z",
+      "revoked_at": "2026-05-02T09:00:00Z",
+      "last_used_at": null,
+      "use_count": 0
+    }
+  ]
+}
