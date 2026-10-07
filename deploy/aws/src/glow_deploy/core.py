@@ -1435,6 +1435,9 @@ def provision(config: Config) -> dict[str, Any] | None:
     )
     verify_runner_health(instance_id, config.aws_region, config.session)
 
+    # When restore is implemented, run the suppression-rules check against the
+    # snapshot's GitCommit tag (as check_suppression_rules does for updates), or
+    # a restore could re-release old data under new rules.
     if config.restore_from_snapshot_id:
         raise DeployError(
             "Restoring data from a snapshot is not yet supported — restoring "
@@ -1471,6 +1474,33 @@ def provision(config: Config) -> dict[str, Any] | None:
     write_line(f"[deploy] ODK: https://odk.{config.domain_name}")
 
 
+def check_suppression_rules(config: Config, instance_id: str, demo: bool) -> None:
+    """Refuse updates that change the suppression rules on a live deployment.
+
+    The same dataset must never be releasable under two coarsenings, so rule
+    changes need a fresh deployment. Demo deployments hold fictional data and
+    are allowed through with a note.
+    """
+    running = snapshot_source_tags(instance_id, config.aws_region, config.session).get(
+        "GitCommit"
+    )
+    changed = running is None or github_api.suppression_rules_changed(
+        config.git_repo_url, running, config.git_commit
+    )
+    if not changed:
+        return
+    if not demo:
+        raise DeployError(
+            f"This update changes {github_api.SUPPRESSION_RULES_PATH} (or the running "
+            "version couldn't be determined). Suppression rules can't change on a "
+            "live deployment: provision a new deployment instead."
+        )
+    write_line(
+        "[deploy] Note: this update changes suppression rules. It would be "
+        "refused if demo mode were off."
+    )
+
+
 def update(config: Config) -> None:
     """Update existing instance via SSM."""
     if config.dry_run:
@@ -1482,6 +1512,7 @@ def update(config: Config) -> None:
 
     outputs = read_terraform_outputs(env=_subprocess_env(config.session))
     instance_id = outputs["runner_instance_id"]
+    check_suppression_rules(config, instance_id, _is_demo(outputs.get("demo_mode")))
 
     if config.dry_run:
         write_line(

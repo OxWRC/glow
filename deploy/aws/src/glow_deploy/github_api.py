@@ -111,3 +111,48 @@ def list_tags_with_prefix(
         return [ref for ref in refs if versions.parse(ref, prefix) is not None]
     except Exception:
         return []
+
+
+SUPPRESSION_RULES_PATH = "api/src/glow_api/suppression.yaml"
+
+
+def _rules_blob_sha(
+    client: httpx.Client, owner: str, repo: str, ref: str
+) -> str | None:
+    """Blob SHA of the rules file at ref, or None if the file is absent there.
+
+    A contents-404 only means "absent" once the ref itself is confirmed to
+    exist; otherwise (unknown ref, invisible repo) raise so the caller fails
+    closed.
+    """
+    client.get(f"/repos/{owner}/{repo}/commits/{ref}").raise_for_status()
+    response = client.get(
+        f"/repos/{owner}/{repo}/contents/{SUPPRESSION_RULES_PATH}",
+        params={"ref": ref},
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.json()["sha"]
+
+
+def suppression_rules_changed(
+    repo_url: str, from_ref: str, to_ref: str, timeout: float = 10.0
+) -> bool:
+    """Whether the suppression rules file differs between two refs.
+
+    Compares git blob SHAs (no diff-size limits). Fails closed: any lookup
+    error counts as changed, since a wrong "unchanged" could release the same
+    data under two coarsenings.
+    """
+    try:
+        owner, repo = _parse_owner_repo(repo_url)
+        headers = {"Accept": "application/vnd.github+json"}
+        with httpx.Client(
+            base_url=_GITHUB_API, headers=headers, timeout=timeout
+        ) as client:
+            return _rules_blob_sha(client, owner, repo, from_ref) != _rules_blob_sha(
+                client, owner, repo, to_ref
+            )
+    except Exception:
+        return True

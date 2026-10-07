@@ -1522,6 +1522,7 @@ def _make_config(**overrides) -> core.Config:
 
 
 def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
+    monkeypatch.setattr(core, "check_suppression_rules", lambda *a, **k: None)
     calls: list[tuple[str, object]] = []
 
     monkeypatch.setattr(
@@ -1637,6 +1638,7 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
 
 
 def test_update_snapshots_volume_before_preparing_repository(monkeypatch):
+    monkeypatch.setattr(core, "check_suppression_rules", lambda *a, **k: None)
     calls: list[tuple[str, object]] = []
 
     monkeypatch.setattr(
@@ -2003,7 +2005,12 @@ def _update_stubs(monkeypatch, outputs, calls):
     monkeypatch.setattr(core, "wait_for_runner_bootstrap_completion", lambda *a: None)
     monkeypatch.setattr(core, "find_root_volume_id", lambda *a: "vol-1")
     monkeypatch.setattr(
-        core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
+        core,
+        "snapshot_source_tags",
+        lambda *a, **k: {"InstanceId": "i-src", "GitCommit": "c" * 40},
+    )
+    monkeypatch.setattr(
+        core.github_api, "suppression_rules_changed", lambda *a, **k: False
     )
     monkeypatch.setattr(core, "create_snapshot", lambda *a, **k: None)
     monkeypatch.setattr(core, "prepare_runner_repository", lambda *a: None)
@@ -2282,3 +2289,62 @@ def test_provision_succeeds_when_post_create_snapshot_fails(monkeypatch):
 
     assert any("post-create snapshot" in line and "throttled" in line for line in lines)
     assert any("Deployment complete" in line for line in lines)
+
+
+def test_update_refuses_rule_change_on_live_deployment(monkeypatch):
+    calls = []
+    _update_stubs(monkeypatch, {"runner_instance_id": "i-1"}, calls)
+    monkeypatch.setattr(
+        core.github_api, "suppression_rules_changed", lambda *a, **k: True
+    )
+    snapshots = []
+    monkeypatch.setattr(core, "create_snapshot", lambda *a, **k: snapshots.append(a))
+    with pytest.raises(core.DeployError, match="suppression"):
+        core.update(_make_config())
+    assert calls == []  # userdata never re-run
+    assert snapshots == []
+
+
+def test_update_refuses_rule_change_even_in_dry_run(monkeypatch):
+    _update_stubs(monkeypatch, {"runner_instance_id": "i-1"}, [])
+    monkeypatch.setattr(
+        core.github_api, "suppression_rules_changed", lambda *a, **k: True
+    )
+    with pytest.raises(core.DeployError, match="suppression"):
+        core.update(_make_config(dry_run=True))
+
+
+def test_update_refuses_when_running_commit_unknown(monkeypatch):
+    _update_stubs(monkeypatch, {"runner_instance_id": "i-1"}, [])
+    monkeypatch.setattr(
+        core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
+    )
+    with pytest.raises(core.DeployError, match="suppression"):
+        core.update(_make_config())
+
+
+def test_update_allows_rule_change_on_demo_with_note(monkeypatch):
+    calls = []
+    _update_stubs(monkeypatch, {"runner_instance_id": "i-1", "demo_mode": True}, calls)
+    monkeypatch.setattr(
+        core.github_api, "suppression_rules_changed", lambda *a, **k: True
+    )
+    lines = []
+    monkeypatch.setattr(core, "write_line", lambda line, **k: lines.append(line))
+    core.update(_make_config())
+    assert len(calls) == 1
+    assert any("would be refused if demo mode were off" in line for line in lines)
+
+
+def test_update_proceeds_when_rules_unchanged(monkeypatch):
+    calls = []
+    _update_stubs(monkeypatch, {"runner_instance_id": "i-1"}, calls)
+    compared = []
+    monkeypatch.setattr(
+        core.github_api,
+        "suppression_rules_changed",
+        lambda repo, from_ref, to_ref: compared.append((from_ref, to_ref)) or False,
+    )
+    core.update(_make_config())
+    assert compared == [("c" * 40, "deadbeef" * 5)]
+    assert len(calls) == 1

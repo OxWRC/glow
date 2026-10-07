@@ -224,3 +224,54 @@ def test_list_tags_with_prefix_returns_empty_list_on_bad_repo_url():
     assert (
         github_api.list_tags_with_prefix("https://github.com/no-repo-path", "v") == []
     )
+
+
+def _install_rules_responses(monkeypatch, shas_by_ref, known_refs=None):
+    known = set(shas_by_ref) if known_refs is None else known_refs
+    contents = f"/repos/OxWRC/glow/contents/{github_api.SUPPRESSION_RULES_PATH}"
+
+    class _RulesClient(_FakeClient):
+        def get(self, path, params=None):
+            if path.startswith("/repos/OxWRC/glow/commits/"):
+                ref = path.rsplit("/", 1)[-1]
+                if ref not in known:
+                    raise RuntimeError("HTTP 404")  # what real raise_for_status does
+                return _FakeResponse(200)
+            assert path == contents
+            sha = shas_by_ref.get(params["ref"])
+            return _FakeResponse(404 if sha is None else 200, {"sha": sha})
+
+    monkeypatch.setattr(github_api.httpx, "Client", lambda **kw: _RulesClient({}))
+
+
+def test_rules_changed_compares_blob_shas(monkeypatch):
+    _install_rules_responses(monkeypatch, {"v1": "aaa", "v2": "aaa", "v3": "bbb"})
+    url = "https://github.com/OxWRC/glow.git"
+    assert github_api.suppression_rules_changed(url, "v1", "v2") is False
+    assert github_api.suppression_rules_changed(url, "v1", "v3") is True
+
+
+def test_rules_added_or_removed_counts_as_changed(monkeypatch):
+    _install_rules_responses(
+        monkeypatch, {"v1": None, "v2": "aaa"}, known_refs={"v1", "v2"}
+    )
+    url = "https://github.com/OxWRC/glow.git"
+    assert github_api.suppression_rules_changed(url, "v1", "v2") is True
+    assert github_api.suppression_rules_changed(url, "v1", "v1") is False
+
+
+def test_rules_changed_fails_closed_when_refs_unknown(monkeypatch):
+    # Every call 404s: refs (or repo) invisible. Must not read as "both absent".
+    _install_rules_responses(monkeypatch, {}, known_refs=set())
+    url = "https://github.com/OxWRC/glow.git"
+    assert github_api.suppression_rules_changed(url, "a" * 40, "b" * 40) is True
+
+
+def test_rules_changed_fails_closed_on_error(monkeypatch):
+    def boom(**kwargs):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(github_api.httpx, "Client", boom)
+    assert (
+        github_api.suppression_rules_changed("https://github.com/o/r", "a", "b") is True
+    )
