@@ -1491,9 +1491,10 @@ def check_suppression_rules(config: Config, instance_id: str, demo: bool) -> Non
         return
     if not demo:
         raise DeployError(
-            f"This update changes {github_api.SUPPRESSION_RULES_PATH} (or the running "
-            "version couldn't be determined). Suppression rules can't change on a "
-            "live deployment: provision a new deployment instead."
+            f"This update changes {github_api.SUPPRESSION_RULES_PATH}, or the "
+            "change could not be checked (unknown running version or GitHub "
+            "lookup failed). Suppression rules can't change on a live "
+            "deployment: provision a new deployment instead."
         )
     write_line(
         "[deploy] Note: this update changes suppression rules. It would be "

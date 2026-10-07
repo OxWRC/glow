@@ -2319,8 +2319,9 @@ def test_update_refuses_when_running_commit_unknown(monkeypatch):
     monkeypatch.setattr(
         core, "snapshot_source_tags", lambda *a, **k: {"InstanceId": "i-src"}
     )
-    with pytest.raises(core.DeployError, match="suppression"):
+    with pytest.raises(core.DeployError, match="suppression") as exc:
         core.update(_make_config())
+    assert "could not be checked" in str(exc.value)
 
 
 def test_update_allows_rule_change_on_demo_with_note(monkeypatch):
