@@ -166,6 +166,32 @@ export interface QueryOptions {
   metadata: Record<string, VariableMetadata>;
 }
 
+export interface ApiKey {
+  id: number;
+  name: string;
+  prefix: string;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+}
+
+export interface ApiKeyCreate {
+  name: string;
+  expires_in_days?: number;
+}
+
+export interface ApiKeyCreated {
+  id: number;
+  name: string;
+  prefix: string;
+  key: string;
+  created_at: string;
+  expires_at: string;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -194,7 +220,7 @@ export interface UserUpdate {
  * Mints a local HS256 token for the given role without a real Cognito pool.
  */
 export async function demoLogin(
-  role: "admin" | "wrc" | "school",
+  role: "admin" | "school",
   schoolId?: number,
 ): Promise<Token> {
   return apiFetch<Token>("/demo/login", {
@@ -412,6 +438,29 @@ export async function updateUser(
     headers: { ...authHeaders(token), "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+}
+
+export async function listApiKeys(token: string): Promise<ApiKey[]> {
+  return apiFetch<ApiKey[]>("/admin/api-keys", { headers: authHeaders(token) });
+}
+
+export async function createApiKey(
+  token: string,
+  data: ApiKeyCreate,
+): Promise<ApiKeyCreated> {
+  return apiFetch<ApiKeyCreated>("/admin/api-keys", {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function revokeApiKey(token: string, id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/api-keys/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new ApiError(res.status, "Failed to revoke API key");
 }
 
 export async function deleteUser(token: string, id: number): Promise<void> {

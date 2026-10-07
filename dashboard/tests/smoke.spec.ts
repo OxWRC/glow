@@ -19,14 +19,14 @@ const scopedSchool =
  */
 async function loginAsRole(
   page: Page,
-  role: "admin" | "wrc" | "school",
+  role: "admin" | "school",
   schoolId?: string,
 ) {
   await page.goto("/en/login");
   if (role === "school" && schoolId) {
     await page.getByLabel(/School ID/).fill(schoolId);
   }
-  const label = role === "admin" ? "Admin" : role === "wrc" ? "WRC" : "School";
+  const label = role === "admin" ? "Admin" : "School";
   await page.getByRole("button", { name: label, exact: true }).click();
   await page.waitForURL(/\/en\/?$/);
 }

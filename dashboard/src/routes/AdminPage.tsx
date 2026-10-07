@@ -11,6 +11,7 @@ import {
   type UserUpdate,
   type School,
 } from "../lib/api";
+import { ApiKeysPanel } from "../lib/components/ApiKeysPanel";
 import { useAuth, useIsAdmin } from "../auth/AuthContext";
 import { createI18n, availableLocales, type Locale } from "../lib/i18n";
 
@@ -324,6 +325,8 @@ export function AdminPage() {
           </table>
         </div>
       )}
+
+      {token && <ApiKeysPanel token={token} locale={locale} />}
 
       {/* Create/Edit Modal */}
       <dialog

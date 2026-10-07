@@ -87,7 +87,7 @@ export function LoginPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loginAs(role: "admin" | "wrc" | "school") {
+  async function loginAs(role: "admin" | "school") {
     setError(null);
     setLoading(true);
     try {
@@ -156,7 +156,7 @@ export function LoginPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     className="btn-primary justify-center py-2.5"
@@ -164,14 +164,6 @@ export function LoginPage() {
                     onClick={() => loginAs("admin")}
                   >
                     {i18n.t("login.demoAdmin")}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-primary justify-center py-2.5"
-                    disabled={loading}
-                    onClick={() => loginAs("wrc")}
-                  >
-                    {i18n.t("login.devWrc")}
                   </button>
                   <button
                     type="button"
