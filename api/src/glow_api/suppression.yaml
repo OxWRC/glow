@@ -1,0 +1,80 @@
+# DRAFT, pending client sign-off.
+#
+# Any change to this file is a BREAKING change. The deploy tool refuses
+# updates that modify it on non-demo deployments, so the same dataset can
+# never be released under two different coarsenings. A live deployment that
+# needs new rules must be re-provisioned.
+#
+# Format: docs/superpowers/specs/2026-09-07-coarsening-hierarchy-suppression-design.md
+# Columns listed here that are absent from the data are ignored.
+
+# Smallest number of distinct students any released combination may cover.
+min_n: 5
+
+dimensions:
+  - school
+  - class
+  - yearGroup
+  - d_sex
+  - sex
+  - d_ethnicity
+  - ethnicity
+  - d_age
+  - d_city
+  - d_country
+
+hierarchies:
+  school:
+    - map: [{input_regex: ".*", output: "*"}]
+  class:
+    - map: [{input_regex: ".*", output: "*"}]
+  yearGroup:
+    - map:
+        - {input_regex: "(7|8|9)(\\.0)?", output: "KS3"}
+        - {input_regex: "(10|11)(\\.0)?", output: "KS4"}
+        - {input_regex: ".*", output: "Other"}
+    - map: [{input_regex: ".*", output: "*"}]
+  d_sex:
+    - map: [{input_regex: ".*", output: "*"}]
+  sex:
+    - map: [{input_regex: ".*", output: "*"}]
+  d_ethnicity:
+    - map:
+        - {input_regex: "White.*", output: "White"}
+        - {input_regex: "(Asian.*|Indian|Pakistani|Bangladeshi|Chinese)", output: "Asian"}
+        - {input_regex: "Black.*", output: "Black"}
+        - {input_regex: "Mixed.*", output: "Mixed"}
+        - {input: "NA", output: "NA"}
+        - {input_regex: ".*", output: "Other"}
+    - map: [{input_regex: ".*", output: "*"}]
+  ethnicity:
+    - map: [{input_regex: ".*", output: "*"}]
+  d_age:
+    - map:
+        - {input_regex: "1[01](\\..*)?", output: "10-11"}
+        - {input_regex: "1[23](\\..*)?", output: "12-13"}
+        - {input_regex: "1[45](\\..*)?", output: "14-15"}
+        - {input_regex: "(1[6-9]|[2-9]\\d)(\\..*)?", output: "16+"}
+        - {input: "NA", output: "NA"}
+        - {input_regex: ".*", output: "Other"}
+    - map: [{input_regex: ".*", output: "*"}]
+  d_city:
+    - map: [{input_regex: ".*", output: "*"}]
+  d_country:
+    - map: [{input_regex: ".*", output: "*"}]
+
+# Least analytically valuable first.
+escalation:
+  - sex
+  - ethnicity
+  - class
+  - d_city
+  - d_country
+  - d_age
+  - d_age
+  - d_ethnicity
+  - yearGroup
+  - d_sex
+  - d_ethnicity
+  - yearGroup
+  - school
