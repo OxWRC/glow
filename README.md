@@ -27,7 +27,7 @@ For the most consistent development experience:
 3. Click "Reopen in Container" when prompted (or use Command Palette → "Dev Containers: Reopen in Container")
 4. Wait for the devcontainer to build and app services to start
 5. Generate and seed test data (see [Data Collection & Format](#data-collection--format) section below)
-6. Log in: local dev has `GLOW_DEMO_MODE` on by default (`compose.override.yml`), so the dashboard's login page shows a role picker (Admin / WRC / School) — no user needs to be created manually. Against a real Cognito-backed deployment, the first admin is created with `--bootstrap` (see [Admin CLI](#admin-cli) below):
+6. Log in: local dev has `GLOW_DEMO_MODE` on by default (`compose.override.yml`), so the dashboard's login page shows a role picker (Admin / School) — no user needs to be created manually. Against a real Cognito-backed deployment, the first admin is created with `--bootstrap` (see [Admin CLI](#admin-cli) below):
    ```bash
    docker compose exec api glow-api users create admin --bootstrap --admin --password 'TempPass123!'
    ```
@@ -110,6 +110,9 @@ This keeps ODK Central isolated from the dashboard while still allowing API-medi
 | `PUT` | `/admin/users/{id}` | Admin | Update user |
 | `DELETE` | `/admin/users/{id}` | Admin | Delete user |
 | `GET` | `/admin/me` | User | Current user info |
+| `GET` | `/export` | API key | Pseudonymous, suppressed whole-dataset export |
+| `GET` / `POST` | `/admin/api-keys` | Admin | List / issue export API keys |
+| `DELETE` | `/admin/api-keys/{id}` | Admin | Revoke an API key |
 
 Interactive documentation is available at `/docs` (Swagger UI) and `/redoc`.
 
@@ -143,7 +146,25 @@ glow-api users update alice --scope '{"filters": {"school": ["Greenwood"]}}'
 
 # Delete a user
 glow-api users delete alice
+
+# Issue an export API key (the key is printed once; lifetime defaults to
+# GLOW_API_KEY_EXPIRE_DAYS), list keys, revoke one
+glow-api api-keys create --name "partner-x" --expires-in-days 90
+glow-api api-keys list
+glow-api api-keys revoke 3
 ```
+
+Key creation and revocation are audited, whether done here or on the dashboard's admin page.
+
+### Pseudonymous data export
+
+`GET /export` returns the whole dataset, suppressed and pseudonymised. Authenticate with an admin-issued key: `curl -H "X-API-Key: glow_..." http://localhost:8000/export`. No other credential is accepted.
+
+The response has `dataset_version`, `rules_sha256`, `min_n`, `generated_at`, `suppressed`, `coarsening` (the level reached for each dimension) and `rows`. If no coarsening reaches `min_n`, `suppressed` is true and `rows` is empty. Rows carry only allowlisted columns, with `student_id`, `school_id` and `class_id` as salted hashes of the coarsened values; raw identifiers, timestamps and instance ids are not included.
+
+Each build uses a fresh in-memory salt and is cached per dataset version, so every id changes whenever the data changes or the API restarts. Ids can't be joined across exports.
+
+Suppression is driven by `api/src/glow_api/suppression.yaml`. A demographic column missing from it makes `/export` fail with a 500 naming the column. The rules can't change on a live deployment: the deploy tool refuses such `--update`s (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 ### Suppression
 

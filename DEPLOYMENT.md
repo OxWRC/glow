@@ -167,6 +167,8 @@ For Docker-based AWS SSO runs, the launcher mounts the host `~/.aws` directory r
    - Stop and restart containers
 3. Verifies service health
 
+Updates that change `api/src/glow_api/suppression.yaml` are refused on non-demo deployments, as is an update whose running version can't be determined. The same dataset must not be released under two sets of rules, so provision a new deployment instead. Demo deployments are allowed through with a note.
+
 ## Flags
 
 - `--domain` (required): deployment domain
