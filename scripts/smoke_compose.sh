@@ -38,4 +38,20 @@ schools_req = urllib.request.Request(
 )
 with urllib.request.urlopen(schools_req) as response:
     print(response.read().decode())
+
+# /query and /export now read a pinned vintage instead of live data (see
+# "pin /query and /export to periodic data vintages") - without one, they
+# 503 and the dashboard never renders a chart. Cut one now that seeding
+# has populated the data.
+vintage_req = urllib.request.Request(
+    base + "/admin/vintages",
+    data=b"{}",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+with urllib.request.urlopen(vintage_req) as response:
+    print(response.read().decode())
 PY

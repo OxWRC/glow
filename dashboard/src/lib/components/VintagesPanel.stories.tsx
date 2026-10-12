@@ -77,7 +77,9 @@ export const CutNowConfirmFlow: Story = {
       handlers: [
         http.get("/api/admin/vintages", () =>
           HttpResponse.json(
-            cut ? [...listExample.response, createdExample.response] : listExample.response,
+            cut
+              ? [...listExample.response, createdExample.response]
+              : listExample.response,
           ),
         ),
         http.post("/api/admin/vintages", () => {
@@ -92,15 +94,21 @@ export const CutNowConfirmFlow: Story = {
     const canvas = within(canvasElement);
     await canvas.findAllByRole("row");
 
-    await userEvent.click(canvas.getByRole("button", { name: "Cut vintage now" }));
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Cut vintage now" }),
+    );
     let dialog = await canvas.findByRole("dialog", {
       name: "Cut a new vintage?",
     });
-    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Cancel" }),
+    );
     await waitFor(() => expect(canvas.queryByRole("dialog")).toBeNull());
     await expect(cutSpy).not.toHaveBeenCalled();
 
-    await userEvent.click(canvas.getByRole("button", { name: "Cut vintage now" }));
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Cut vintage now" }),
+    );
     dialog = await canvas.findByRole("dialog", { name: "Cut a new vintage?" });
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Cut vintage now" }),
@@ -129,16 +137,18 @@ export const CutFails: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await canvas.findAllByRole("row");
-    await userEvent.click(canvas.getByRole("button", { name: "Cut vintage now" }));
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Cut vintage now" }),
+    );
     const dialog = await canvas.findByRole("dialog", {
       name: "Cut a new vintage?",
     });
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Cut vintage now" }),
     );
-    await expect(
-      await within(dialog).findByRole("alert"),
-    ).toHaveTextContent(/Failed to cut vintage/);
+    await expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /Failed to cut vintage/,
+    );
     await expect(within(dialog).queryByRole("alert")).not.toBeNull();
   },
 };

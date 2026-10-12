@@ -472,7 +472,9 @@ export async function revokeApiKey(token: string, id: number): Promise<void> {
 }
 
 export async function listVintages(token: string): Promise<Vintage[]> {
-  return apiFetch<Vintage[]>("/admin/vintages", { headers: authHeaders(token) });
+  return apiFetch<Vintage[]>("/admin/vintages", {
+    headers: authHeaders(token),
+  });
 }
 
 export async function cutVintage(token: string): Promise<Vintage> {
