@@ -9,7 +9,6 @@ Matching is case-insensitive and whole-value (re.fullmatch), for both
 """
 
 import hashlib
-import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -164,14 +163,21 @@ def _coarsen(series: pd.Series, levels: list[list[Rule]], n: int) -> pd.Series:
     return series.map(mapping)
 
 
-def _smallest_group(keys: dict[str, pd.Series], ids: pd.Series) -> float:
-    """Distinct students in the smallest non-empty combination of keys."""
+_NO_PERIOD = object()  # sentinel: no period column means one implicit period
+
+
+def _clearing_periods(
+    keys: dict[str, pd.Series], periods: pd.Series, ids: pd.Series, min_n: int
+) -> frozenset:
+    """Period values whose smallest non-empty dimension-combination (within
+    that period alone) covers at least min_n distinct students."""
     if ids.empty:
-        return math.inf
-    if not keys:
-        return ids.nunique()
-    frame = pd.DataFrame({**keys, "_id": ids})
-    return frame.groupby(list(keys), dropna=False)["_id"].nunique().min()
+        return frozenset(periods.unique())
+    frame = pd.DataFrame({**keys, "_period": periods, "_id": ids})
+    counts = frame.groupby([*keys, "_period"], dropna=False)["_id"].nunique()
+    if keys:
+        counts = counts.groupby(level="_period").min()
+    return frozenset(counts[counts >= min_n].index)
 
 
 def suppress(
@@ -179,35 +185,72 @@ def suppress(
     rules: Rules,
     min_n: int,
     id_column: str = "uid",
-    fixed_columns: tuple[str, ...] = ("period_id",),
-) -> tuple[pd.DataFrame | None, dict[str, int]]:
-    """Coarsen dimensions along `escalation` until every non-empty combination
-    covers at least min_n distinct students.
+    period_column: str = "period_id",
+) -> tuple[pd.DataFrame | None, dict[str, int], list[str]]:
+    """Coarsen dimensions along `escalation`, one shared level for the whole
+    dataset, until as many periods as possible clear min_n — then release
+    only those periods at that one level.
 
-    `fixed_columns` present in df join every combination but are never
-    coarsened, so each released per-period cell clears min_n too.
+    A period's smallest dimension-combination only grows as coarsening
+    proceeds (merging groups together never shrinks one), so the set of
+    periods clearing min_n only grows with the escalation level too. That
+    means the periods recoverable at *any* level are already all recoverable
+    at the final, fully-escalated level, so that level's result is computed
+    first as the target, then the escalation walk below stops as soon as it
+    reaches that same set — usually well before exhausting `escalation`.
 
-    Returns (frame with dimension columns replaced by their coarsened labels,
-    level per dimension), or (None, levels) when escalation runs out first,
-    meaning the whole release is suppressed. Dimensions absent from df are
-    ignored; escalation steps for them are consumed without effect.
+    Returns (frame with dimension columns replaced by their coarsened labels
+    and rows from un-recoverable periods dropped, level per dimension,
+    sorted period values dropped because they never clear min_n), or
+    (None, levels, sorted all periods) when no period clears even fully
+    escalated, meaning the whole release is suppressed. Dimensions absent
+    from df are ignored; escalation steps for them are consumed without
+    effect. A df with no `period_column` is treated as one implicit period.
     """
-    dims = [d for d in rules.dimensions if d in df.columns]
-    fixed = {c: df[c] for c in fixed_columns if c in df.columns and c not in dims}
+    if df.empty:
+        return df.copy(), {d: 0 for d in rules.dimensions if d in df.columns}, []
+
+    dims = [d for d in rules.dimensions if d in df.columns and d != period_column]
     raw = {d: df[d].map(label) for d in dims}
-    levels = {d: 0 for d in dims}
-    pending = iter(rules.escalation)
-    while True:
-        current = {
+    ids = df[id_column]
+    periods = (
+        df[period_column].map(label)
+        if period_column in df.columns
+        else pd.Series(_NO_PERIOD, index=df.index)
+    )
+    all_periods = frozenset(periods.unique())
+
+    def coarsen_at(levels: dict[str, int]) -> dict[str, pd.Series]:
+        return {
             d: _coarsen(raw[d], rules.hierarchies.get(d, []), levels[d]) for d in dims
         }
-        if _smallest_group({**current, **fixed}, df[id_column]) >= min_n:
-            out = df.copy()
-            for d in dims:
-                out[d] = current[d]
-            return out, levels
-        step = next(pending, None)
-        if step is None:
-            return None, levels
+
+    def clearing(levels: dict[str, int]) -> frozenset:
+        return _clearing_periods(coarsen_at(levels), periods, ids, min_n)
+
+    zero_levels = {d: 0 for d in dims}
+    final_levels = dict(zero_levels)
+    for step in rules.escalation:
+        if step in final_levels:
+            final_levels[step] += 1
+    target = clearing(final_levels)
+
+    dropped = sorted(p for p in (all_periods - target) if p is not _NO_PERIOD)
+    if not target:
+        return None, final_levels, dropped
+
+    levels = dict(zero_levels)
+    seen = clearing(levels)
+    pending = iter(rules.escalation)
+    while seen != target:
+        step = next(pending)
         if step in levels:
             levels[step] += 1
+        seen = clearing(levels)
+
+    current = coarsen_at(levels)
+    mask = periods.isin(target)
+    out = df[mask].copy()
+    for d in dims:
+        out[d] = current[d][mask]
+    return out, levels, dropped

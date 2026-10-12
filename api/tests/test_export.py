@@ -147,6 +147,12 @@ def test_export_suppressed_when_escalation_exhausted(export_client):
     body = _get(export_client)
     assert body["suppressed"] is True
     assert body["rows"] == []
+    # Sample data is all one period, so full suppression names that period.
+    assert body["suppressed_periods"] != []
+
+
+def test_export_reports_no_suppressed_periods_when_fine(export_client):
+    assert _get(export_client)["suppressed_periods"] == []
 
 
 def test_export_is_cached_until_data_changes(export_client):

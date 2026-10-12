@@ -104,9 +104,10 @@ def _frame(rows):
 
 def test_passes_at_level_zero_when_groups_big_enough():
     df = _frame([(f"S{i}", "A", "Indian") for i in range(3)])
-    out, coarsening = suppress(df, _rules(), min_n=3)
+    out, coarsening, dropped = suppress(df, _rules(), min_n=3)
     assert coarsening == {"school": 0, "ethnicity": 0}
     assert list(out["ethnicity"]) == ["Indian"] * 3
+    assert dropped == []
 
 
 def test_escalates_until_groups_clear_threshold():
@@ -117,45 +118,49 @@ def test_escalates_until_groups_clear_threshold():
             ("S3", "A", "Indian"),
         ]
     )
-    out, coarsening = suppress(df, _rules(), min_n=3)
+    out, coarsening, dropped = suppress(df, _rules(), min_n=3)
     assert coarsening == {"school": 0, "ethnicity": 2}
     assert set(out["ethnicity"]) == {"*"}
+    assert dropped == []
 
 
 def test_returns_none_when_escalation_exhausted():
     df = _frame([("S1", "A", "Indian"), ("S2", "B", "Indian")])
-    out, coarsening = suppress(df, _rules(), min_n=2)
+    out, coarsening, dropped = suppress(df, _rules(), min_n=2)
     assert out is None
     assert coarsening == {"school": 0, "ethnicity": 2}
+    assert dropped == []  # no period column: nothing to name individually
 
 
 def test_counts_students_not_rows():
     # One student over three periods is still a group of one.
     df = _frame([("S1", "A", "Indian")] * 3)
-    out, _ = suppress(df, _rules(), min_n=2)
+    out, _, _ = suppress(df, _rules(), min_n=2)
     assert out is None
 
 
 def test_na_values_form_their_own_group():
     df = _frame([("S1", "A", None), ("S2", "A", None), ("S3", "A", "Indian")])
     df2 = _frame([("S1", "A", None), ("S2", "A", None)])
-    _, coarsening = suppress(df, _rules(), min_n=2)
+    _, coarsening, _ = suppress(df, _rules(), min_n=2)
     assert coarsening["ethnicity"] == 2  # "Indian" alone forced escalation
-    out, coarsening = suppress(df2, _rules(), min_n=2)
+    out, coarsening, _ = suppress(df2, _rules(), min_n=2)
     assert coarsening["ethnicity"] == 0
     assert list(out["ethnicity"]) == ["NA", "NA"]
 
 
 def test_dimensions_absent_from_frame_are_ignored():
     df = pd.DataFrame({"uid": ["S1", "S2"], "school": ["A", "A"]})
-    out, coarsening = suppress(df, _rules(), min_n=2)
+    out, coarsening, dropped = suppress(df, _rules(), min_n=2)
     assert coarsening == {"school": 0}
     assert out is not None
+    assert dropped == []
 
 
 def test_empty_frame_passes():
-    out, _ = suppress(_frame([]), _rules(), min_n=5)
+    out, _, dropped = suppress(_frame([]), _rules(), min_n=5)
     assert out is not None and out.empty
+    assert dropped == []
 
 
 def test_shipped_rules_file_loads():
@@ -185,14 +190,57 @@ def _period_frame(p2_students):
     return pd.DataFrame(rows, columns=["uid", "school", "d_sex", "period_id"])
 
 
-def test_per_period_cells_must_clear_min_n():
-    # 5 girls at A in P1, but only S0 in P2: the (A, *, P2) cell is 1 student.
-    out, coarsening = suppress(_period_frame([0]), PERIOD_RULES, min_n=5)
-    assert out is None
+def test_sparse_period_is_dropped_not_the_whole_release():
+    # 5 girls at A in P1, but only S0 in P2: P2 can never clear min_n on its
+    # own (coarsening school/sex doesn't add more people to that period), so
+    # it's dropped — P1's unrelated, already-fine data still ships.
+    out, coarsening, dropped = suppress(_period_frame([0]), PERIOD_RULES, min_n=5)
+    assert dropped == ["P2"]
+    assert coarsening == {"school": 0, "d_sex": 0}
+    assert list(out["period_id"]) == ["P1"] * 5
     assert "period_id" not in coarsening
 
 
 def test_period_is_grouped_but_never_coarsened():
-    out, coarsening = suppress(_period_frame(range(5)), PERIOD_RULES, min_n=5)
+    out, coarsening, dropped = suppress(_period_frame(range(5)), PERIOD_RULES, min_n=5)
     assert coarsening == {"school": 0, "d_sex": 0}
     assert list(out["period_id"]) == ["P1"] * 5 + ["P2"] * 5
+    assert dropped == []
+
+
+def test_all_periods_dropped_when_none_ever_clear():
+    # 2 girls at A in each of two periods: escalating school/sex can't merge
+    # people across periods, so neither period ever clears min_n=5.
+    rows = [("S0", "A", "F", "P1"), ("S1", "A", "F", "P1")]
+    rows += [("S2", "A", "F", "P2"), ("S3", "A", "F", "P2")]
+    df = pd.DataFrame(rows, columns=["uid", "school", "d_sex", "period_id"])
+    out, coarsening, dropped = suppress(df, PERIOD_RULES, min_n=5)
+    assert out is None
+    assert dropped == ["P1", "P2"]
+    assert coarsening == {"school": 1, "d_sex": 1}  # fully escalated
+
+
+REDACT_RULES = parse_rules(
+    """
+min_n: 3
+dimensions: [school, ethnicity]
+hierarchies:
+  ethnicity:
+    - map: [{input_regex: ".*", output: "*"}]
+escalation: [ethnicity]
+"""
+)
+
+
+def test_shared_coarsening_level_applies_to_every_released_period():
+    # P1 has 3 distinct ethnicities of 1 student each: needs full redaction
+    # to merge into one group of 3. P2 already has 3 students who share an
+    # ethnicity and would clear min_n unescalated — but it still ships under
+    # the one level chosen for the whole release, not optimised on its own.
+    rows = [(f"S{i}", "A", e, "P1") for i, e in enumerate(["White", "Black", "Asian"])]
+    rows += [(f"S{i}", "A", "Indian", "P2") for i in range(3, 6)]
+    df = pd.DataFrame(rows, columns=["uid", "school", "ethnicity", "period_id"])
+    out, coarsening, dropped = suppress(df, REDACT_RULES, min_n=3)
+    assert dropped == []
+    assert coarsening == {"school": 0, "ethnicity": 1}
+    assert set(out[out["period_id"] == "P2"]["ethnicity"]) == {"*"}

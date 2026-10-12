@@ -247,5 +247,6 @@ class ExportResponse(BaseModel):
     min_n: int
     generated_at: datetime
     suppressed: bool
+    suppressed_periods: list[str] = Field(default_factory=list)
     coarsening: dict[str, int]
     rows: list[dict[str, Any]]

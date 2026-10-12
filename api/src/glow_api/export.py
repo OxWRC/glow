@@ -81,11 +81,13 @@ def build_export(
         "min_n": rules.min_n,
         "generated_at": datetime.now(timezone.utc),
         "suppressed": False,
+        "suppressed_periods": [],
         "coarsening": {},
         "rows": [],
     }
-    suppressed, coarsening = suppress(frozen.df, rules, rules.min_n)
+    suppressed, coarsening, suppressed_periods = suppress(frozen.df, rules, rules.min_n)
     payload["coarsening"] = coarsening
+    payload["suppressed_periods"] = suppressed_periods
     if suppressed is None:
         payload["suppressed"] = True
         return payload
