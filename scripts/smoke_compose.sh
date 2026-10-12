@@ -6,19 +6,59 @@ cd "$ROOT_DIR"
 
 export GLOW_SECRET_KEY="${GLOW_SECRET_KEY:-smoke-test-secret}"
 
+COMPOSE=(docker compose -f compose.yml -f compose.test.yml)
+
+# A failure anywhere below (compose or the Python smoke checks) is useless
+# without knowing which container actually broke -- an HTTPError from the
+# api container, say, is often caused by odk-service or nginx underneath
+# it. Dump every service's logs on any non-zero exit so CI output names
+# the culprit instead of just the client-side traceback.
+dump_logs_on_failure() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "::group::smoke_compose.sh failed (exit $status) -- container logs" >&2
+    for service in $("${COMPOSE[@]}" config --services 2>/dev/null); do
+      echo "----- logs: $service -----" >&2
+      "${COMPOSE[@]}" logs --no-color --tail=200 "$service" >&2 || true
+    done
+    echo "::endgroup::" >&2
+  fi
+  exit "$status"
+}
+trap dump_logs_on_failure EXIT
+
 # Use canonical compose.yml + test overrides
-docker compose -f compose.yml -f compose.test.yml down -v --remove-orphans
-docker compose -f compose.yml -f compose.test.yml build api dashboard glow-init
+"${COMPOSE[@]}" down -v --remove-orphans
+"${COMPOSE[@]}" build api dashboard glow-init
 # glow-init creates the admin/alpha-user and syncs schools once api is
 # healthy (compose.glow-init.yml); dashboard depends_on its successful
 # completion, so --wait blocks here until seeding is done.
-docker compose -f compose.yml -f compose.test.yml up -d --wait
+"${COMPOSE[@]}" up -d --wait
 
 python3 - <<'PY'
 import json
+import sys
+import urllib.error
 import urllib.request
 
 base = "http://127.0.0.1:8000"
+
+
+def request(req):
+    try:
+        with urllib.request.urlopen(req) as response:
+            return response.read().decode()
+    except urllib.error.HTTPError as e:
+        # Bare HTTPError gives no clue which service actually failed
+        # upstream of api, or why. Surface the response body (FastAPI's
+        # error detail / traceback) so CI shows the real cause, not just
+        # "HTTP Error 500: Internal Server Error".
+        body = e.read().decode(errors="replace")
+        print(f"request to {req.full_url} failed: HTTP {e.code}", file=sys.stderr)
+        print(body, file=sys.stderr)
+        raise
+
+
 # Password-based /auth/login was removed with Cognito auth (Task 2); this
 # stack has no real Cognito pool, so use the demo-mode login instead
 # (compose.test.yml sets GLOW_DEMO_MODE for exactly this).
@@ -28,16 +68,14 @@ login_req = urllib.request.Request(
     headers={"Content-Type": "application/json"},
     method="POST",
 )
-with urllib.request.urlopen(login_req) as response:
-    token = json.loads(response.read().decode())["access_token"]
+token = json.loads(request(login_req))["access_token"]
 
 schools_req = urllib.request.Request(
     base + "/schools",
     headers={"Authorization": f"Bearer {token}"},
     method="GET",
 )
-with urllib.request.urlopen(schools_req) as response:
-    print(response.read().decode())
+print(request(schools_req))
 
 # /query and /export now read a pinned vintage instead of live data (see
 # "pin /query and /export to periodic data vintages") - without one, they
@@ -52,6 +90,5 @@ vintage_req = urllib.request.Request(
     },
     method="POST",
 )
-with urllib.request.urlopen(vintage_req) as response:
-    print(response.read().decode())
+print(request(vintage_req))
 PY
