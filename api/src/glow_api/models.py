@@ -241,6 +241,14 @@ class ApiKeyCreated(BaseModel):
     expires_at: datetime
 
 
+class VintageRead(BaseModel):
+    prefix: str
+    created_at: datetime
+    dataset_version: str
+    row_count: int
+    created_by_username: Optional[str] = None
+
+
 class ExportResponse(BaseModel):
     dataset_version: str
     rules_sha256: str

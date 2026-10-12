@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
+  ApiError,
   getDimensions,
   me,
   queryPeriodBased,
@@ -66,6 +67,11 @@ export function DashboardPage() {
   const [queryResult, setQueryResult] = useState<NewQueryResponse | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
+  // 503 from /query means "no data vintage has been published yet" - an
+  // expected, temporary state (first deploy, or between the scheduled cut
+  // and the next one), not a failure. Tracked separately from queryError
+  // so it gets a calm, non-alarming treatment instead of a red error box.
+  const [queryUnavailable, setQueryUnavailable] = useState(false);
   const [facetMode, setFacetMode] = useState<FacetMode>("variable");
 
   // Mount only, like the old page's onMount: nothing in here is meant to re-run
@@ -180,6 +186,7 @@ export function DashboardPage() {
 
     setQueryLoading(true);
     setQueryError(null);
+    setQueryUnavailable(false);
     setQueryResult(null);
 
     try {
@@ -192,9 +199,13 @@ export function DashboardPage() {
         }),
       );
     } catch (e: unknown) {
-      setQueryError(
-        e instanceof Error ? e.message : i18n.t("dashboard.loadErrorHelp"),
-      );
+      if (e instanceof ApiError && e.status === 503) {
+        setQueryUnavailable(true);
+      } else {
+        setQueryError(
+          e instanceof Error ? e.message : i18n.t("dashboard.loadErrorHelp"),
+        );
+      }
     } finally {
       setQueryLoading(false);
     }
@@ -387,7 +398,16 @@ export function DashboardPage() {
 
           {/* Main: Results */}
           <div className="lg:col-span-2 space-y-4">
-            {queryError ? (
+            {queryUnavailable ? (
+              <div className={`${CARD} text-center`}>
+                <p className="text-gray-500 font-medium">
+                  {i18n.t("dashboard.dataPreparingTitle")}
+                </p>
+                <p className="text-sm text-gray-400 mt-1">
+                  {i18n.t("dashboard.dataPreparingHint")}
+                </p>
+              </div>
+            ) : queryError ? (
               <div className={CARD}>
                 <p className="text-red-700">{queryError}</p>
               </div>

@@ -81,6 +81,7 @@ resource "aws_instance" "runner" {
       git_repo_url                    = var.git_repo_url
       git_checkout_ref                = var.git_checkout_ref
       demo_mode                       = var.demo_mode
+      vintages_s3_bucket              = aws_s3_bucket.vintages.bucket
       cloudwatch_bootstrap_log_group  = aws_cloudwatch_log_group.bootstrap.name
       cloudwatch_containers_log_group = aws_cloudwatch_log_group.containers.name
       cloudwatch_system_log_group     = aws_cloudwatch_log_group.system.name

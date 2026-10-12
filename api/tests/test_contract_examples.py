@@ -21,6 +21,8 @@ MODEL_MAP = {
     "ApiKeyReadList": list[models.ApiKeyRead],
     "ApiKeyCreated": models.ApiKeyCreated,
     "ApiKeyCreate": models.ApiKeyCreate,
+    "VintageReadList": list[models.VintageRead],
+    "VintageRead": models.VintageRead,
 }
 
 

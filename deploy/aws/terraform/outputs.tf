@@ -42,3 +42,7 @@ output "cognito_hosted_ui_domain" {
 output "demo_mode" {
   value = var.demo_mode
 }
+
+output "vintages_s3_bucket_name" {
+  value = aws_s3_bucket.vintages.bucket
+}

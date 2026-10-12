@@ -23,6 +23,7 @@ from glow_api.data import DataStore
 from glow_api.database import create_user, create_school, get_db
 from glow_api.metadata_models import Base
 from glow_api.main import app
+from glow_api.vintages import get_current_vintage_frame
 from tests.mock_odk import MockODKClient
 
 # Set testing flag to skip datastore initialization in lifespan
@@ -223,6 +224,12 @@ def client(db_session, sample_user, sample_schools, sample_df):
     app.dependency_overrides[require_current_user] = override_get_current_user
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_datastore] = override_get_datastore
+    # /query and /export read a pinned vintage, not live datastore data - for
+    # tests not specifically about vintage-pinning, pin it to this same fake
+    # store's frame so existing suppression/auth assertions keep working
+    # unchanged. Tests that care about vintage-pinning itself override this
+    # dependency again, more narrowly, on top of this client.
+    app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -245,6 +252,7 @@ def auth_client(db_session, sample_user, sample_schools, sample_df):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_datastore] = override_get_datastore
+    app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -267,6 +275,7 @@ def auth_client_empty_data(db_session, sample_user, sample_schools, empty_df):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_datastore] = override_get_datastore
+    app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -303,6 +312,7 @@ def admin_client(db_session, admin_user, sample_schools, sample_df):
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[require_current_user] = override_get_current_user
     app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c

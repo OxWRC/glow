@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from glow_api import request_context
 from glow_api.auth import require_api_key
-from glow_api.data import DataStore, get_datastore
+from glow_api.data import DataFrameWithWhitelists, DataStore, get_datastore
 from glow_api.database import get_db, record_api_key_use
 from glow_api.export import (
     ExportCache,
@@ -17,7 +17,9 @@ from glow_api.export import (
 )
 from glow_api.metadata_models import ApiKey
 from glow_api.models import ExportResponse
+from glow_api.raw_counts import floored_period_counts
 from glow_api.suppression import Rules
+from glow_api.vintages import get_current_vintage_frame
 
 router = APIRouter(tags=["export"])
 
@@ -26,12 +28,11 @@ router = APIRouter(tags=["export"])
 def pseudonymous_export(
     api_key: ApiKey = Depends(require_api_key),
     db: Session = Depends(get_db),
-    datastore: DataStore = Depends(get_datastore),
+    frozen: DataFrameWithWhitelists = Depends(get_current_vintage_frame),
     rules: Rules = Depends(get_suppression_rules),
     cache: ExportCache = Depends(get_export_cache),
 ) -> dict:
     """The whole dataset, suppressed and pseudonymised. No filters by design."""
-    frozen = datastore.to_frozen()
     if frozen.df.empty:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -57,3 +58,22 @@ def pseudonymous_export(
         rows=len(payload["rows"]),
     )
     return payload
+
+
+@router.get("/export/counts")
+def export_counts(
+    api_key: ApiKey = Depends(require_api_key),
+    datastore: DataStore = Depends(get_datastore),
+    rules: Rules = Depends(get_suppression_rules),
+) -> dict:
+    """Live, un-pinned record counts per period - NOT suppressed output.
+
+    See query_counts for the reasoning (routers/query.py): deliberately
+    live rather than vintage-pinned, floored at the same min_n /export's
+    own suppression uses (rules.min_n from suppression.yaml - NOT
+    settings.MIN_N, which is /query's separate threshold). Dataset-wide
+    only, mirroring /export's no-filter design - there is no per-school
+    scoping to apply here.
+    """
+    df = datastore.to_frozen().df
+    return {"counts": floored_period_counts(df, rules.min_n)}

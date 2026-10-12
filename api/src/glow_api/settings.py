@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     COGNITO_REGION: Optional[str] = None
     DEMO_MODE: bool = False
 
+    # Vintages (periodic, immutable dataset archives /query and /export pin against)
+    VINTAGES_S3_BUCKET: Optional[str] = None
+    AWS_REGION: Optional[str] = None
+    VINTAGE_CADENCE_CRON_DAY: int = 1  # day of month
+    VINTAGE_CADENCE_CRON_HOUR: int = 3  # UTC hour
+
     # Database
     METADATA_DATABASE_URL: str = "sqlite:///./metadata.db"
     CORS_ORIGINS: List[str] = ["*"]

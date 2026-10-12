@@ -1,0 +1,16 @@
+{
+  "id": "admin.vintages.created",
+  "method": "POST",
+  "path": "/admin/vintages",
+  "status": 201,
+  "request_model": null,
+  "response_model": "VintageRead",
+  "request": null,
+  "response": {
+    "prefix": "vintages/20261012T140000.000000Z-ab12cd/",
+    "created_at": "2026-10-12T14:00:00Z",
+    "dataset_version": "4e6a8c0b2d4f6a8c",
+    "row_count": 5112,
+    "created_by_username": "adminuser"
+  }
+}

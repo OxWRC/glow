@@ -192,6 +192,14 @@ export interface ApiKeyCreated {
   expires_at: string;
 }
 
+export interface Vintage {
+  prefix: string;
+  created_at: string;
+  dataset_version: string;
+  row_count: number;
+  created_by_username: string | null;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -461,6 +469,17 @@ export async function revokeApiKey(token: string, id: number): Promise<void> {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new ApiError(res.status, "Failed to revoke API key");
+}
+
+export async function listVintages(token: string): Promise<Vintage[]> {
+  return apiFetch<Vintage[]>("/admin/vintages", { headers: authHeaders(token) });
+}
+
+export async function cutVintage(token: string): Promise<Vintage> {
+  return apiFetch<Vintage>("/admin/vintages", {
+    method: "POST",
+    headers: authHeaders(token),
+  });
 }
 
 export async function deleteUser(token: string, id: number): Promise<void> {

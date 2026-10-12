@@ -10,9 +10,11 @@ from glow_api import request_context
 from glow_api.auth import get_optional_school_user
 from glow_api.canonical_query import normalize_query
 from glow_api.query_execution import execute_query, compute_query_etag
-from glow_api.data import DataStore, get_datastore
+from glow_api.data import DataFrameWithWhitelists, DataStore, get_datastore
 from glow_api.database import get_db
+from glow_api.raw_counts import floored_period_counts
 from glow_api.settings import settings
+from glow_api.vintages import get_current_vintage_frame
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/query", tags=["query"])
@@ -36,7 +38,7 @@ def query_get(
     if_none_match: Optional[str] = Header(None, alias="If-None-Match"),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
-    datastore: DataStore = Depends(get_datastore),
+    dfwl: DataFrameWithWhitelists = Depends(get_current_vintage_frame),
 ) -> dict:
     """Execute a new period-oriented multi-variable query.
 
@@ -60,7 +62,6 @@ def query_get(
     )
 
     # Get dataset version for ETag
-    dfwl = datastore.to_frozen()
     dataset_version = dfwl.metadata.get("_etag", "unknown")
 
     # Compute ETag
@@ -139,3 +140,33 @@ def query_get(
     )
 
     return result
+
+
+@router.get("/counts")
+def query_counts(
+    school_id: Optional[int] = Query(
+        None, description="Optional school ID for school-scoped counts"
+    ),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: Session = Depends(get_db),
+    datastore: DataStore = Depends(get_datastore),
+) -> dict:
+    """Live, un-pinned record counts per period - NOT suppressed output.
+
+    Deliberately reads live data, not the pinned vintage: gives visibility
+    into collection progress between vintage cuts. Floored at the same
+    min_n as /query's own suppression, so it can't be used as a sharper
+    timing oracle than /query's live `n` already is. Scoping mirrors
+    /query: school-filtered when authenticated for a school, dataset-wide
+    for anonymous dataset-scoped callers.
+    """
+    df = datastore.to_frozen().df
+
+    if school_id is not None:
+        _user, school = get_optional_school_user(credentials, db, school_id)
+        if "school" in df.columns and school.odk_school_id is not None:
+            df = df[df["school"] == school.odk_school_id]
+        else:
+            df = df.iloc[0:0]
+
+    return {"counts": floored_period_counts(df, settings.MIN_N)}

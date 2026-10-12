@@ -127,6 +127,47 @@ export const contractExamplesData = [
     }
   },
   {
+    "id": "admin.vintages.created",
+    "method": "POST",
+    "path": "/admin/vintages",
+    "status": 201,
+    "request_model": null,
+    "response_model": "VintageRead",
+    "request": null,
+    "response": {
+      "prefix": "vintages/20261012T140000.000000Z-ab12cd/",
+      "created_at": "2026-10-12T14:00:00Z",
+      "dataset_version": "4e6a8c0b2d4f6a8c",
+      "row_count": 5112,
+      "created_by_username": "adminuser"
+    }
+  },
+  {
+    "id": "admin.vintages.list",
+    "method": "GET",
+    "path": "/admin/vintages",
+    "status": 200,
+    "request_model": null,
+    "response_model": "VintageReadList",
+    "request": null,
+    "response": [
+      {
+        "prefix": "vintages/20260901T030000.000000Z-3f2a1b/",
+        "created_at": "2026-09-01T03:00:00Z",
+        "dataset_version": "9a1c2e4f6b8d0a2c",
+        "row_count": 4821,
+        "created_by_username": null
+      },
+      {
+        "prefix": "vintages/20261001T030000.000000Z-7c9e4d/",
+        "created_at": "2026-10-01T03:00:00Z",
+        "dataset_version": "1b3d5f7a9c0e2b4d",
+        "row_count": 5104,
+        "created_by_username": "adminuser"
+      }
+    ]
+  },
+  {
     "id": "auth.login.success",
     "method": "POST",
     "path": "/auth/login",

@@ -23,6 +23,7 @@ from glow_api.database import (
     update_school,
     update_user,
 )
+from glow_api.data import DataStore, get_datastore
 from glow_api.models import (
     ApiKeyCreate,
     ApiKeyCreated,
@@ -33,7 +34,9 @@ from glow_api.models import (
     UserCreate,
     UserRead,
     UserUpdate,
+    VintageRead,
 )
+from glow_api.vintages import VintageInfo, cut_vintage, get_s3_client, list_vintages
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -381,3 +384,42 @@ def revoke_key(
     request_context.record_event(
         "api_key_revoked", actor=admin.username, api_key_id=key_id
     )
+
+
+# ---------------------------------------------------------------------------
+# Vintages (periodic, immutable dataset archives /query and /export pin
+# against). S3 is the only source of truth - see glow_api.vintages.
+# ---------------------------------------------------------------------------
+
+
+def _vintage_read(info: VintageInfo) -> VintageRead:
+    return VintageRead(
+        prefix=info.prefix,
+        created_at=info.created_at,
+        dataset_version=info.dataset_version,
+        row_count=info.row_count,
+        created_by_username=info.created_by_username,
+    )
+
+
+@router.get("/vintages", response_model=list[VintageRead])
+def list_vintages_route(
+    _: UserRead = Depends(_require_admin),
+    s3_client=Depends(get_s3_client),
+) -> list[VintageRead]:
+    return [_vintage_read(info) for info in list_vintages(s3_client)]
+
+
+@router.post(
+    "/vintages", response_model=VintageRead, status_code=status.HTTP_201_CREATED
+)
+def cut_vintage_route(
+    admin: UserRead = Depends(_require_admin),
+    datastore: DataStore = Depends(get_datastore),
+    s3_client=Depends(get_s3_client),
+) -> VintageRead:
+    info = cut_vintage(datastore, s3_client, created_by=(admin.id, admin.username))
+    request_context.record_event(
+        "vintage_cut", actor=admin.username, prefix=info.prefix, row_count=info.row_count
+    )
+    return _vintage_read(info)

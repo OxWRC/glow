@@ -403,6 +403,9 @@ export const en = {
     noDataTitle: "No data available yet.",
     noDataHint:
       "The server may not have a dataset loaded. Check API configuration.",
+    dataPreparingTitle: "Data is being prepared.",
+    dataPreparingHint:
+      "The dataset hasn't been published yet. This happens automatically on a schedule — check back shortly.",
     gettingStarted: "Getting Started",
     gettingStartedExplore:
       "Use the Explore page to query wellbeing data with privacy-safe blanket suppression.",
@@ -656,6 +659,26 @@ export const en = {
     revokeTitle: "Revoke key?",
     revokeConfirm:
       "Revoke “{name}”? Anything using it will stop working immediately.",
+  },
+  vintages: {
+    title: "Data vintages",
+    subtitle:
+      "Immutable, point-in-time archives of the dataset. The dashboard and the data export both read the current vintage, not live data — this is what keeps repeated queries from being compared against each other to isolate a single student's answer. A new vintage is cut automatically on a schedule, or on demand below.",
+    cutNow: "Cut vintage now",
+    cutting: "Cutting…",
+    createdBy: "Created by",
+    created: "Created",
+    rows: "Rows",
+    datasetVersion: "Dataset version",
+    scheduler: "Scheduler",
+    loading: "Loading vintages…",
+    loadFailed: "Failed to load vintages: {error}",
+    none: "No vintages yet.",
+    cutTitle: "Cut a new vintage?",
+    cutConfirm:
+      "This freezes the dataset as it is right now and makes it the current vintage for /query and /export. The previous vintage stays archived.",
+    cutFailed: "Failed to cut vintage: {error}",
+    cancel: "Cancel",
   },
 } as const;
 

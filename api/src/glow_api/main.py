@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
+from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -14,6 +15,7 @@ from glow_api.logging_config import configure_logging
 from glow_api.request_logging import RequestLoggingMiddleware
 from glow_api.routers import admin, auth, dimensions, export, me, query, schools
 from glow_api.settings import settings
+from glow_api.vintages import scheduled_cut_vintage
 
 configure_logging()
 
@@ -37,9 +39,31 @@ async def lifespan(app: FastAPI):
         logger.info("Datastore created, starting up...")
         ds.startup()
         logger.info("Datastore startup complete")
+
+        vintage_scheduler = None
+        if settings.VINTAGES_S3_BUCKET:
+            vintage_scheduler = BackgroundScheduler()
+            vintage_scheduler.add_job(
+                scheduled_cut_vintage,
+                "cron",
+                args=[ds],
+                day=settings.VINTAGE_CADENCE_CRON_DAY,
+                hour=settings.VINTAGE_CADENCE_CRON_HOUR,
+            )
+            vintage_scheduler.start()
+            logger.info("Vintage cut scheduler started")
+        else:
+            logger.warning(
+                "GLOW_VINTAGES_S3_BUCKET not set - /query and /export will "
+                "503 until a vintage is cut manually and the bucket is configured"
+            )
+
         yield
+
         logger.info("Shutting down datastore...")
         ds.shutdown()
+        if vintage_scheduler:
+            vintage_scheduler.shutdown()
     else:
         logger.info("Test mode - skipping datastore initialization")
         yield

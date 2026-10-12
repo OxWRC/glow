@@ -44,6 +44,7 @@ from glow_api.database import (
 )
 from glow_api.metadata_models import User
 from glow_api.settings import settings
+from glow_api.vintages import cut_vintage, get_s3_client, list_vintages
 
 
 @click.group()
@@ -593,6 +594,46 @@ def api_keys_revoke(key_id: int) -> None:
         revoke_api_key(db, record)
     _audit_cli("api_key_revoked", api_key_id=key_id)
     click.echo(f"API key {key_id} revoked.")
+
+
+# ---------------------------------------------------------------------------
+# vintages commands
+# ---------------------------------------------------------------------------
+
+
+@cli.group("vintages")
+def vintages() -> None:
+    """Periodic, immutable dataset archives /query and /export pin against."""
+
+
+@vintages.command("cut")
+def vintages_cut() -> None:
+    """Cut a vintage now, outside the scheduled cadence (e.g. right after a
+    school finishes a data collection push)."""
+    from glow_api.data import get_datastore
+
+    datastore = get_datastore()
+    if datastore.to_frozen().df.empty:
+        click.echo("Data not yet loaded, loading now...")
+        datastore.startup()
+    info = cut_vintage(datastore, get_s3_client(), created_by=None)
+    _audit_cli("vintage_cut", prefix=info.prefix, row_count=info.row_count)
+    click.echo(f"Cut vintage {info.prefix} ({info.row_count} rows).")
+
+
+@vintages.command("list")
+def vintages_list() -> None:
+    """List all vintages, oldest first."""
+    rows = list_vintages(get_s3_client())
+    if not rows:
+        click.echo("No vintages.")
+        return
+    for info in rows:
+        creator = info.created_by_username or "scheduler"
+        click.echo(
+            f"  {info.prefix} created {info.created_at:%Y-%m-%d %H:%M} by {creator}, "
+            f"{info.row_count} rows"
+        )
 
 
 if __name__ == "__main__":

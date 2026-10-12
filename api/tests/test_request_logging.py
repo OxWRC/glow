@@ -13,6 +13,7 @@ from glow_api.data import get_datastore
 from glow_api.database import get_db
 from glow_api.main import app
 from glow_api.settings import settings
+from glow_api.vintages import get_current_vintage_frame
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +41,7 @@ def client_no_raise(db_session, sample_user, sample_schools, sample_df):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_datastore] = override_get_datastore
+    app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
 
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
