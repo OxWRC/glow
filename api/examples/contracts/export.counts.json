@@ -1,0 +1,12 @@
+{
+  "id": "export.counts",
+  "method": "GET",
+  "path": "/export/counts",
+  "status": 200,
+  "request_model": null,
+  "response_model": null,
+  "request": null,
+  "response": {
+    "counts": { "2026-T1": 120, "2026-T2": null }
+  }
+}

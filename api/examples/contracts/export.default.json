@@ -1,0 +1,40 @@
+{
+  "id": "export.default",
+  "method": "GET",
+  "path": "/export",
+  "status": 200,
+  "request_model": null,
+  "response_model": "ExportResponse",
+  "request": null,
+  "response": {
+    "dataset_version": "3f9a1c2b7e4d5a60",
+    "rules_sha256": "9b1e4c7d2a3f5e6b8c0d1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
+    "min_n": 5,
+    "generated_at": "2026-10-07T09:00:00Z",
+    "suppressed": false,
+    "suppressed_periods": [],
+    "coarsening": { "school": 0, "class": 1, "d_sex": 1, "d_age": 1 },
+    "rows": [
+      {
+        "student_id": "a1b2c3d4e5f60718",
+        "school_id": "0f1e2d3c4b5a6978",
+        "class_id": "1122334455667788",
+        "period_id": "2026-T1",
+        "class": "*",
+        "d_sex": "*",
+        "d_age": "*",
+        "bw_wbeing_1": 3
+      },
+      {
+        "student_id": "b2c3d4e5f6071829",
+        "school_id": "0f1e2d3c4b5a6978",
+        "class_id": "1122334455667788",
+        "period_id": "2026-T1",
+        "class": "*",
+        "d_sex": "*",
+        "d_age": "*",
+        "bw_wbeing_1": 4
+      }
+    ]
+  }
+}

@@ -18,6 +18,7 @@ MODEL_MAP = {
     "DimensionsResponse": models.DimensionsResponse,
     "NewQueryResponse": models.NewQueryResponse,
     "DemoInfo": models.DemoInfo,
+    "ExportResponse": models.ExportResponse,
     "ApiKeyReadList": list[models.ApiKeyRead],
     "ApiKeyCreated": models.ApiKeyCreated,
     "ApiKeyCreate": models.ApiKeyCreate,

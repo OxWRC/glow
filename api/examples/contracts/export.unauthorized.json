@@ -1,0 +1,12 @@
+{
+  "id": "export.unauthorized",
+  "method": "GET",
+  "path": "/export",
+  "status": 401,
+  "request_model": null,
+  "response_model": "ErrorDetailResponse",
+  "request": null,
+  "response": {
+    "detail": "Invalid or expired API key"
+  }
+}
