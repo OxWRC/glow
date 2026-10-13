@@ -660,6 +660,33 @@ export const en = {
     revokeConfirm:
       "Revoke “{name}”? Anything using it will stop working immediately.",
   },
+  keyTester: {
+    title: "Try an API key",
+    subtitle:
+      "Demo mode only. Paste a key, pick an endpoint and see exactly what a client would receive.",
+    key: "API key",
+    endpoint: "Endpoint",
+    endpoints: {
+      export: "Suppressed, pseudonymised dataset",
+      counts: "Students per period, floored at the threshold",
+      raw: "Unredacted dataset (demo only)",
+    },
+    send: "Send request",
+    sending: "Sending…",
+    response: "Response",
+    responseBody: "Response body",
+    status: "{status} {statusText} · {ms} ms",
+    truncated:
+      "Showing the first {shown} of {total} characters. Download for the full response.",
+    curl: "Equivalent request",
+    downloads: "Compare the datasets",
+    downloadsHint:
+      "Download both to see what suppression, coarsening and pseudonymisation change.",
+    downloadExport: "Download redacted export",
+    downloadRaw: "Download unredacted dataset",
+    downloading: "Downloading…",
+    failed: "Request failed: {error}",
+  },
   vintages: {
     title: "Data vintages",
     subtitle:

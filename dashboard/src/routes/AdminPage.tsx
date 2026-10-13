@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  DEMO_MODE,
   listUsers,
   createUser,
   updateUser,
@@ -11,6 +12,7 @@ import {
   type UserUpdate,
   type School,
 } from "../lib/api";
+import { ApiKeyTester } from "../lib/components/ApiKeyTester";
 import { ApiKeysPanel } from "../lib/components/ApiKeysPanel";
 import { VintagesPanel } from "../lib/components/VintagesPanel";
 import { useAuth, useIsAdmin } from "../auth/AuthContext";
@@ -328,6 +330,8 @@ export function AdminPage() {
       )}
 
       {token && <ApiKeysPanel token={token} locale={locale} />}
+
+      {DEMO_MODE && <ApiKeyTester locale={locale} />}
 
       {token && <VintagesPanel token={token} locale={locale} />}
 

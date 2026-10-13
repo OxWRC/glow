@@ -471,6 +471,58 @@ export async function revokeApiKey(token: string, id: number): Promise<void> {
   if (!res.ok) throw new ApiError(res.status, "Failed to revoke API key");
 }
 
+export const API_KEY_ENDPOINTS = {
+  export: "/export",
+  counts: "/export/counts",
+  raw: "/demo/export/raw",
+} as const;
+export type ApiKeyEndpoint = keyof typeof API_KEY_ENDPOINTS;
+
+export function apiKeyEndpointUrl(endpoint: ApiKeyEndpoint): string {
+  return `${API_BASE}${API_KEY_ENDPOINTS[endpoint]}`;
+}
+
+export interface ApiKeyTryResult {
+  status: number;
+  statusText: string;
+  ms: number;
+  body: string;
+}
+
+/** Raw call for the key tester: unlike apiFetch, non-2xx is a result to
+ * show, not an error to throw. */
+export async function tryApiKey(
+  key: string,
+  endpoint: ApiKeyEndpoint,
+): Promise<ApiKeyTryResult> {
+  const started = performance.now();
+  const res = await fetch(apiKeyEndpointUrl(endpoint), {
+    headers: { "X-API-Key": key },
+  });
+  const text = await res.text();
+  let body = text;
+  try {
+    body = JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    // not JSON - show as-is
+  }
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    ms: Math.round(performance.now() - started),
+    body,
+  };
+}
+
+export async function fetchWithApiKey(
+  key: string,
+  endpoint: ApiKeyEndpoint,
+): Promise<unknown> {
+  return apiFetch<unknown>(API_KEY_ENDPOINTS[endpoint], {
+    headers: { "X-API-Key": key },
+  });
+}
+
 export async function listVintages(token: string): Promise<Vintage[]> {
   return apiFetch<Vintage[]>("/admin/vintages", {
     headers: authHeaders(token),
