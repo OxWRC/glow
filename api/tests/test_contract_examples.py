@@ -19,6 +19,7 @@ MODEL_MAP = {
     "NewQueryResponse": models.NewQueryResponse,
     "DemoInfo": models.DemoInfo,
     "ExportResponse": models.ExportResponse,
+    "RawExportResponse": models.RawExportResponse,
     "ApiKeyReadList": list[models.ApiKeyRead],
     "ApiKeyCreated": models.ApiKeyCreated,
     "ApiKeyCreate": models.ApiKeyCreate,

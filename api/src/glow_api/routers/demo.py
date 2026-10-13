@@ -7,22 +7,28 @@ normal claim-mapping path (get_current_user -> get_user_by_sub ->
 sync_user_claims) is exercised exactly as it would be for a real login.
 """
 
+import json
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from glow_api.auth import create_access_token
-from glow_api.data import DataStore, get_datastore
+from glow_api.auth import create_access_token, require_api_key
+from glow_api.data import DataFrameWithWhitelists, DataStore, get_datastore
 from glow_api.database import (
     get_db,
+    record_api_key_use,
     get_school_by_id,
     list_schools,
     seed_demo,
     upsert_user_by_sub,
 )
-from glow_api.models import DemoInfo, DemoSchool
+from glow_api.export import dataset_version
+from glow_api.metadata_models import ApiKey
+from glow_api.models import DemoInfo, DemoSchool, RawExportResponse
+from glow_api.vintages import get_current_vintage_frame
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -95,3 +101,26 @@ def demo_reset(
             detail="Data not loaded yet; cannot reset demo",
         )
     seed_demo(db, df)
+
+
+@router.get("/export/raw", response_model=RawExportResponse)
+def raw_export(
+    api_key: ApiKey = Depends(require_api_key),
+    db: Session = Depends(get_db),
+    frozen: DataFrameWithWhitelists = Depends(get_current_vintage_frame),
+) -> dict:
+    """The same vintage /export serves, with no suppression, coarsening or
+    pseudonymisation - so demo users can diff the two and see what the
+    disclosure controls actually do. Never mounted outside demo mode.
+    """
+    if frozen.df.empty:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Data not loaded yet",
+        )
+    record_api_key_use(db, api_key)
+    return {
+        "dataset_version": dataset_version(frozen.df),
+        "generated_at": datetime.now(timezone.utc),
+        "rows": json.loads(frozen.df.to_json(orient="records")),
+    }

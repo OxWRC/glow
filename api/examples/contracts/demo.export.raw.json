@@ -1,0 +1,33 @@
+{
+  "id": "demo.export.raw",
+  "method": "GET",
+  "path": "/demo/export/raw",
+  "status": 200,
+  "request_model": null,
+  "response_model": "RawExportResponse",
+  "request": null,
+  "response": {
+    "dataset_version": "3f9a1c2b7e4d5a60",
+    "generated_at": "2026-10-07T09:00:00Z",
+    "rows": [
+      {
+        "uid": "S001",
+        "school": "Focus School Academy",
+        "class": "A",
+        "period_id": "2026-T1",
+        "d_sex": "M",
+        "d_age": 12.5,
+        "bw_wbeing_1": 3
+      },
+      {
+        "uid": "S002",
+        "school": "Focus School Academy",
+        "class": "A",
+        "period_id": "2026-T1",
+        "d_sex": "F",
+        "d_age": 12.3,
+        "bw_wbeing_1": 4
+      }
+    ]
+  }
+}

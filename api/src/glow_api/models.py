@@ -258,3 +258,11 @@ class ExportResponse(BaseModel):
     suppressed_periods: list[str] = Field(default_factory=list)
     coarsening: dict[str, int]
     rows: list[dict[str, Any]]
+
+
+class RawExportResponse(BaseModel):
+    """Demo-only: the unredacted frame /export is built from."""
+
+    dataset_version: str
+    generated_at: datetime
+    rows: list[dict[str, Any]]

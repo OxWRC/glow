@@ -35,6 +35,7 @@ AUDIT_ROUTES: set[tuple[str, str]] = {
     ("GET", "/query/counts"),
     ("POST", "/admin/vintages"),
     ("POST", "/demo/reset"),
+    ("GET", "/demo/export/raw"),
 }
 
 
