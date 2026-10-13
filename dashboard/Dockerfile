@@ -17,7 +17,7 @@ RUN npm run build
 FROM nginx:1.27-alpine
 RUN apk add --no-cache gettext
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY docker/config.json.template /usr/share/nginx/html/config.json.template
+COPY docker/config.json.template /etc/glow-dashboard/config.json.template
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
