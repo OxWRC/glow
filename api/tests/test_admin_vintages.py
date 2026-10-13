@@ -71,3 +71,19 @@ def test_vintage_creation_is_audit_tier():
 
 def test_listing_vintages_before_any_cut_is_empty(admin_client, s3_bucket):
     assert admin_client.get("/admin/vintages").json() == []
+
+
+def test_cut_without_bucket_is_a_clear_503_not_an_opaque_500(admin_client, monkeypatch):
+    # The demo shipped without GLOW_VINTAGES_S3_BUCKET: boto3 rejected
+    # Bucket=None, the unhandled error skipped CORS, and the dashboard could
+    # only report "NetworkError".
+    import glow_api.vintages as vintages_module
+
+    monkeypatch.setattr(vintages_module.settings, "VINTAGES_S3_BUCKET", None)
+    origin = "http://localhost:3000"
+
+    response = admin_client.post("/admin/vintages", headers={"Origin": origin})
+
+    assert response.status_code == 503
+    assert "GLOW_VINTAGES_S3_BUCKET" in response.json()["detail"]
+    assert "access-control-allow-origin" in response.headers

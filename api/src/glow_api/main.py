@@ -4,9 +4,10 @@ from pathlib import Path
 
 import structlog
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from glow_api.data import get_datastore
@@ -15,7 +16,7 @@ from glow_api.logging_config import configure_logging
 from glow_api.request_logging import RequestLoggingMiddleware
 from glow_api.routers import admin, auth, dimensions, export, me, query, schools
 from glow_api.settings import settings
-from glow_api.vintages import scheduled_cut_vintage
+from glow_api.vintages import VintageStorageNotConfigured, scheduled_cut_vintage
 
 configure_logging()
 
@@ -92,6 +93,17 @@ def swagger_docs():
         openapi_url=app.root_path + app.openapi_url,
         title=f"{app.title} - Swagger UI",
         swagger_favicon_url=app.root_path + "/static/favicon.png",
+    )
+
+
+@app.exception_handler(VintageStorageNotConfigured)
+def vintage_storage_not_configured(
+    request: Request, exc: VintageStorageNotConfigured
+) -> JSONResponse:
+    # Handled (not left to ServerErrorMiddleware) so the response still gets
+    # CORS headers and the dashboard can show why, not just "NetworkError".
+    return JSONResponse(
+        status_code=503, content={"detail": f"Vintage storage not configured: {exc}"}
     )
 
 

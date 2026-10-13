@@ -48,6 +48,17 @@ class VintageInfo:
     created_by_username: Optional[str] = None
 
 
+class VintageStorageNotConfigured(RuntimeError):
+    """No bucket configured - main.py maps this to a 503."""
+
+
+def _bucket(bucket: Optional[str]) -> str:
+    bucket = bucket or settings.VINTAGES_S3_BUCKET
+    if not bucket:
+        raise VintageStorageNotConfigured("GLOW_VINTAGES_S3_BUCKET is not set")
+    return bucket
+
+
 def _vintage_prefix(created_at: datetime) -> str:
     # Microsecond precision keeps ordering correct in practice (two real
     # cut_vintage calls - even a double-click "cut now" - essentially never
@@ -184,7 +195,7 @@ def cut_vintage(
     for a scheduler-triggered one - mirrors ApiKey.created_by_user_id's
     existing nullable-FK convention for "no user", just without a live FK.
     """
-    bucket = bucket or settings.VINTAGES_S3_BUCKET
+    bucket = _bucket(bucket)
     frozen = datastore.to_frozen()
     created_at = datetime.now(timezone.utc)
     prefix = _vintage_prefix(created_at)
@@ -240,7 +251,7 @@ def scheduled_cut_vintage(datastore: DataStore) -> VintageInfo:
 
 
 def list_vintages(s3_client: Any, bucket: Optional[str] = None) -> list[VintageInfo]:
-    bucket = bucket or settings.VINTAGES_S3_BUCKET
+    bucket = _bucket(bucket)
     prefixes = _list_prefixes(s3_client, bucket)
     return [
         _vintage_info_from_meta(prefix, _read_meta(s3_client, bucket, prefix))
@@ -249,13 +260,13 @@ def list_vintages(s3_client: Any, bucket: Optional[str] = None) -> list[VintageI
 
 
 def get_latest_vintage_prefix(s3_client: Any, bucket: Optional[str] = None) -> Optional[str]:
-    return _latest_prefix_cache.get(s3_client, bucket or settings.VINTAGES_S3_BUCKET)
+    return _latest_prefix_cache.get(s3_client, _bucket(bucket))
 
 
 def load_vintage_frame(
     prefix: str, s3_client: Any, bucket: Optional[str] = None
 ) -> DataFrameWithWhitelists:
-    bucket = bucket or settings.VINTAGES_S3_BUCKET
+    bucket = _bucket(bucket)
     frame_obj = s3_client.get_object(Bucket=bucket, Key=_frame_key(prefix))
     df = pd.read_parquet(io.BytesIO(frame_obj["Body"].read()))
     meta = _read_meta(s3_client, bucket, prefix)
