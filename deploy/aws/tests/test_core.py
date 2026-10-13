@@ -2398,3 +2398,11 @@ def test_update_proceeds_when_rules_unchanged(monkeypatch):
     core.update(_make_config())
     assert compared == [("c" * 40, "deadbeef" * 5)]
     assert len(calls) == 1
+
+
+def test_runner_imds_reachable_from_containers():
+    # IMDSv2's token response must survive the extra hop through Docker's
+    # bridge network, or the api container gets no instance-role credentials
+    # and every vintages S3 call fails.
+    runner_tf = (AWS_DEPLOY_DIR / "terraform" / "runner.tf").read_text()
+    assert "http_put_response_hop_limit = 2" in runner_tf

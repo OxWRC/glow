@@ -91,7 +91,9 @@ resource "aws_instance" "runner" {
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 1
+    # 2, not 1: containers (the api's boto3 client for vintages) sit one
+    # network hop further from IMDS than the host does.
+    http_put_response_hop_limit = 2
   }
 
   tags = local.runner_tags
