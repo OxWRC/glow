@@ -130,7 +130,11 @@ export function ApiKeysPanel({
   }
 
   return (
-    <section aria-labelledby="api-keys-heading" className="space-y-4">
+    <section
+      id="api-keys"
+      aria-labelledby="api-keys-heading"
+      className="space-y-4"
+    >
       <div>
         <h2 id="api-keys-heading" className="text-lg font-semibold">
           {t("apiKeys.title")}

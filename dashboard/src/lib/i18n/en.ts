@@ -470,6 +470,11 @@ export const en = {
     meanScore: "Mean Score",
   },
   admin: {
+    sections: "Admin sections",
+    sectionUsers: "Users",
+    sectionApiKeys: "API keys",
+    sectionKeyTester: "Key tester",
+    sectionVintages: "Vintages",
     title: "User Management",
     subtitle: "Create, edit and delete dashboard users.",
     newUser: "+ New User",

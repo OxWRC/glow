@@ -63,7 +63,11 @@ export function VintagesPanel({
   const date = (iso: string) => new Date(iso).toLocaleString(locale);
 
   return (
-    <section aria-labelledby="vintages-heading" className="space-y-4">
+    <section
+      id="vintages"
+      aria-labelledby="vintages-heading"
+      className="space-y-4"
+    >
       <div>
         <h2 id="vintages-heading" className="text-lg font-semibold">
           {t("vintages.title")}

@@ -180,9 +180,28 @@ export function AdminPage() {
     document.title = `${i18n.t("nav.admin")} — ${i18n.t("login.title")} ${i18n.t("nav.dashboard")}`;
   }, [i18n]);
 
+  const sections = [
+    ["users", "admin.sectionUsers"],
+    ["api-keys", "admin.sectionApiKeys"],
+    ...(DEMO_MODE ? [["key-tester", "admin.sectionKeyTester"]] : []),
+    ["vintages", "admin.sectionVintages"],
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <nav aria-label={i18n.t("admin.sections")}>
+        <ul className="flex flex-wrap gap-2">
+          {sections.map(([id, label]) => (
+            <li key={id}>
+              <a href={`#${id}`} className="btn-secondary btn-sm">
+                {i18n.t(label)}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <div id="users" className="flex items-center justify-between">
         <div>
           <h1>{i18n.t("admin.title")}</h1>
           <p className="text-gray-500 mt-1">{i18n.t("admin.subtitle")}</p>
