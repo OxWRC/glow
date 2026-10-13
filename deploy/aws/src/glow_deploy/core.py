@@ -420,6 +420,11 @@ def _runner_env(config: Config, outputs: dict[str, Any], demo: bool) -> dict[str
         "GLOW_COGNITO_CLIENT_ID": cognito.get("cognito_client_id", ""),
         "GLOW_COGNITO_REGION": cognito.get("cognito_region", ""),
         "GLOW_COGNITO_DOMAIN": cognito.get("cognito_hosted_ui_domain", ""),
+        # Also baked into the template, but runner.tf ignores user_data
+        # changes, so instances provisioned before vintages existed only get
+        # these from here.
+        "GLOW_VINTAGES_S3_BUCKET": outputs.get("vintages_s3_bucket_name", ""),
+        "GLOW_AWS_REGION": config.aws_region,
     }
 
 

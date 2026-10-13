@@ -168,6 +168,22 @@ EOF
   rm -f "${tmp}"
 }
 
+sync_vintages_env() {
+  # Same dedupe-and-append as sync_cognito_env(): the bucket comes from
+  # Terraform outputs, so refresh it on every activation. Without it the api
+  # has no bucket and every vintage cut/read fails.
+  step "Syncing vintages config into runtime environment"
+  local tmp
+  tmp="$(mktemp)"
+  grep -vE '^(GLOW_VINTAGES_S3_BUCKET|GLOW_AWS_REGION)=' "${RUNTIME_ENV}" > "${tmp}" || true
+  cat >> "${tmp}" <<EOF
+GLOW_VINTAGES_S3_BUCKET=${GLOW_VINTAGES_S3_BUCKET:-}
+GLOW_AWS_REGION=${GLOW_AWS_REGION:-}
+EOF
+  install -m 0600 "${tmp}" "${RUNTIME_ENV}"
+  rm -f "${tmp}"
+}
+
 compose() {
   if [[ "${DEMO_MODE}" == "true" ]]; then
     docker compose --profile odk --env-file "${RUNTIME_ENV}" -f "$WORK_DIR/compose.yml" -f "$WORK_DIR/compose.demo.yml" "$@"
@@ -390,6 +406,7 @@ main() {
   generate_runtime_env
   sync_odk_api_env
   sync_cognito_env
+  sync_vintages_env
   check_demo_seed
   compute_app_version
   start_stack

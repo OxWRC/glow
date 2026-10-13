@@ -35,6 +35,9 @@ services:
       GLOW_COGNITO_USER_POOL_ID: ${GLOW_COGNITO_USER_POOL_ID}
       GLOW_COGNITO_CLIENT_ID: ${GLOW_COGNITO_CLIENT_ID}
       GLOW_COGNITO_REGION: ${GLOW_COGNITO_REGION}
+      # Passthrough, same reasoning as Cognito above.
+      GLOW_VINTAGES_S3_BUCKET: ${GLOW_VINTAGES_S3_BUCKET}
+      GLOW_AWS_REGION: ${GLOW_AWS_REGION}
       GLOW_APP_VERSION: ${APP_VERSION:-dev}
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
       GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}

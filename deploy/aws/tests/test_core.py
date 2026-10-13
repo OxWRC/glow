@@ -1617,6 +1617,8 @@ def test_update_prepares_repository_before_rerunning_userdata(monkeypatch):
                 "GLOW_COGNITO_CLIENT_ID": "",
                 "GLOW_COGNITO_REGION": "",
                 "GLOW_COGNITO_DOMAIN": "",
+                "GLOW_VINTAGES_S3_BUCKET": "",
+                "GLOW_AWS_REGION": "eu-west-2",
             },
         ),
         ("verify", "i-1234567890"),
@@ -1752,6 +1754,7 @@ def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
             "cognito_client_id": "client-abc123",
             "cognito_region": "eu-west-2",
             "cognito_hosted_ui_domain": "example.auth.eu-west-2.amazoncognito.com",
+            "vintages_s3_bucket_name": "glow-vintages",
         },
     )
     monkeypatch.setattr(
@@ -1811,6 +1814,10 @@ def test_provision_prepares_repository_before_rerunning_userdata(monkeypatch):
                 "GLOW_COGNITO_CLIENT_ID": "client-abc123",
                 "GLOW_COGNITO_REGION": "eu-west-2",
                 "GLOW_COGNITO_DOMAIN": "example.auth.eu-west-2.amazoncognito.com",
+                # Not in the old instance's frozen userdata (ignore_changes),
+                # so it has to ride in on the rerun env.
+                "GLOW_VINTAGES_S3_BUCKET": "glow-vintages",
+                "GLOW_AWS_REGION": "eu-west-2",
             },
         ),
         ("verify", "i-1234567890"),
@@ -2116,7 +2123,9 @@ def test_activate_stack_rotates_demo_passwords_before_nginx_starts():
     )
 
 
-def _run_activate_function(name: str, runtime_env: Path, domain: str) -> str:
+def _run_activate_function(
+    name: str, runtime_env: Path, domain: str, extra_env: dict[str, str] | None = None
+) -> str:
     script = AWS_DEPLOY_DIR / "runtime" / "activate-stack.sh"
     snippet = (
         f"step() {{ :; }}; info() {{ :; }}; "
@@ -2128,6 +2137,7 @@ def _run_activate_function(name: str, runtime_env: Path, domain: str) -> str:
             "PATH": os.environ["PATH"],
             "RUNTIME_ENV": str(runtime_env),
             "DOMAIN_NAME": domain,
+            **(extra_env or {}),
         },
         check=True,
         capture_output=True,
@@ -2159,6 +2169,45 @@ def test_sync_odk_api_env_migrates_existing_runtime_env(tmp_path):
         _run_activate_function("sync_odk_api_env", runtime_env, "demo.example.org")
         == text
     )
+
+
+def test_sync_vintages_env_writes_bucket_and_region(tmp_path):
+    # compose only interpolates from RUNTIME_ENV, so without this the api
+    # container has no bucket and every vintage read/cut 500s.
+    runtime_env = tmp_path / ".env.runtime"
+    runtime_env.write_text("GLOW_SECRET_KEY=keep-me\nGLOW_VINTAGES_S3_BUCKET=stale\n")
+    env = {"GLOW_VINTAGES_S3_BUCKET": "glow-vintages", "GLOW_AWS_REGION": "eu-west-2"}
+
+    text = _run_activate_function(
+        "sync_vintages_env", runtime_env, "demo.example.org", env
+    )
+
+    lines = text.splitlines()
+    assert "GLOW_SECRET_KEY=keep-me" in lines
+    assert "GLOW_VINTAGES_S3_BUCKET=glow-vintages" in lines
+    assert "GLOW_AWS_REGION=eu-west-2" in lines
+    assert sum(line.startswith("GLOW_VINTAGES_S3_BUCKET=") for line in lines) == 1
+
+    # Idempotent on re-activation.
+    assert (
+        _run_activate_function(
+            "sync_vintages_env", runtime_env, "demo.example.org", env
+        )
+        == text
+    )
+
+
+def test_activate_stack_syncs_vintages_env():
+    script = (AWS_DEPLOY_DIR / "runtime" / "activate-stack.sh").read_text()
+    main = script[script.index("main() {") :]
+    assert "  sync_vintages_env\n" in main[: main.index("\n}\n")]
+
+
+def test_compose_passes_vintages_config_to_api():
+    compose = (AWS_DEPLOY_DIR.parent.parent / "compose.yml").read_text()
+    api = compose[compose.index("\n  api:\n") : compose.index("\n  api-db:\n")]
+    assert "GLOW_VINTAGES_S3_BUCKET: ${GLOW_VINTAGES_S3_BUCKET}" in api
+    assert "GLOW_AWS_REGION: ${GLOW_AWS_REGION}" in api
 
 
 def test_create_snapshot_tags_link_snapshot_to_deployment_and_event(monkeypatch):
