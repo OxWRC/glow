@@ -199,11 +199,14 @@ services:
         condition: service_started
     environment:
       DOMAIN: ${ODK_DOMAIN:-odk.local}
-      HTTPS_PORT: ${ODK_HTTPS_PORT:-8443}
+      HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-8443}
       SUPPORT_EMAIL: ${ODK_SYSADMIN_EMAIL:-admin@example.com}
     volumes:
       - ./docker-mount-data/odk-secrets:/etc/secrets
     networks:
+      # public: Enketo fetches forms from Central's public URL
+      # (https://${ODK_DOMAIN}), which odk_internal can't resolve or reach.
+      - public
       - odk_internal
     restart: unless-stopped
 
@@ -248,7 +251,7 @@ services:
     environment:
       DOMAIN: ${ODK_DOMAIN:-odk.local}
       SYSADMIN_EMAIL: ${ODK_SYSADMIN_EMAIL:-admin@example.com}
-      HTTPS_PORT: ${ODK_HTTPS_PORT:-8443}
+      HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-8443}
       PGHOST: postgres14
       PGDATABASE: ${ODK_POSTGRES_DB:-odk}
       PGUSER: ${ODK_POSTGRES_USER:-odk}

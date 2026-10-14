@@ -123,14 +123,17 @@ sync_odk_api_env() {
   # ODK's nginx runs with SSL_TYPE=upstream here: it listens on :80 only and
   # serves just server_name odk.<domain> (other Hosts get its 421 catch-all).
   # Runtime envs generated before this fix point the api at https://nginx, so
-  # rewrite these two lines on every activation, leaving the rest untouched.
+  # rewrite these lines on every activation, leaving the rest untouched.
+  # The ALB terminates TLS on 443, so that is the port Central and Enketo
+  # must put in their public URLs (not nginx's host port, ODK_HTTPS_PORT).
   step "Syncing ODK API address into runtime environment"
   local tmp
   tmp="$(mktemp)"
-  grep -vE '^(GLOW_ODK_API_URL|GLOW_ODK_HOST_HEADER)=' "${RUNTIME_ENV}" > "${tmp}" || true
+  grep -vE '^(GLOW_ODK_API_URL|GLOW_ODK_HOST_HEADER|ODK_PUBLIC_HTTPS_PORT)=' "${RUNTIME_ENV}" > "${tmp}" || true
   cat >> "${tmp}" <<EOF
 GLOW_ODK_API_URL=http://nginx
 GLOW_ODK_HOST_HEADER=odk.${DOMAIN_NAME}
+ODK_PUBLIC_HTTPS_PORT=443
 EOF
   install -m 0600 "${tmp}" "${RUNTIME_ENV}"
   rm -f "${tmp}"
@@ -322,6 +325,30 @@ configure_demo_odk() {
     error "Seeded ODK project '${ODK_PROJECT_NAME}' has id '${project_id}', expected ${GLOW_ODK_PROJECT_ID}"
     exit 1
   fi
+  reset_demo_enketo_ids
+}
+
+reset_demo_enketo_ids() {
+  # The seed's Enketo IDs were issued by the Enketo that generated it; this
+  # Enketo's redis has never seen them ("Survey with this ID not found").
+  # Clear them and queue the events Central's own Enketo backfill migrations
+  # use, so its worker registers each form with this Enketo again.
+  step "Re-registering seeded ODK forms with Enketo"
+  # The dev image's role and database are fixed at odk/odk (compose.demo.yml).
+  compose exec -T postgres14 psql -v ON_ERROR_STOP=1 -q -U odk -d odk <<'SQL'
+BEGIN;
+UPDATE forms SET "enketoId" = NULL, "enketoOnceId" = NULL;
+UPDATE form_defs SET "enketoId" = NULL WHERE "enketoId" IS NOT NULL;
+INSERT INTO audits (action, "acteeId", "loggedAt", details, failures)
+  SELECT 'upgrade.process.form', "acteeId", clock_timestamp(),
+         '{"upgrade":"Glow demo activation: re-register with Enketo"}', 0
+  FROM forms WHERE "currentDefId" IS NOT NULL AND "deletedAt" IS NULL;
+INSERT INTO audits (action, "acteeId", "loggedAt", details, failures)
+  SELECT 'upgrade.process.form.draft', "acteeId", clock_timestamp(),
+         '{"upgrade":"Glow demo activation: re-register draft with Enketo"}', 0
+  FROM forms WHERE "draftDefId" IS NOT NULL AND "deletedAt" IS NULL;
+COMMIT;
+SQL
 }
 
 seed_demo() {

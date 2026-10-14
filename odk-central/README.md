@@ -14,6 +14,7 @@ In `compose.yml`, the `odk` profile includes:
 - `nginx`
   - public entrypoint for Central
   - exposes ports `80` and `443` to the host as `${ODK_HTTP_PORT}` and `${ODK_HTTPS_PORT}`
+  - Central and Enketo build public URLs with `${ODK_PUBLIC_HTTPS_PORT}` (443 on AWS, where the ALB terminates TLS)
   - serves the Central frontend and proxies to the backend and Enketo
 - `service`
   - the main ODK Central backend
