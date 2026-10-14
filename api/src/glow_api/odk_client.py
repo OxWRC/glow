@@ -118,10 +118,19 @@ class ODKClient:
         self,
         form_id: str,
         etag: Optional[str] = None,
+        select: Optional[list[str]] = None,
     ) -> tuple[Optional[list[dict[str, Any]]], Optional[str]]:
-        """Fetch all submissions for one form via OData, following pagination."""
+        """Fetch all submissions for one form via OData, following pagination.
+
+        `select` narrows the returned fields with OData $select; nextLinks
+        already carry it, so it's only sent on the first page.
+        """
         url = f"{self.base_url}/v1/projects/{self.project_id}/forms/{form_id}.svc/Submissions"
-        response = self.get(url, headers={"If-None-Match": etag} if etag else {})
+        response = self.get(
+            url,
+            headers={"If-None-Match": etag} if etag else {},
+            params={"$select": ",".join(select)} if select else None,
+        )
         if response.status_code == 304:
             return None, etag
         payload = response.json()
@@ -164,6 +173,7 @@ class ODKClient:
         self,
         form_id: str,
         etag: Optional[str] = None,
+        select: Optional[list[str]] = None,
     ) -> tuple[Optional[pd.DataFrame], Optional[str]]:
         """Fetch submissions for one form, respecting response ETags."""
         logger.info(
@@ -171,7 +181,9 @@ class ODKClient:
             self.project_id,
             form_id,
         )
-        records, new_etag = self._fetch_form_odata(form_id=form_id, etag=etag)
+        records, new_etag = self._fetch_form_odata(
+            form_id=form_id, etag=etag, select=select
+        )
         if records is None:
             return None, new_etag
         df = self._build_form_submissions_dataframe(form_id=form_id, records=records)
@@ -180,11 +192,13 @@ class ODKClient:
     def fetch_submissions(
         self,
         etags: Optional[dict[str, str]] = None,
+        select: Optional[list[str]] = None,
     ) -> tuple[dict[str, Optional[pd.DataFrame]], dict[str, Optional[str]]]:
         """Fetch submissions for all accessible forms.
 
         Returns a per-form mapping where a `None` frame means the endpoint
-        returned 304 Not Modified for that form.
+        returned 304 Not Modified for that form. `select` limits each form's
+        OData fields (see _fetch_form_odata).
         """
         self._require_login()
         existing_etags = etags or {}
@@ -195,6 +209,7 @@ class ODKClient:
             frame, new_etag = self.fetch_form_submissions(
                 form_id=form_id,
                 etag=existing_etags.get(form_id),
+                select=select,
             )
             form_frames[form_id] = frame
             new_etags[form_id] = new_etag

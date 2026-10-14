@@ -90,7 +90,7 @@ This keeps ODK Central isolated from the dashboard while still allowing API-medi
 | `GLOW_ODK_PROJECT_ID` | `1` | ODK Central project ID |
 | `GLOW_ODK_FORM_ID` | `bewell_questionnaire` | ODK form ID |
 | `GLOW_DATA_CACHE_PATH` | *(none)* | Optional path for DataFrame cache (e.g., `/data/cache.parquet`) |
-| `GLOW_DATA_REFRESH_HOURS` | `1` | How often to poll ODK Central for new data |
+| `GLOW_DATA_REFRESH_HOURS` | `1` | How often to poll ODK Central for live collection counts (`uid`/`school`/date only). The full dataset is fetched at startup and on each vintage cut |
 | `GLOW_MIN_N` | `5` | Minimum distinct student count for suppression |
 | `GLOW_SECRET_KEY` | *(insecure default)* | JWT signing secret — **must be set in production** |
 | `GLOW_ALGORITHM` | `HS256` | JWT algorithm |
@@ -390,7 +390,7 @@ generated `instance_id` values from the transformed per-form CSVs.
 
 #### Step 5: Verify Data Ingestion
 
-The Glow API polls ODK Central hourly (configurable via `GLOW_DATA_REFRESH_HOURS`). To force an immediate refresh during development:
+The Glow API loads the full dataset from ODK Central at startup and again whenever a vintage is cut. Between cuts it only polls the fields behind the live counts endpoints, hourly by default (`GLOW_DATA_REFRESH_HOURS`). To force a fresh full load during development, cut a vintage (Admin page, or `glow-api vintages cut`), or:
 
 ```bash
 # Restart the API container to trigger a fresh data load

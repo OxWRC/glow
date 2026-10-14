@@ -142,7 +142,7 @@ def sample_df():
     df = _make_df(SAMPLE_CSV)
     # Compute derived scores like the real DataStore does
     mock_client = MockODKClient()
-    ds = DataStore(odk_client=mock_client, refresh_hours=0)
+    ds = DataStore(odk_client=mock_client)
     df = ds._process_loaded_data(df)
     return df
 
@@ -160,7 +160,7 @@ def empty_df():
     submissions have been loaded yet.
     """
     mock_client = MockODKClient()
-    ds = DataStore(odk_client=mock_client, refresh_hours=0)
+    ds = DataStore(odk_client=mock_client)
     return ds._process_loaded_data(pd.DataFrame())
 
 
@@ -178,7 +178,7 @@ def _make_mock_datastore(df: pd.DataFrame, metadata: dict = None) -> DataStore:
         metadata = {}
 
     mock_client = MockODKClient(submissions_df=df, metadata=metadata)
-    ds = DataStore(odk_client=mock_client, refresh_hours=0)
+    ds = DataStore(odk_client=mock_client)
     ds._df = ds._process_loaded_data(df)
     ds._metadata = metadata
     ds._lock = threading.Lock()

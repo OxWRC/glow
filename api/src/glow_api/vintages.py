@@ -189,13 +189,17 @@ def cut_vintage(
     created_by: Optional[tuple[int, str]] = None,
     bucket: Optional[str] = None,
 ) -> VintageInfo:
-    """Freeze the current DataStore frame and upload it as a new vintage.
+    """Fetch the latest data from ODK, freeze it, and upload it as a new vintage.
+
+    The cut is the only regular full fetch (see DataStore), so it raises
+    ODKFetchError rather than freezing stale data if ODK can't be reached.
 
     created_by is (user_id, username) for an admin-triggered cut, or None
     for a scheduler-triggered one - mirrors ApiKey.created_by_user_id's
     existing nullable-FK convention for "no user", just without a live FK.
     """
     bucket = _bucket(bucket)
+    datastore.refresh(strict=True)
     frozen = datastore.to_frozen()
     created_at = datetime.now(timezone.utc)
     prefix = _vintage_prefix(created_at)

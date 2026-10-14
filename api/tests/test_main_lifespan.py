@@ -57,6 +57,9 @@ def lifespan_env(monkeypatch):
     monkeypatch.setattr(main_module, "run_migrations", lambda: None)
     fake_store = _FakeDataStore()
     monkeypatch.setattr(main_module, "get_datastore", lambda: fake_store)
+    fake_counts = _FakeDataStore()
+    monkeypatch.setattr(main_module, "get_counts_store", lambda: fake_counts)
+    fake_store.counts = fake_counts
     monkeypatch.setattr(main_module, "BackgroundScheduler", _FakeScheduler)
     monkeypatch.setattr(main_module.settings, "AUDIT_LOG_PATH", None)
     return fake_store
@@ -102,3 +105,12 @@ def test_datastore_still_starts_and_stops_regardless(lifespan_env, monkeypatch):
 
     assert lifespan_env.started
     assert lifespan_env.shut_down
+
+
+def test_counts_store_starts_and_stops(lifespan_env, monkeypatch):
+    monkeypatch.setattr(main_module.settings, "VINTAGES_S3_BUCKET", None)
+
+    asyncio.run(_enter_and_exit_lifespan())
+
+    assert lifespan_env.counts.started
+    assert lifespan_env.counts.shut_down

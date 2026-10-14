@@ -501,6 +501,39 @@ export const ErrorServerError: Story = {
   },
 };
 
+// No vintage cut yet: /dimensions reads the pinned vintage too, so it 503s
+// like /query does. That's the calm "data is being prepared" state, not a
+// load failure.
+export const NoVintageYet: Story = {
+  parameters: {
+    msw: withApiResponses({
+      "GET /admin/me": "admin.me.user",
+      "GET /me": "me.authenticated",
+      "GET /dimensions": "dimensions.no-vintage",
+    }),
+  },
+  decorators: [withAuth(mockUser)],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await waitFor(
+      async () => {
+        await expect(
+          canvas.getByText(/Data is being prepared/i),
+        ).toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+
+    await expect(
+      canvas.queryByText(/No vintage available yet/i),
+    ).not.toBeInTheDocument();
+    await expect(
+      canvas.getByRole("heading", { level: 2, name: /Query Parameters/i }),
+    ).toBeInTheDocument();
+  },
+};
+
 // Error - Malformed JSON
 export const ErrorMalformedJSON: Story = {
   parameters: {

@@ -1,7 +1,6 @@
 """glow-api vintages: CLI cut/list, audited, same shape as api-keys CLI."""
 
 import json
-import threading
 
 import boto3
 import pytest
@@ -14,6 +13,7 @@ import glow_api.data
 from glow_api import audit as audit_module
 from glow_api.data import DataStore
 from glow_api.settings import settings
+from tests.mock_odk import MockODKClient
 
 BUCKET = "test-glow-cli-vintages"
 
@@ -32,10 +32,7 @@ def cli_env(monkeypatch, db_engine, tmp_path):
     vintages_module._latest_prefix_cache.invalidate()
     vintages_module._vintage_cache.clear()
 
-    fake_store = DataStore.__new__(DataStore)
-    fake_store._df = fake_store._process_loaded_data(_small_df())
-    fake_store._metadata = {}
-    fake_store._lock = threading.Lock()
+    fake_store = DataStore(odk_client=MockODKClient(submissions_df=_small_df()))
     fake_store.startup = lambda: None
     fake_store.shutdown = lambda: None
 
@@ -102,3 +99,17 @@ def test_list_with_no_vintages_says_so(cli_env):
 
     assert result.exit_code == 0
     assert "No vintages." in result.output
+
+
+def test_cut_fails_cleanly_when_odk_unreachable(cli_env, monkeypatch):
+    store = glow_api.data.get_datastore()
+
+    def boom(**kwargs):
+        raise RuntimeError("ODK down")
+
+    monkeypatch.setattr(store._odk_client, "fetch_submissions", boom)
+
+    result = CliRunner().invoke(cli_module.cli, ["vintages", "cut"])
+
+    assert result.exit_code == 1
+    assert "ODK" in result.output

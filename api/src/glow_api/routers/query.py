@@ -10,7 +10,8 @@ from glow_api import request_context
 from glow_api.auth import get_optional_school_user
 from glow_api.canonical_query import normalize_query
 from glow_api.query_execution import execute_query, compute_query_etag
-from glow_api.data import DataFrameWithWhitelists, DataStore, get_datastore
+from glow_api.counts_store import CountsStore, get_counts_store
+from glow_api.data import DataFrameWithWhitelists
 from glow_api.database import get_db
 from glow_api.raw_counts import floored_period_counts
 from glow_api.settings import settings
@@ -149,7 +150,7 @@ def query_counts(
     ),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
-    datastore: DataStore = Depends(get_datastore),
+    counts: CountsStore = Depends(get_counts_store),
 ) -> dict:
     """Live, un-pinned record counts per period - NOT suppressed output.
 
@@ -160,7 +161,7 @@ def query_counts(
     /query: school-filtered when authenticated for a school, dataset-wide
     for anonymous dataset-scoped callers.
     """
-    df = datastore.to_frozen().df
+    df = counts.frame()
 
     if school_id is not None:
         _user, school = get_optional_school_user(credentials, db, school_id)

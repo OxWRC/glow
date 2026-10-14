@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 
 from glow_api import request_context
 from glow_api.auth import require_api_key
-from glow_api.data import DataFrameWithWhitelists, DataStore, get_datastore
+from glow_api.counts_store import CountsStore, get_counts_store
+from glow_api.data import DataFrameWithWhitelists
 from glow_api.database import get_db, record_api_key_use
 from glow_api.export import (
     ExportCache,
@@ -63,7 +64,7 @@ def pseudonymous_export(
 @router.get("/export/counts")
 def export_counts(
     api_key: ApiKey = Depends(require_api_key),
-    datastore: DataStore = Depends(get_datastore),
+    counts: CountsStore = Depends(get_counts_store),
     rules: Rules = Depends(get_suppression_rules),
 ) -> dict:
     """Live, un-pinned record counts per period - NOT suppressed output.
@@ -75,5 +76,4 @@ def export_counts(
     only, mirroring /export's no-filter design - there is no per-school
     scoping to apply here.
     """
-    df = datastore.to_frozen().df
-    return {"counts": floored_period_counts(df, rules.min_n)}
+    return {"counts": floored_period_counts(counts.frame(), rules.min_n)}

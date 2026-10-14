@@ -610,13 +610,13 @@ def vintages() -> None:
 def vintages_cut() -> None:
     """Cut a vintage now, outside the scheduled cadence (e.g. right after a
     school finishes a data collection push)."""
-    from glow_api.data import get_datastore
+    from glow_api.data import ODKFetchError, get_datastore
 
-    datastore = get_datastore()
-    if datastore.to_frozen().df.empty:
-        click.echo("Data not yet loaded, loading now...")
-        datastore.startup()
-    info = cut_vintage(datastore, get_s3_client(), created_by=None)
+    try:
+        info = cut_vintage(get_datastore(), get_s3_client(), created_by=None)
+    except ODKFetchError as exc:
+        click.echo(f"Error: {exc}. No vintage cut.", err=True)
+        sys.exit(1)
     _audit_cli("vintage_cut", prefix=info.prefix, row_count=info.row_count)
     click.echo(f"Cut vintage {info.prefix} ({info.row_count} rows).")
 

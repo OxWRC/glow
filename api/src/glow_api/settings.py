@@ -25,7 +25,9 @@ class Settings(BaseSettings):
 
     # Data refresh configuration
     DATA_CACHE_PATH: Optional[str] = None  # If set, cache DataFrame and ETAG
-    DATA_REFRESH_HOURS: int = 1  # Poll ODK Central every hour
+    # Hourly slim poll (uid/school/date only) behind the live counts
+    # endpoints. The full dataset is fetched at startup and vintage cuts only.
+    DATA_REFRESH_HOURS: int = 1
     DATA_PREFIXES: List[str] = ["bw", "phq9"]
     DATA_DEMOGRAPHIC_PREFIXES: List[str] = ["d"]
 

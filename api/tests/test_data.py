@@ -253,10 +253,9 @@ class TestDataStore:
     def test_init(self):
         """Test DataStore initialization."""
         mock_client = MockODKClient()
-        ds = DataStore(odk_client=mock_client, refresh_hours=24)
+        ds = DataStore(odk_client=mock_client)
 
         assert ds._odk_client == mock_client
-        assert ds._refresh_hours == 24
         assert isinstance(ds._df, pd.DataFrame)
         assert ds._df.empty
         assert isinstance(ds._lock, type(threading.Lock()))
@@ -280,7 +279,7 @@ class TestDataStore:
         }
 
         mock_client = MockODKClient(submissions_df=df, metadata=metadata)
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
 
         loaded_df = ds._load()
 
@@ -313,7 +312,7 @@ class TestDataStore:
         )
 
         mock_client = MockODKClient(submissions_df=df, etag="test-etag-123")
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
 
         # First load
         df1 = ds._load()
@@ -342,7 +341,7 @@ class TestDataStore:
         )
 
         mock_client = MockODKClient(submissions_df=df1, metadata={})
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
         ds.refresh()
 
         # Verify initial data
@@ -374,11 +373,11 @@ class TestDataStore:
 
         # Create a mock that raises an error
         class ErrorODKClient(MockODKClient):
-            def fetch_submissions(self, etags=None):
+            def fetch_submissions(self, etags=None, select=None):
                 raise RuntimeError("ODK Central connection failed")
 
         mock_client = ErrorODKClient()
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
 
         # Set initial data
         ds._df = pd.DataFrame({"uid": ["S001"]})
@@ -393,11 +392,11 @@ class TestDataStore:
         """Test that failed refreshes are logged at warning level."""
 
         class ErrorODKClient(MockODKClient):
-            def fetch_submissions(self, etags=None):
+            def fetch_submissions(self, etags=None, select=None):
                 raise RuntimeError("ODK Central connection failed")
 
         mock_client = ErrorODKClient()
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
 
         warnings = []
 
@@ -418,7 +417,7 @@ class TestDataStore:
     def test_get_dataframe_returns_copy(self):
         """Test that to_frozen returns a copy, not the original."""
         mock_client = MockODKClient()
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
         ds._df = pd.DataFrame(
             {
                 "uid": ["S001", "S002"],
@@ -451,7 +450,7 @@ class TestDataStore:
         )
 
         mock_client = MockODKClient(submissions_df=df, metadata={})
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
         ds.startup()
         assert ds._initial_load_complete.wait(timeout=5)
 
@@ -481,52 +480,62 @@ class TestDataStore:
 
         ds.shutdown()
 
-    def test_startup_and_shutdown(self):
-        """Test startup and shutdown methods."""
-        df = pd.DataFrame(
-            {
-                "uid": ["S001"],
-                "wave": [1],
-                "bw_wbeing_1": [3],
-            }
+    def test_startup_loads_once_and_schedules_no_refresh(self, monkeypatch):
+        """The full fetch happens at startup and at vintage cuts only - the
+        hourly poll is CountsStore's slim fetch, not this one."""
+        from apscheduler.schedulers.background import BackgroundScheduler
+
+        jobs = []
+        monkeypatch.setattr(
+            BackgroundScheduler,
+            "add_job",
+            lambda self, *args, **kwargs: jobs.append((args, kwargs)),
         )
-
+        df = pd.DataFrame({"uid": ["S001"], "wave": [1], "bw_wbeing_1": [3]})
         mock_client = MockODKClient(submissions_df=df, metadata={})
-        ds = DataStore(odk_client=mock_client, refresh_hours=1)
+        ds = DataStore(odk_client=mock_client)
 
-        # Verify data is not loaded yet
         assert ds._df.empty
 
-        # Startup schedules the initial refresh in the background (non-blocking)
+        # Startup runs the initial refresh in the background (non-blocking)
         ds.startup()
         assert ds._initial_load_complete.wait(timeout=5)
-        assert not ds._df.empty
-        assert len(ds._df) == 1
-
-        # Shutdown should stop scheduler
         ds.shutdown()
-        assert not ds._scheduler.running
 
-    def test_startup_with_zero_refresh_hours(self):
-        """Test that scheduler is not started when refresh_hours is 0."""
-        df = pd.DataFrame(
-            {
-                "uid": ["S001"],
-                "wave": [1],
-                "bw_wbeing_1": [3],
-            }
+        assert len(ds._df) == 1
+        assert mock_client.fetch_count == 1
+        assert jobs == []
+
+    def test_strict_refresh_raises_and_keeps_previous_data(self):
+        """A vintage cut must not silently freeze stale data."""
+
+        class ErrorODKClient(MockODKClient):
+            def fetch_submissions(self, etags=None, select=None):
+                raise RuntimeError("ODK Central connection failed")
+
+        ds = DataStore(odk_client=ErrorODKClient())
+        ds._df = pd.DataFrame({"uid": ["S001"]})
+
+        with pytest.raises(data_module.ODKFetchError):
+            ds.refresh(strict=True)
+
+        assert list(ds.to_frozen().df["uid"]) == ["S001"]
+
+    def test_strict_refresh_picks_up_new_submissions(self):
+        mock_client = MockODKClient(
+            submissions_df=pd.DataFrame({"uid": ["S001"], "bw_wbeing_1": [3]}),
+            etag="e1",
         )
+        ds = DataStore(odk_client=mock_client)
+        ds.refresh(strict=True)
 
-        mock_client = MockODKClient(submissions_df=df, metadata={})
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
-        ds.startup()
+        mock_client.submissions_df = pd.DataFrame(
+            {"uid": ["S001", "S002"], "bw_wbeing_1": [3, 4]}
+        )
+        mock_client.response_etags["bewell_questionnaire"] = "e2"
+        ds.refresh(strict=True)
 
-        # Verify data is loaded once the background refresh completes
-        assert ds._initial_load_complete.wait(timeout=5)
-        assert not ds._df.empty
-
-        # Verify scheduler is not running (no recurring job scheduled)
-        assert not ds._scheduler.running
+        assert sorted(ds.to_frozen().df["uid"]) == ["S001", "S002"]
 
     def test_startup_odk_error_logs_warning_and_keeps_empty_dataframe(
         self, monkeypatch
@@ -534,10 +543,10 @@ class TestDataStore:
         """Test startup tolerates ODK failures and logs refresh warnings."""
 
         class ErrorODKClient(MockODKClient):
-            def fetch_submissions(self, etags=None):
+            def fetch_submissions(self, etags=None, select=None):
                 raise RuntimeError("ODK Central connection failed")
 
-        ds = DataStore(odk_client=ErrorODKClient(), refresh_hours=0)
+        ds = DataStore(odk_client=ErrorODKClient())
 
         warnings = []
 
@@ -574,9 +583,7 @@ class TestDataStore:
             mock_client = MockODKClient(
                 submissions_df=df, metadata={}, etag="test-etag"
             )
-            ds = DataStore(
-                odk_client=mock_client, refresh_hours=0, cache_path=cache_path
-            )
+            ds = DataStore(odk_client=mock_client, cache_path=cache_path)
 
             # Load data (should save to cache)
             ds._load()
@@ -589,9 +596,7 @@ class TestDataStore:
             mock_client2 = MockODKClient(
                 submissions_df=df, metadata={}, etag="test-etag"
             )
-            ds2 = DataStore(
-                odk_client=mock_client2, refresh_hours=0, cache_path=cache_path
-            )
+            ds2 = DataStore(odk_client=mock_client2, cache_path=cache_path)
 
             cached = ds2._load_cache()
             assert cached is not None
@@ -623,20 +628,16 @@ class TestDataStore:
             mock_client = MockODKClient(
                 submissions_df=df, metadata={}, etag="test-etag"
             )
-            ds = DataStore(
-                odk_client=mock_client, refresh_hours=0, cache_path=cache_path
-            )
+            ds = DataStore(odk_client=mock_client, cache_path=cache_path)
             ds._load()  # populates cache on disk
 
             # Simulate a fresh process starting up with ODK unreachable: cache
             # loads, but the scheduled refresh job fails, so only cache data is used.
             class ErrorODKClient(MockODKClient):
-                def fetch_submissions(self, etags=None):
+                def fetch_submissions(self, etags=None, select=None):
                     raise RuntimeError("ODK Central connection failed")
 
-            ds2 = DataStore(
-                odk_client=ErrorODKClient(), refresh_hours=0, cache_path=cache_path
-            )
+            ds2 = DataStore(odk_client=ErrorODKClient(), cache_path=cache_path)
             ds2.startup()
 
             assert not ds2._df.empty
@@ -706,7 +707,7 @@ class TestDataStore:
                 "demographics_questionnaire": "etag-demo",
             },
         )
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
 
         loaded_df = ds._load()
 
@@ -758,7 +759,7 @@ class TestDataStore:
                 "phq9_questionnaire": "etag-phq-1",
             },
         )
-        ds = DataStore(odk_client=mock_client, refresh_hours=0)
+        ds = DataStore(odk_client=mock_client)
         first = ds._load()
         ds._df = first
 

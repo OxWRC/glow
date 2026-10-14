@@ -286,7 +286,6 @@ def test_dimensions_exposes_namespaced_variable_metadata(
 ):
     """/dimensions should identify the source form for namespaced variables."""
     from fastapi.testclient import TestClient
-    from glow_api.data import get_datastore
     from glow_api.database import get_db
     from glow_api.main import app
     from glow_api.models import UserRead
@@ -321,9 +320,6 @@ def test_dimensions_exposes_namespaced_variable_metadata(
     def override_get_db():
         yield db_session
 
-    def override_get_datastore():
-        return fake_store
-
     def override_get_current_user():
         return UserRead(
             id=sample_user.id,
@@ -336,8 +332,10 @@ def test_dimensions_exposes_namespaced_variable_metadata(
 
     from glow_api.auth import require_current_user
 
+    from glow_api.vintages import get_current_vintage_frame
+
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_datastore] = override_get_datastore
+    app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
     app.dependency_overrides[require_current_user] = override_get_current_user
 
     with TestClient(app, raise_server_exceptions=True) as client:
@@ -617,3 +615,46 @@ def test_query_get_school_scope_no_data_loaded(auth_client_empty_data, sample_sc
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == status.HTTP_200_OK
+
+
+def test_dimensions_reads_the_pinned_vintage_not_live_data(
+    db_session, sample_user, sample_schools
+):
+    """/dimensions must describe the same frame /query answers from, or the
+    dashboard can offer variables the pinned vintage doesn't have."""
+    from fastapi.testclient import TestClient
+    from glow_api.data import get_datastore
+    from glow_api.database import get_db
+    from glow_api.main import app
+    from glow_api.vintages import get_current_vintage_frame
+    from tests.conftest import _make_mock_datastore
+
+    vintage_df = pd.DataFrame(
+        {
+            "uid": ["S001"],
+            "school": ["Focus School Academy"],
+            "bw_vintage_1": [3],
+        }
+    )
+    vintage_store = _make_mock_datastore(vintage_df)
+    vintage_store._numerical_whitelist = ["bw_vintage_1"]
+
+    def live_datastore_must_not_be_read():
+        raise AssertionError("/dimensions read the live DataStore")
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_datastore] = live_datastore_must_not_be_read
+    app.dependency_overrides[get_current_vintage_frame] = lambda: (
+        vintage_store.to_frozen()
+    )
+
+    with TestClient(app, raise_server_exceptions=True) as client:
+        response = client.get("/dimensions")
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [v["key"] for v in response.json()["variables"]] == ["bw_vintage_1"]

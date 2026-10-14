@@ -67,10 +67,11 @@ export function DashboardPage() {
   const [queryResult, setQueryResult] = useState<NewQueryResponse | null>(null);
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
-  // 503 from /query means "no data vintage has been published yet" - an
-  // expected, temporary state (first deploy, or between the scheduled cut
-  // and the next one), not a failure. Tracked separately from queryError
-  // so it gets a calm, non-alarming treatment instead of a red error box.
+  // 503 from /query or /dimensions (both read the pinned vintage) means "no
+  // data vintage has been published yet" - an expected, temporary state
+  // (first deploy, before the first cut), not a failure. Tracked separately
+  // from queryError so it gets a calm, non-alarming treatment instead of a
+  // red error box.
   const [queryUnavailable, setQueryUnavailable] = useState(false);
   const [facetMode, setFacetMode] = useState<FacetMode>("variable");
 
@@ -101,10 +102,19 @@ export function DashboardPage() {
 
       // Fetch dimensions - works for both anonymous and authenticated.
       // If authenticated with a selected school, get school-specific dimensions
-      const newDimensions = await getDimensions({
-        school_id: schoolId ?? undefined,
-        token: token ?? undefined,
-      });
+      let newDimensions: DimensionsResponse;
+      try {
+        newDimensions = await getDimensions({
+          school_id: schoolId ?? undefined,
+          token: token ?? undefined,
+        });
+      } catch (e: unknown) {
+        if (e instanceof ApiError && e.status === 503) {
+          setQueryUnavailable(true);
+          return;
+        }
+        throw e;
+      }
       setDimensions(newDimensions);
 
       // Set default variable if available
@@ -160,6 +170,10 @@ export function DashboardPage() {
         setQueryResult(null);
       })
       .catch((e: unknown) => {
+        if (e instanceof ApiError && e.status === 503) {
+          setQueryUnavailable(true);
+          return;
+        }
         setError(
           e instanceof Error ? e.message : i18n.t("dashboard.loadErrorHelp"),
         );

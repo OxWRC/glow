@@ -53,7 +53,7 @@ _TEST_RULES = parse_rules("min_n: 1\ndimensions: [school]\nescalation: []\n")
 
 
 def _make_period_store() -> DataStore:
-    ds = DataStore(odk_client=MockODKClient(), refresh_hours=0)
+    ds = DataStore(odk_client=MockODKClient())
     ds._df = _PERIOD_DF.copy()
     ds._categorical_whitelist = []
     ds._numerical_whitelist = ["bw_wbeing_1"]
@@ -64,6 +64,8 @@ def _make_period_store() -> DataStore:
     ds._lock = threading.Lock()
     ds.startup = lambda: None
     ds.shutdown = lambda: None
+    # The frame above is set by hand: a cut's ODK fetch mustn't replace it.
+    ds.refresh = lambda strict=False: None
     return ds
 
 
@@ -127,6 +129,18 @@ def test_query_before_first_vintage_fails_closed(pinned_client):
     response = client.get("/query/", params={"v": ["bw_wbeing_1"]})
 
     assert response.status_code == 503
+
+
+def test_dimensions_before_first_vintage_fails_closed(pinned_client):
+    from glow_api.contract_examples import get_example
+
+    client, _ = pinned_client
+    example = get_example("dimensions.no-vintage")
+
+    response = client.get("/dimensions")
+
+    assert response.status_code == example["status"]
+    assert response.json() == example["response"]
 
 
 def test_query_is_pinned_not_live(pinned_client, s3_client):

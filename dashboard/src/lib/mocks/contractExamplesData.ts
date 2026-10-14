@@ -311,6 +311,18 @@ export const contractExamplesData = [
     },
   },
   {
+    id: "dimensions.no-vintage",
+    method: "GET",
+    path: "/dimensions",
+    status: 503,
+    request_model: null,
+    response_model: "ErrorDetailResponse",
+    request: null,
+    response: {
+      detail: "No vintage available yet",
+    },
+  },
+  {
     id: "dimensions.school",
     method: "GET",
     path: "/dimensions?school_id=1",
