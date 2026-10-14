@@ -1075,6 +1075,29 @@ def list_deployments(
     return deployments
 
 
+# Mirrors runner.tf's metadata_options.http_put_response_hop_limit.
+IMDS_HOP_LIMIT = 2
+
+
+def ensure_imds_hop_limit(
+    instance_id: str, region: str, session: boto3.Session | None = None
+) -> None:
+    """Let containers reach IMDS on runners provisioned before the hop limit
+    was raised.
+
+    ``update()`` never applies Terraform, so runners created with hop limit 1
+    keep it, and the api container's boto3 client gets no instance-role
+    credentials. The call is idempotent and takes effect without a restart.
+    """
+    ec2 = _client(session, "ec2", region)
+    ec2.modify_instance_metadata_options(
+        InstanceId=instance_id,
+        HttpEndpoint="enabled",
+        HttpTokens="required",
+        HttpPutResponseHopLimit=IMDS_HOP_LIMIT,
+    )
+
+
 def find_root_volume_id(
     instance_id: str, region: str, session: boto3.Session | None = None
 ) -> str:
@@ -1543,6 +1566,7 @@ def update(config: Config) -> None:
         ),
     )
 
+    ensure_imds_hop_limit(instance_id, config.aws_region, config.session)
     prepare_runner_repository(
         instance_id,
         config.aws_region,

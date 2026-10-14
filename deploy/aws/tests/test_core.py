@@ -193,6 +193,7 @@ class _FakeEc2Client:
         self.describe_instances_calls: list[dict] = []
         self.create_tags_calls: list[dict] = []
         self.delete_volume_calls: list[dict] = []
+        self.modify_instance_metadata_options_calls: list[dict] = []
 
     def describe_instances(self, **kwargs):
         self.describe_instances_calls.append(kwargs)
@@ -203,6 +204,9 @@ class _FakeEc2Client:
 
     def delete_volume(self, **kwargs):
         self.delete_volume_calls.append(kwargs)
+
+    def modify_instance_metadata_options(self, **kwargs):
+        self.modify_instance_metadata_options_calls.append(kwargs)
 
 
 def test_list_deployments_maps_tags_from_terraform_managed_instances(monkeypatch):
@@ -2028,7 +2032,12 @@ def _update_stubs(monkeypatch, outputs, calls):
     )
     monkeypatch.setattr(core, "verify_runner_health", lambda *a: None)
     monkeypatch.setattr(
-        core, "_client", lambda *a: SimpleNamespace(create_tags=lambda **k: None)
+        core,
+        "_client",
+        lambda *a: SimpleNamespace(
+            create_tags=lambda **k: None,
+            modify_instance_metadata_options=lambda **k: None,
+        ),
     )
 
 
@@ -2153,6 +2162,7 @@ def test_sync_odk_api_env_migrates_existing_runtime_env(tmp_path):
         "GLOW_SECRET_KEY=keep-me\n"
         "GLOW_ODK_API_URL=https://nginx\n"
         "GLOW_ODK_VERIFY_SSL=false\n"
+        "ODK_PUBLIC_HTTPS_PORT=8443\n"
     )
 
     text = _run_activate_function("sync_odk_api_env", runtime_env, "demo.example.org")
@@ -2163,6 +2173,10 @@ def test_sync_odk_api_env_migrates_existing_runtime_env(tmp_path):
     assert "GLOW_ODK_HOST_HEADER=odk.demo.example.org" in lines
     assert "GLOW_ODK_API_URL=https://nginx" not in lines
     assert sum(line.startswith("GLOW_ODK_API_URL=") for line in lines) == 1
+    # The ALB terminates TLS on 443, so Central/Enketo public URLs use it.
+    assert [line for line in lines if line.startswith("ODK_PUBLIC_HTTPS_PORT=")] == [
+        "ODK_PUBLIC_HTTPS_PORT=443"
+    ]
 
     # Idempotent on re-activation.
     assert (
@@ -2398,3 +2412,39 @@ def test_update_proceeds_when_rules_unchanged(monkeypatch):
     core.update(_make_config())
     assert compared == [("c" * 40, "deadbeef" * 5)]
     assert len(calls) == 1
+
+
+def test_runner_imds_reachable_from_containers():
+    # IMDSv2's token response must survive the extra hop through Docker's
+    # bridge network, or the api container gets no instance-role credentials
+    # and every vintages S3 call fails.
+    runner_tf = (AWS_DEPLOY_DIR / "terraform" / "runner.tf").read_text()
+    assert f"http_put_response_hop_limit = {core.IMDS_HOP_LIMIT}" in runner_tf
+
+
+def test_update_raises_imds_hop_limit_before_activation(monkeypatch):
+    # update() never applies Terraform, so runners provisioned with hop
+    # limit 1 must be fixed in place before activation starts the api.
+    calls = []
+    _update_stubs(monkeypatch, {"runner_instance_id": "i-1"}, calls)
+    fake_ec2 = _FakeEc2Client()
+    monkeypatch.setattr(core, "_client", lambda *a: fake_ec2)
+    hop_limit_calls_at_prepare = []
+    monkeypatch.setattr(
+        core,
+        "prepare_runner_repository",
+        lambda *a: hop_limit_calls_at_prepare.extend(
+            fake_ec2.modify_instance_metadata_options_calls
+        ),
+    )
+
+    core.update(_make_config())
+
+    expected = {
+        "InstanceId": "i-1",
+        "HttpEndpoint": "enabled",
+        "HttpTokens": "required",
+        "HttpPutResponseHopLimit": 2,
+    }
+    assert fake_ec2.modify_instance_metadata_options_calls == [expected]
+    assert hop_limit_calls_at_prepare == [expected]
