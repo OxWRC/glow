@@ -6,6 +6,8 @@ vintages.py module itself - the differencing-closing mechanism.
 """
 
 import json
+import threading
+import time
 
 import boto3
 import pytest
@@ -115,6 +117,46 @@ def test_cut_vintage_writes_nothing_when_odk_fetch_fails(s3_client, sample_df):
         cut_vintage(datastore, s3_client, bucket=BUCKET)
 
     assert "Contents" not in s3_client.list_objects_v2(Bucket=BUCKET)
+
+
+def test_overlapping_cuts_run_one_after_the_other(s3_client, sample_df):
+    # A manual cut racing a scheduled one must not interleave: otherwise the
+    # older fetch can be published last and frozen under the newer timestamp.
+    datastore = _make_mock_datastore(sample_df)
+    first_in_refresh = threading.Event()
+    release_first = threading.Event()
+    events = []
+
+    def refresh(strict=False):
+        call = len([e for e in events if e.startswith("start")])
+        events.append(f"start {call}")
+        if call == 0:
+            first_in_refresh.set()
+            release_first.wait(timeout=5)
+        events.append(f"end {call}")
+
+    datastore.refresh = refresh
+    first = threading.Thread(
+        target=cut_vintage, args=(datastore, s3_client), kwargs={"bucket": BUCKET}
+    )
+    second = threading.Thread(
+        target=cut_vintage, args=(datastore, s3_client), kwargs={"bucket": BUCKET}
+    )
+
+    first.start()
+    try:
+        assert first_in_refresh.wait(timeout=5)
+        second.start()
+        time.sleep(0.2)
+        assert events == ["start 0"]
+    finally:
+        release_first.set()
+        first.join(timeout=5)
+        if second.ident is not None:  # started
+            second.join(timeout=5)
+
+    assert events == ["start 0", "end 0", "start 1", "end 1"]
+    assert len(list_vintages(s3_client, bucket=BUCKET)) == 2
 
 
 def _hand_set_datastore(df):

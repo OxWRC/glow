@@ -184,6 +184,12 @@ def _vintage_info_from_meta(prefix: str, meta: dict) -> VintageInfo:
     )
 
 
+# Cuts run one at a time. Overlapping manual and scheduled cuts would
+# otherwise race on the shared DataStore: the older ODK fetch could be
+# published last and frozen under the newer cut's timestamp.
+_cut_lock = threading.Lock()
+
+
 def cut_vintage(
     datastore: DataStore,
     s3_client: Any,
@@ -199,7 +205,16 @@ def cut_vintage(
     for a scheduler-triggered one - mirrors ApiKey.created_by_user_id's
     existing nullable-FK convention for "no user", just without a live FK.
     """
-    bucket = _bucket(bucket)
+    with _cut_lock:
+        return _cut_vintage(datastore, s3_client, created_by, _bucket(bucket))
+
+
+def _cut_vintage(
+    datastore: DataStore,
+    s3_client: Any,
+    created_by: Optional[tuple[int, str]],
+    bucket: str,
+) -> VintageInfo:
     datastore.refresh(strict=True)
     frozen = datastore.to_frozen()
     created_at = datetime.now(timezone.utc)
