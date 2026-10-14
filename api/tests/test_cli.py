@@ -1,13 +1,12 @@
 """Tests for the glow-api admin CLI."""
 
-import threading
-
 from click.testing import CliRunner
 from sqlalchemy.orm import sessionmaker
 
 import glow_api.cli as cli_module
-from glow_api.data import DataStore
+import glow_api.counts_store as counts_module
 from glow_api.metadata_models import User
+from tests.conftest import _make_counts_store
 
 
 def test_db_init_runs_migrations(monkeypatch):
@@ -87,68 +86,51 @@ def test_schools_sync_extracts_creates_and_grants_access(
     Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
     monkeypatch.setattr(cli_module, "SessionLocal", Session)
 
-    # Create a fake datastore with sample data
-    fake_store = DataStore.__new__(DataStore)
-    fake_store._df = fake_store._process_loaded_data(sample_df)
-    fake_store._metadata = {}
-    fake_store._lock = threading.Lock()
-    fake_store.startup = lambda: None
-    fake_store.shutdown = lambda: None
+    # Schools come from the slim counts data (school names only).
+    fake_counts = _make_counts_store(sample_df)
+    monkeypatch.setattr(counts_module, "get_counts_store", lambda: fake_counts)
 
-    def override_get_datastore():
-        return fake_store
+    # Create an admin user first
+    with Session() as session:
+        from glow_api.database import create_user
 
-    # Patch get_datastore in cli module
-    import glow_api.data
+        admin = create_user(
+            session,
+            username="admin",
+            is_admin=True,
+        )
+        assert len(admin.schools) == 0
 
-    original_get_datastore = glow_api.data.get_datastore
-    glow_api.data.get_datastore = override_get_datastore
+    # Run the sync command
+    runner = CliRunner()
+    result = runner.invoke(cli_module.cli, ["schools", "sync"])
 
-    try:
-        # Create an admin user first
-        with Session() as session:
-            from glow_api.database import create_user
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert "School synchronization completed successfully!" in result.output
+    assert "Focus School Academy" in result.output
+    assert "Neighbouring School" in result.output
 
-            admin = create_user(
-                session,
-                username="admin",
-                is_admin=True,
-            )
-            assert len(admin.schools) == 0
+    # Verify schools were created
+    with Session() as session:
+        from glow_api.database import list_schools
 
-        # Run the sync command
-        runner = CliRunner()
-        result = runner.invoke(cli_module.cli, ["schools", "sync"])
+        schools = list_schools(session)
+        assert len(schools) == 2
+        school_names = {s.name for s in schools}
+        assert "Focus School Academy" in school_names
+        assert "Neighbouring School" in school_names
 
-        assert result.exit_code == 0, f"Command failed: {result.output}"
-        assert "School synchronization completed successfully!" in result.output
-        assert "Focus School Academy" in result.output
-        assert "Neighbouring School" in result.output
+        # Verify each school has neighbors
+        for school in schools:
+            # With only 2 schools, each should have the other as a neighbor
+            assert len(school.geographical_neighbors) == 1
+            assert len(school.statistical_neighbors) == 1
 
-        # Verify schools were created
-        with Session() as session:
-            from glow_api.database import list_schools
-
-            schools = list_schools(session)
-            assert len(schools) == 2
-            school_names = {s.name for s in schools}
-            assert "Focus School Academy" in school_names
-            assert "Neighbouring School" in school_names
-
-            # Verify each school has neighbors
-            for school in schools:
-                # With only 2 schools, each should have the other as a neighbor
-                assert len(school.geographical_neighbors) == 1
-                assert len(school.statistical_neighbors) == 1
-
-            # Verify admin has access to all schools
-            admin = session.query(User).filter_by(username="admin").one()
-            assert len(admin.schools) == 2
-            admin_school_names = {s.name for s in admin.schools}
-            assert admin_school_names == school_names
-
-    finally:
-        glow_api.data.get_datastore = original_get_datastore
+        # Verify admin has access to all schools
+        admin = session.query(User).filter_by(username="admin").one()
+        assert len(admin.schools) == 2
+        admin_school_names = {s.name for s in admin.schools}
+        assert admin_school_names == school_names
 
 
 def test_schools_sync_is_idempotent(monkeypatch, db_engine, sample_df):
@@ -156,39 +138,22 @@ def test_schools_sync_is_idempotent(monkeypatch, db_engine, sample_df):
     Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
     monkeypatch.setattr(cli_module, "SessionLocal", Session)
 
-    # Create a fake datastore with sample data
-    fake_store = DataStore.__new__(DataStore)
-    fake_store._df = fake_store._process_loaded_data(sample_df)
-    fake_store._metadata = {}
-    fake_store._lock = threading.Lock()
-    fake_store.startup = lambda: None
-    fake_store.shutdown = lambda: None
+    # Schools come from the slim counts data (school names only).
+    fake_counts = _make_counts_store(sample_df)
+    monkeypatch.setattr(counts_module, "get_counts_store", lambda: fake_counts)
 
-    def override_get_datastore():
-        return fake_store
+    runner = CliRunner()
 
-    # Patch get_datastore in cli module
-    import glow_api.data
+    # Run sync twice
+    result1 = runner.invoke(cli_module.cli, ["schools", "sync"])
+    assert result1.exit_code == 0
 
-    original_get_datastore = glow_api.data.get_datastore
-    glow_api.data.get_datastore = override_get_datastore
+    result2 = runner.invoke(cli_module.cli, ["schools", "sync"])
+    assert result2.exit_code == 0
 
-    try:
-        runner = CliRunner()
+    # Verify we still have only 2 schools
+    with Session() as session:
+        from glow_api.database import list_schools
 
-        # Run sync twice
-        result1 = runner.invoke(cli_module.cli, ["schools", "sync"])
-        assert result1.exit_code == 0
-
-        result2 = runner.invoke(cli_module.cli, ["schools", "sync"])
-        assert result2.exit_code == 0
-
-        # Verify we still have only 2 schools
-        with Session() as session:
-            from glow_api.database import list_schools
-
-            schools = list_schools(session)
-            assert len(schools) == 2
-
-    finally:
-        glow_api.data.get_datastore = original_get_datastore
+        schools = list_schools(session)
+        assert len(schools) == 2

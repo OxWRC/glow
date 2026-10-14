@@ -1,0 +1,12 @@
+{
+  "id": "query.counts",
+  "method": "GET",
+  "path": "/query/counts",
+  "status": 200,
+  "request_model": null,
+  "response_model": "CountsResponse",
+  "request": null,
+  "response": {
+    "counts": { "2025-2026": 412, "2026-2027": null }
+  }
+}

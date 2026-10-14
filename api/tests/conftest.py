@@ -19,6 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from glow_api.auth import get_current_user, require_current_user
+from glow_api.counts_store import CountsStore, get_counts_store
 from glow_api.data import DataStore
 from glow_api.database import create_user, create_school, get_db
 from glow_api.metadata_models import Base
@@ -187,6 +188,13 @@ def _make_mock_datastore(df: pd.DataFrame, metadata: dict = None) -> DataStore:
     return ds
 
 
+def _make_counts_store(df: pd.DataFrame) -> CountsStore:
+    """A CountsStore holding df's uid/school/period_id, as the slim poll would."""
+    store = CountsStore(odk_client=MockODKClient(), refresh_hours=0)
+    store._frame = df.reindex(columns=["uid", "school", "period_id"])
+    return store
+
+
 # ---------------------------------------------------------------------------
 # Test client with overridden dependencies
 # ---------------------------------------------------------------------------
@@ -230,6 +238,8 @@ def client(db_session, sample_user, sample_schools, sample_df):
     # unchanged. Tests that care about vintage-pinning itself override this
     # dependency again, more narrowly, on top of this client.
     app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
+    fake_counts = _make_counts_store(fake_store.to_frozen().df)
+    app.dependency_overrides[get_counts_store] = lambda: fake_counts
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -253,6 +263,8 @@ def auth_client(db_session, sample_user, sample_schools, sample_df):
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_datastore] = override_get_datastore
     app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
+    fake_counts = _make_counts_store(fake_store.to_frozen().df)
+    app.dependency_overrides[get_counts_store] = lambda: fake_counts
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -276,6 +288,8 @@ def auth_client_empty_data(db_session, sample_user, sample_schools, empty_df):
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_datastore] = override_get_datastore
     app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
+    fake_counts = _make_counts_store(fake_store.to_frozen().df)
+    app.dependency_overrides[get_counts_store] = lambda: fake_counts
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -313,6 +327,8 @@ def admin_client(db_session, admin_user, sample_schools, sample_df):
     app.dependency_overrides[require_current_user] = override_get_current_user
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_current_vintage_frame] = lambda: fake_store.to_frozen()
+    fake_counts = _make_counts_store(fake_store.to_frozen().df)
+    app.dependency_overrides[get_counts_store] = lambda: fake_counts
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c

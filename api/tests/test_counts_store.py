@@ -173,3 +173,62 @@ def test_refresh_through_real_client_with_narrow_system_payload(monkeypatch):
     assert list(frame["school"]) == ["Focus"]
     # 00:30 BST on 1 September: the new academic year, not the old one.
     assert list(frame["period_id"]) == ["2025-2026"]
+
+
+def test_refresh_writes_cache_that_a_fresh_store_loads(tmp_path):
+    # glow-init seeds schools from this file instead of fetching from ODK.
+    cache_path = tmp_path / "counts.parquet"
+    client = MockODKClient(submissions_by_form={"f1": _slim(["S1", "S2"], "Focus")})
+    CountsStore(odk_client=client, refresh_hours=0, cache_path=cache_path).refresh()
+
+    offline = MockODKClient()
+    store = CountsStore(odk_client=offline, refresh_hours=0, cache_path=cache_path)
+    frame = store.ensure_loaded()
+
+    assert sorted(frame["uid"]) == ["S1", "S2"]
+    assert offline.fetch_count == 0
+
+
+def test_ensure_loaded_fetches_when_there_is_no_cache(tmp_path):
+    client = MockODKClient(submissions_by_form={"f1": _slim(["S1"], "Focus")})
+    store = CountsStore(
+        odk_client=client, refresh_hours=0, cache_path=tmp_path / "none.parquet"
+    )
+
+    frame = store.ensure_loaded()
+
+    assert list(frame["uid"]) == ["S1"]
+    assert client.fetch_count == 1
+
+
+def test_failed_refresh_leaves_cache_untouched(tmp_path):
+    cache_path = tmp_path / "counts.parquet"
+    client = MockODKClient(submissions_by_form={"f1": _slim(["S1"], "Focus")})
+    store = CountsStore(odk_client=client, refresh_hours=0, cache_path=cache_path)
+    store.refresh()
+
+    def boom(**kwargs):
+        raise RuntimeError("ODK down")
+
+    client.fetch_submissions = boom
+    store.refresh()
+
+    reloaded = CountsStore(
+        odk_client=MockODKClient(), refresh_hours=0, cache_path=cache_path
+    )
+    assert list(reloaded.ensure_loaded()["uid"]) == ["S1"]
+
+
+def test_startup_serves_cached_counts_before_first_poll(tmp_path, monkeypatch):
+    cache_path = tmp_path / "counts.parquet"
+    seed = MockODKClient(submissions_by_form={"f1": _slim(["S1"], "Focus")})
+    CountsStore(odk_client=seed, refresh_hours=0, cache_path=cache_path).refresh()
+
+    store = CountsStore(
+        odk_client=MockODKClient(), refresh_hours=0, cache_path=cache_path
+    )
+    # Hold the background poll back so only the cache can have filled the frame.
+    monkeypatch.setattr(store, "refresh", lambda: None)
+    store.startup()
+
+    assert list(store.frame()["uid"]) == ["S1"]

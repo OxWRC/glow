@@ -24,9 +24,9 @@ class Settings(BaseSettings):
     ODK_DEMOGRAPHICS_FORM_ID: str = "demographics_questionnaire"
 
     # Data refresh configuration
-    DATA_CACHE_PATH: Optional[str] = None  # If set, cache DataFrame and ETAG
+    DATA_CACHE_PATH: Optional[str] = None  # If set, cache the slim counts frame
     # Hourly slim poll (uid/school/date only) behind the live counts
-    # endpoints. The full dataset is fetched at startup and vintage cuts only.
+    # endpoints. The full dataset is fetched on vintage cuts only.
     DATA_REFRESH_HOURS: int = 1
     DATA_PREFIXES: List[str] = ["bw", "phq9"]
     DATA_DEMOGRAPHIC_PREFIXES: List[str] = ["d"]

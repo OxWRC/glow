@@ -143,6 +143,32 @@ def test_dimensions_before_first_vintage_fails_closed(pinned_client):
     assert response.json() == example["response"]
 
 
+def test_vintage_status_before_first_cut_says_no_data_yet(pinned_client):
+    # The dashboard checks this before anything else, so it must answer
+    # (not 503) and need no auth.
+    from glow_api.contract_examples import get_example
+
+    client, _ = pinned_client
+    example = get_example("query.vintage.none")
+
+    response = client.get("/query/vintage")
+
+    assert response.status_code == example["status"]
+    assert response.json() == example["response"]
+
+
+def test_vintage_status_after_cut_reports_when(pinned_client, s3_client):
+    from datetime import datetime
+
+    client, fake_store = pinned_client
+    info = cut_vintage(fake_store, s3_client, bucket=BUCKET)
+
+    body = client.get("/query/vintage").json()
+
+    assert body["available"] is True
+    assert datetime.fromisoformat(body["created_at"]) == info.created_at
+
+
 def test_query_is_pinned_not_live(pinned_client, s3_client):
     client, fake_store = pinned_client
     cut_vintage(fake_store, s3_client, bucket=BUCKET)

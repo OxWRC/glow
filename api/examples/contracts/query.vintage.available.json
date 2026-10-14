@@ -1,0 +1,13 @@
+{
+  "id": "query.vintage.available",
+  "method": "GET",
+  "path": "/query/vintage",
+  "status": 200,
+  "request_model": null,
+  "response_model": "VintageStatus",
+  "request": null,
+  "response": {
+    "available": true,
+    "created_at": "2026-10-01T03:00:00.000000Z"
+  }
+}

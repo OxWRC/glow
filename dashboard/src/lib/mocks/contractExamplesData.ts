@@ -518,6 +518,21 @@ export const contractExamplesData = [
     },
   },
   {
+    id: "query.counts",
+    method: "GET",
+    path: "/query/counts",
+    status: 200,
+    request_model: null,
+    response_model: "CountsResponse",
+    request: null,
+    response: {
+      counts: {
+        "2025-2026": 412,
+        "2026-2027": null,
+      },
+    },
+  },
+  {
     id: "query.period-based.multi-variable-dimensions",
     method: "GET",
     path: "/query?v=bewell_questionnaire__bw_wbeing_1&v=bewell_questionnaire__bw_wbeing_2&d=d_sex",
@@ -688,6 +703,32 @@ export const contractExamplesData = [
           },
         },
       ],
+    },
+  },
+  {
+    id: "query.vintage.available",
+    method: "GET",
+    path: "/query/vintage",
+    status: 200,
+    request_model: null,
+    response_model: "VintageStatus",
+    request: null,
+    response: {
+      available: true,
+      created_at: "2026-10-01T03:00:00.000000Z",
+    },
+  },
+  {
+    id: "query.vintage.none",
+    method: "GET",
+    path: "/query/vintage",
+    status: 200,
+    request_model: null,
+    response_model: "VintageStatus",
+    request: null,
+    response: {
+      available: false,
+      created_at: null,
     },
   },
   {

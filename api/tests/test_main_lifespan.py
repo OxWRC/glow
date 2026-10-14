@@ -98,13 +98,13 @@ def test_scheduler_not_started_when_bucket_unconfigured(lifespan_env, monkeypatc
     assert _FakeScheduler.instances == []
 
 
-def test_datastore_still_starts_and_stops_regardless(lifespan_env, monkeypatch):
-    monkeypatch.setattr(main_module.settings, "VINTAGES_S3_BUCKET", None)
+def test_no_full_fetch_at_startup(lifespan_env, monkeypatch):
+    # The full dataset is only fetched when a vintage is cut.
+    monkeypatch.setattr(main_module.settings, "VINTAGES_S3_BUCKET", "a-bucket")
 
     asyncio.run(_enter_and_exit_lifespan())
 
-    assert lifespan_env.started
-    assert lifespan_env.shut_down
+    assert not lifespan_env.started
 
 
 def test_counts_store_starts_and_stops(lifespan_env, monkeypatch):

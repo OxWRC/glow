@@ -16,7 +16,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from glow_api.auth import create_access_token, require_api_key
-from glow_api.data import DataFrameWithWhitelists, DataStore, get_datastore
+from glow_api.counts_store import CountsStore, get_counts_store
+from glow_api.data import DataFrameWithWhitelists
 from glow_api.database import (
     get_db,
     record_api_key_use,
@@ -92,9 +93,10 @@ def demo_info(db: Session = Depends(get_db)) -> DemoInfo:
 
 @router.post("/reset", status_code=status.HTTP_204_NO_CONTENT)
 def demo_reset(
-    db: Session = Depends(get_db), datastore: DataStore = Depends(get_datastore)
+    db: Session = Depends(get_db), counts: CountsStore = Depends(get_counts_store)
 ) -> None:
-    df = datastore.to_frozen().df
+    # School names only, so the slim counts data is enough - no vintage needed.
+    df = counts.frame()
     if df.empty:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -1,8 +1,6 @@
 """Tests for the DataStore class and derived score computation."""
 
-import tempfile
 import threading
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -451,8 +449,7 @@ class TestDataStore:
 
         mock_client = MockODKClient(submissions_df=df, metadata={})
         ds = DataStore(odk_client=mock_client)
-        ds.startup()
-        assert ds._initial_load_complete.wait(timeout=5)
+        ds.refresh()
 
         results = []
         errors = []
@@ -477,34 +474,6 @@ class TestDataStore:
         assert len(errors) == 0
         # Verify all reads returned consistent data
         assert all(r == 2 for r in results)
-
-        ds.shutdown()
-
-    def test_startup_loads_once_and_schedules_no_refresh(self, monkeypatch):
-        """The full fetch happens at startup and at vintage cuts only - the
-        hourly poll is CountsStore's slim fetch, not this one."""
-        from apscheduler.schedulers.background import BackgroundScheduler
-
-        jobs = []
-        monkeypatch.setattr(
-            BackgroundScheduler,
-            "add_job",
-            lambda self, *args, **kwargs: jobs.append((args, kwargs)),
-        )
-        df = pd.DataFrame({"uid": ["S001"], "wave": [1], "bw_wbeing_1": [3]})
-        mock_client = MockODKClient(submissions_df=df, metadata={})
-        ds = DataStore(odk_client=mock_client)
-
-        assert ds._df.empty
-
-        # Startup runs the initial refresh in the background (non-blocking)
-        ds.startup()
-        assert ds._initial_load_complete.wait(timeout=5)
-        ds.shutdown()
-
-        assert len(ds._df) == 1
-        assert mock_client.fetch_count == 1
-        assert jobs == []
 
     def test_strict_refresh_raises_and_keeps_previous_data(self):
         """A vintage cut must not silently freeze stale data."""
@@ -536,118 +505,6 @@ class TestDataStore:
         ds.refresh(strict=True)
 
         assert sorted(ds.to_frozen().df["uid"]) == ["S001", "S002"]
-
-    def test_startup_odk_error_logs_warning_and_keeps_empty_dataframe(
-        self, monkeypatch
-    ):
-        """Test startup tolerates ODK failures and logs refresh warnings."""
-
-        class ErrorODKClient(MockODKClient):
-            def fetch_submissions(self, etags=None, select=None):
-                raise RuntimeError("ODK Central connection failed")
-
-        ds = DataStore(odk_client=ErrorODKClient())
-
-        warnings = []
-
-        def fake_warning(message, *args, **kwargs):
-            warnings.append((message, args, kwargs))
-
-        monkeypatch.setattr(data_module.logger, "warning", fake_warning)
-
-        ds.startup()
-
-        assert ds._initial_load_complete.wait(timeout=5)
-        assert ds._df.empty
-        assert len(warnings) == 1
-        assert (
-            warnings[0][0]
-            == "Failed to load data from ODK Central; keeping previous data"
-        )
-        assert warnings[0][2]["exc_info"] is True
-
-    def test_cache_save_and_load(self):
-        """Test that cache is saved and loaded correctly."""
-        df = pd.DataFrame(
-            {
-                "uid": ["S001", "S002"],
-                "wave": [1, 1],
-                "bw_wbeing_1": [3, 4],
-                "bw_wbeing_2": [4, 3],
-            }
-        )
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = Path(tmpdir) / "cache.parquet"
-
-            mock_client = MockODKClient(
-                submissions_df=df, metadata={}, etag="test-etag"
-            )
-            ds = DataStore(odk_client=mock_client, cache_path=cache_path)
-
-            # Load data (should save to cache)
-            ds._load()
-
-            # Verify cache files exist
-            assert cache_path.exists()
-            assert cache_path.with_suffix(".etag").exists()
-
-            # Create new DataStore and verify cache is loaded
-            mock_client2 = MockODKClient(
-                submissions_df=df, metadata={}, etag="test-etag"
-            )
-            ds2 = DataStore(odk_client=mock_client2, cache_path=cache_path)
-
-            cached = ds2._load_cache()
-            assert cached is not None
-            cached_df, cached_etags = cached
-            assert len(cached_df) == 2
-            assert cached_etags == {"bewell_questionnaire": "test-etag"}
-
-    def test_startup_from_cache_populates_whitelists(self):
-        """Startup loading from cache must populate whitelists, not just the DataFrame.
-
-        Regression test: previously only a live ODK refresh called
-        _extract_whitelists/_compute_observed_periods, so a cache-only startup
-        left numerical/categorical whitelists empty and /dimensions returned nothing.
-        """
-        df = pd.DataFrame(
-            {
-                "uid": ["S001", "S002"],
-                "wave": [1, 1],
-                "school": ["School A", "School A"],
-                "sex": ["M", "F"],
-                "bw_wbeing_1": [3, 4],
-                "bw_wbeing_2": [4, 3],
-            }
-        )
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_path = Path(tmpdir) / "cache.parquet"
-
-            mock_client = MockODKClient(
-                submissions_df=df, metadata={}, etag="test-etag"
-            )
-            ds = DataStore(odk_client=mock_client, cache_path=cache_path)
-            ds._load()  # populates cache on disk
-
-            # Simulate a fresh process starting up with ODK unreachable: cache
-            # loads, but the scheduled refresh job fails, so only cache data is used.
-            class ErrorODKClient(MockODKClient):
-                def fetch_submissions(self, etags=None, select=None):
-                    raise RuntimeError("ODK Central connection failed")
-
-            ds2 = DataStore(odk_client=ErrorODKClient(), cache_path=cache_path)
-            ds2.startup()
-
-            assert not ds2._df.empty
-            assert ds2._numerical_whitelist, (
-                "numerical whitelist empty after cache load"
-            )
-            assert ds2._categorical_whitelist, (
-                "categorical whitelist empty after cache load"
-            )
-            assert ds2._observed_periods, "observed periods empty after cache load"
 
     def test_load_from_multiple_forms(self):
         """Test loading and materializing submissions across multiple forms."""

@@ -111,7 +111,7 @@ services:
       - -c
       - |
         set -eu
-        echo "Waiting for api's ODK data to reach cache..."
+        echo "Waiting for api's first counts poll to reach cache..."
         for i in $$(seq 1 60); do
           [ -s "$$GLOW_DATA_CACHE_PATH" ] && break
           if [ "$$i" -eq 60 ]; then

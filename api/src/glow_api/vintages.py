@@ -26,6 +26,7 @@ from fastapi import Depends, HTTPException
 from glow_api import audit as audit_module
 from glow_api.data import DataFrameWithWhitelists, DataStore
 from glow_api.export import dataset_version
+from glow_api.models import VintageStatus
 from glow_api.settings import settings
 
 PREFIX_TIME_FORMAT = "%Y%m%dT%H%M%S.%fZ"
@@ -265,6 +266,19 @@ def list_vintages(s3_client: Any, bucket: Optional[str] = None) -> list[VintageI
 
 def get_latest_vintage_prefix(s3_client: Any, bucket: Optional[str] = None) -> Optional[str]:
     return _latest_prefix_cache.get(s3_client, _bucket(bucket))
+
+
+def get_vintage_status(s3_client: Any, bucket: Optional[str] = None) -> VintageStatus:
+    """Whether a vintage exists, and when the latest was cut - read off its
+    prefix, so it costs no more than the TTL-cached listing."""
+    prefix = get_latest_vintage_prefix(s3_client, bucket)
+    if prefix is None:
+        return VintageStatus(available=False)
+    timestamp = prefix.removeprefix("vintages/").rsplit("-", 1)[0]
+    created_at = datetime.strptime(timestamp, PREFIX_TIME_FORMAT).replace(
+        tzinfo=timezone.utc
+    )
+    return VintageStatus(available=True, created_at=created_at)
 
 
 def load_vintage_frame(

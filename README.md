@@ -89,8 +89,8 @@ This keeps ODK Central isolated from the dashboard while still allowing API-medi
 | `GLOW_ODK_API_PASSWORD` | `test-password` | ODK Central admin password |
 | `GLOW_ODK_PROJECT_ID` | `1` | ODK Central project ID |
 | `GLOW_ODK_FORM_ID` | `bewell_questionnaire` | ODK form ID |
-| `GLOW_DATA_CACHE_PATH` | *(none)* | Optional path for DataFrame cache (e.g., `/data/cache.parquet`) |
-| `GLOW_DATA_REFRESH_HOURS` | `1` | How often to poll ODK Central for live collection counts (`uid`/`school`/date only). The full dataset is fetched at startup and on each vintage cut |
+| `GLOW_DATA_CACHE_PATH` | *(none)* | Optional path for the live-counts cache (e.g., `/data/cache.parquet`); `glow-api demo reset` / `schools sync` seed schools from it |
+| `GLOW_DATA_REFRESH_HOURS` | `1` | How often to poll ODK Central for live collection counts (`uid`/`school`/date only). The full dataset is fetched only when a vintage is cut |
 | `GLOW_MIN_N` | `5` | Minimum distinct student count for suppression |
 | `GLOW_SECRET_KEY` | *(insecure default)* | JWT signing secret — **must be set in production** |
 | `GLOW_ALGORITHM` | `HS256` | JWT algorithm |
@@ -390,10 +390,9 @@ generated `instance_id` values from the transformed per-form CSVs.
 
 #### Step 5: Verify Data Ingestion
 
-The Glow API loads the full dataset from ODK Central at startup and again whenever a vintage is cut. Between cuts it only polls the fields behind the live counts endpoints, hourly by default (`GLOW_DATA_REFRESH_HOURS`). To force a fresh full load during development, cut a vintage (Admin page, or `glow-api vintages cut`), or:
+The Glow API fetches the full dataset from ODK Central only when a vintage is cut; until the first cut, the dashboard shows a "waiting for data" notice with live counts. Between cuts the API polls only the fields behind those counts, hourly by default (`GLOW_DATA_REFRESH_HOURS`). Local dev's `glow-init` cuts the first vintage for you. To pull fresh data, cut another (Admin page, or `glow-api vintages cut`), or restart the API to re-poll the counts:
 
 ```bash
-# Restart the API container to trigger a fresh data load
 docker compose restart api
 
 # Check the API logs

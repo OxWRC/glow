@@ -2,12 +2,17 @@
 
 Live collection progress between vintage cuts needs only who submitted, at
 which school, and when - so this asks ODK for just those fields ($select)
-rather than every answer. The full DataStore is fetched only at startup and
-on vintage cuts; nothing else polls it.
+rather than every answer. The full DataStore is fetched only on vintage cuts.
+
+Each successful poll is cached to GLOW_DATA_CACHE_PATH: the API serves it
+until its first poll completes, and glow-init seeds schools from it (it only
+needs school names, and isn't on ODK's network in every stack).
 """
 
 import logging
+import os
 import threading
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -31,9 +36,15 @@ _COLUMNS = ["uid", "school", "period_id"]
 class CountsStore:
     """Thread-safe uid/school/period_id frame, refreshed on an interval."""
 
-    def __init__(self, odk_client: ODKClient, refresh_hours: int) -> None:
+    def __init__(
+        self,
+        odk_client: ODKClient,
+        refresh_hours: int,
+        cache_path: Optional[Path] = None,
+    ) -> None:
         self._odk_client = odk_client
         self._refresh_hours = refresh_hours
+        self._cache_path = cache_path
         self._frame = pd.DataFrame(columns=_COLUMNS)
         self._etags: dict[str, Optional[str]] = {}
         self._form_frames: dict[str, pd.DataFrame] = {}
@@ -87,13 +98,46 @@ class CountsStore:
             return
         with self._lock:
             self._frame = frame
+        self._save_cache(frame)
+
+    def _save_cache(self, frame: pd.DataFrame) -> None:
+        if not self._cache_path:
+            return
+        try:
+            self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+            # Write-then-rename: glow-init may read the file while we write.
+            tmp_path = self._cache_path.with_name(self._cache_path.name + ".tmp")
+            frame.to_parquet(tmp_path)
+            os.replace(tmp_path, self._cache_path)
+        except Exception:
+            logger.exception("Failed to save counts cache")
+
+    def _load_cache(self) -> bool:
+        if not self._cache_path or not self._cache_path.exists():
+            return False
+        try:
+            frame = pd.read_parquet(self._cache_path)
+        except Exception:
+            logger.exception("Failed to load counts cache")
+            return False
+        with self._lock:
+            self._frame = frame.reindex(columns=_COLUMNS)
+        return True
 
     def frame(self) -> pd.DataFrame:
         with self._lock:
             return self._frame.copy()
 
+    def ensure_loaded(self) -> pd.DataFrame:
+        """One-shot (CLI) access: what's in memory, else the cache, else a
+        poll now."""
+        if self.frame().empty and not self._load_cache():
+            self.refresh()
+        return self.frame()
+
     def startup(self) -> None:
-        """Initial poll in the background, then every refresh_hours."""
+        """Serve the cache, poll in the background, then every refresh_hours."""
+        self._load_cache()
         threading.Thread(
             target=self.refresh, daemon=True, name="counts-initial-refresh"
         ).start()
@@ -124,5 +168,8 @@ def get_counts_store() -> CountsStore:
         counts_store = CountsStore(
             odk_client=get_odk_client(),
             refresh_hours=settings.DATA_REFRESH_HOURS,
+            cache_path=(
+                Path(settings.DATA_CACHE_PATH) if settings.DATA_CACHE_PATH else None
+            ),
         )
     return counts_store

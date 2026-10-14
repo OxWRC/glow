@@ -249,6 +249,19 @@ class VintageRead(BaseModel):
     created_by_username: Optional[str] = None
 
 
+class VintageStatus(BaseModel):
+    """Whether any vintage has been cut yet - what /query and /export read."""
+
+    available: bool
+    created_at: Optional[datetime] = None
+
+
+class CountsResponse(BaseModel):
+    """Distinct students per period; None where below min_n."""
+
+    counts: dict[str, Optional[int]]
+
+
 class ExportResponse(BaseModel):
     dataset_version: str
     rules_sha256: str

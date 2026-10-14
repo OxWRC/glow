@@ -391,6 +391,42 @@ export async function getDimensions(params: {
   return apiFetch<DimensionsResponse>(`/dimensions${queryParams}`, options);
 }
 
+// ─── Publication status ──────────────────────────────────────────────────────
+
+export interface VintageStatus {
+  available: boolean;
+  created_at: string | null;
+}
+
+/**
+ * Whether any data has been published (a vintage cut) yet. Public. Checked
+ * before /dimensions or /query, which both 503 until there is one.
+ */
+export async function getVintageStatus(): Promise<VintageStatus> {
+  return apiFetch<VintageStatus>("/query/vintage");
+}
+
+/** Distinct students per period; null where below the minimum to show. */
+export type PeriodCounts = Record<string, number | null>;
+
+/**
+ * Live (unpublished) collection counts. School-scoped with a school_id
+ * (requires auth for that school), dataset-wide without.
+ */
+export async function getQueryCounts(params: {
+  school_id?: number;
+  token?: string;
+}): Promise<PeriodCounts> {
+  const { school_id, token } = params;
+  const queryParams = school_id ? `?school_id=${school_id}` : "";
+  const options: RequestInit = token ? { headers: authHeaders(token) } : {};
+  const body = await apiFetch<{ counts: PeriodCounts }>(
+    `/query/counts${queryParams}`,
+    options,
+  );
+  return body.counts;
+}
+
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 // Legacy /data endpoints removed - use query_options from /schools instead

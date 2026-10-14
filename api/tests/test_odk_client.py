@@ -108,20 +108,35 @@ def test_get_form_metadata_raises_when_login_fails(unauthenticated_client):
         unauthenticated_client.get_form_metadata()
 
 
-def test_datastore_keeps_data_and_cache_when_login_fails(
-    unauthenticated_client, tmp_path
-):
+def test_datastore_keeps_data_when_login_fails(unauthenticated_client):
     import pandas as pd
 
     from glow_api.data import DataStore
 
-    cache_path = tmp_path / "cache.parquet"
-    ds = DataStore(odk_client=unauthenticated_client, cache_path=cache_path)
+    ds = DataStore(odk_client=unauthenticated_client)
     ds._df = pd.DataFrame({"uid": ["S001"]})
 
     ds.refresh()
 
     assert list(ds.to_frozen().df["uid"]) == ["S001"]
+
+
+def test_counts_store_keeps_counts_and_writes_no_cache_when_login_fails(
+    unauthenticated_client, tmp_path
+):
+    import pandas as pd
+
+    from glow_api.counts_store import CountsStore
+
+    cache_path = tmp_path / "counts.parquet"
+    store = CountsStore(
+        odk_client=unauthenticated_client, refresh_hours=0, cache_path=cache_path
+    )
+    store._frame = pd.DataFrame({"uid": ["S001"], "school": ["A"], "period_id": ["p"]})
+
+    store.refresh()
+
+    assert list(store.frame()["uid"]) == ["S001"]
     assert not cache_path.exists()
 
 

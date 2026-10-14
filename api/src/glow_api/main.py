@@ -36,12 +36,9 @@ async def lifespan(app: FastAPI):
 
     # Skip datastore initialization in test mode
     if not os.getenv("GLOW_TESTING"):
-        logger.info("Initializing datastore...")
+        # No full fetch here: DataStore stays empty until the first vintage
+        # cut. Only the slim counts poll runs from startup.
         ds = get_datastore()
-        logger.info("Datastore created, starting up...")
-        ds.startup()
-        logger.info("Datastore startup complete")
-
         counts_store = get_counts_store()
         counts_store.startup()
 
@@ -65,8 +62,6 @@ async def lifespan(app: FastAPI):
 
         yield
 
-        logger.info("Shutting down datastore...")
-        ds.shutdown()
         counts_store.shutdown()
         if vintage_scheduler:
             vintage_scheduler.shutdown()

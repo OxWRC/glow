@@ -501,10 +501,67 @@ export const ErrorServerError: Story = {
   },
 };
 
-// No vintage cut yet: /dimensions reads the pinned vintage too, so it 503s
-// like /query does. That's the calm "data is being prepared" state, not a
-// load failure.
+// No vintage cut yet: the page checks /query/vintage first and shows the
+// waiting notice with live counts, without touching /dimensions at all.
 export const NoVintageYet: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get("/api/dimensions", () => {
+          throw new Error("/dimensions must not be called before a vintage");
+        }),
+        ...withApiResponses({
+          "GET /admin/me": "admin.me.user",
+          "GET /me": "me.authenticated",
+          "GET /query/vintage": "query.vintage.none",
+          "GET /query/counts": "query.counts",
+        }).handlers,
+      ],
+    },
+  },
+  decorators: [withAuth(mockUser)],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(
+      await canvas.findByRole("heading", { name: /waiting for data/i }),
+    ).toBeInTheDocument();
+    await expect(
+      await canvas.findByRole("table", { name: /collected so far at/i }),
+    ).toBeInTheDocument();
+    await expect(canvas.getByText("412")).toBeInTheDocument();
+    // School users get no admin pointer, and no query builder to misuse.
+    await expect(
+      canvas.queryByRole("link", { name: /go to vintages/i }),
+    ).not.toBeInTheDocument();
+    await expect(
+      canvas.queryByRole("button", { name: /Run Query/i }),
+    ).not.toBeInTheDocument();
+  },
+};
+
+export const AdminNoVintageYet: Story = {
+  parameters: {
+    msw: withApiResponses({
+      "GET /admin/me": "admin.me.admin",
+      "GET /me": "me.authenticated.admin",
+      "GET /query/vintage": "query.vintage.none",
+      "GET /query/counts": "query.counts",
+    }),
+  },
+  decorators: [withAuth(mockAdminUser)],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    const link = await canvas.findByRole("link", { name: /go to vintages/i });
+    await expect(link).toHaveAttribute("href", "/en/admin#vintages");
+    await expect(canvas.getByText(/cut a vintage/i)).toBeInTheDocument();
+  },
+};
+
+// Fallback for the race where /query/vintage said yes but /dimensions still
+// 503s: the calm "data is being prepared" state, not a load failure.
+export const DimensionsUnavailableFallback: Story = {
   parameters: {
     msw: withApiResponses({
       "GET /admin/me": "admin.me.user",
