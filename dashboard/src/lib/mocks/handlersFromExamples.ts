@@ -19,6 +19,8 @@ export interface ApiResponseConfig {
   "GET /admin/me"?: string;
   "GET /me"?: string;
   "GET /dimensions"?: string;
+  "GET /query/vintage"?: string;
+  "GET /query/counts"?: string;
   "GET /query"?: string;
   "POST /api/query"?: string;
   "POST /demo/reset"?: string;
@@ -85,6 +87,35 @@ export function createHandlersFromExamples(
         // Otherwise use the configured or default example
         return HttpResponse.json(dimensionsExample.response, {
           status: dimensionsExample.status,
+        });
+      }),
+    );
+  }
+
+  // Publication status: a vintage exists unless a story says otherwise.
+  const vintageExample = getExample(
+    config["GET /query/vintage"] || "query.vintage.available",
+  );
+  if (vintageExample) {
+    handlers.push(
+      http.get(`${API_BASE}/query/vintage`, async () => {
+        await delay(100);
+        return HttpResponse.json(vintageExample.response, {
+          status: vintageExample.status,
+        });
+      }),
+    );
+  }
+
+  const countsExample = getExample(
+    config["GET /query/counts"] || "query.counts",
+  );
+  if (countsExample) {
+    handlers.push(
+      http.get(`${API_BASE}/query/counts`, async () => {
+        await delay(100);
+        return HttpResponse.json(countsExample.response, {
+          status: countsExample.status,
         });
       }),
     );

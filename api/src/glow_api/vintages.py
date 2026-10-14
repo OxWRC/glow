@@ -26,6 +26,7 @@ from fastapi import Depends, HTTPException
 from glow_api import audit as audit_module
 from glow_api.data import DataFrameWithWhitelists, DataStore
 from glow_api.export import dataset_version
+from glow_api.models import VintageStatus
 from glow_api.settings import settings
 
 PREFIX_TIME_FORMAT = "%Y%m%dT%H%M%S.%fZ"
@@ -183,19 +184,38 @@ def _vintage_info_from_meta(prefix: str, meta: dict) -> VintageInfo:
     )
 
 
+# Cuts run one at a time. Overlapping manual and scheduled cuts would
+# otherwise race on the shared DataStore: the older ODK fetch could be
+# published last and frozen under the newer cut's timestamp.
+_cut_lock = threading.Lock()
+
+
 def cut_vintage(
     datastore: DataStore,
     s3_client: Any,
     created_by: Optional[tuple[int, str]] = None,
     bucket: Optional[str] = None,
 ) -> VintageInfo:
-    """Freeze the current DataStore frame and upload it as a new vintage.
+    """Fetch the latest data from ODK, freeze it, and upload it as a new vintage.
+
+    The cut is the only regular full fetch (see DataStore), so it raises
+    ODKFetchError rather than freezing stale data if ODK can't be reached.
 
     created_by is (user_id, username) for an admin-triggered cut, or None
     for a scheduler-triggered one - mirrors ApiKey.created_by_user_id's
     existing nullable-FK convention for "no user", just without a live FK.
     """
-    bucket = _bucket(bucket)
+    with _cut_lock:
+        return _cut_vintage(datastore, s3_client, created_by, _bucket(bucket))
+
+
+def _cut_vintage(
+    datastore: DataStore,
+    s3_client: Any,
+    created_by: Optional[tuple[int, str]],
+    bucket: str,
+) -> VintageInfo:
+    datastore.refresh(strict=True)
     frozen = datastore.to_frozen()
     created_at = datetime.now(timezone.utc)
     prefix = _vintage_prefix(created_at)
@@ -261,6 +281,19 @@ def list_vintages(s3_client: Any, bucket: Optional[str] = None) -> list[VintageI
 
 def get_latest_vintage_prefix(s3_client: Any, bucket: Optional[str] = None) -> Optional[str]:
     return _latest_prefix_cache.get(s3_client, _bucket(bucket))
+
+
+def get_vintage_status(s3_client: Any, bucket: Optional[str] = None) -> VintageStatus:
+    """Whether a vintage exists, and when the latest was cut - read off its
+    prefix, so it costs no more than the TTL-cached listing."""
+    prefix = get_latest_vintage_prefix(s3_client, bucket)
+    if prefix is None:
+        return VintageStatus(available=False)
+    timestamp = prefix.removeprefix("vintages/").rsplit("-", 1)[0]
+    created_at = datetime.strptime(timestamp, PREFIX_TIME_FORMAT).replace(
+        tzinfo=timezone.utc
+    )
+    return VintageStatus(available=True, created_at=created_at)
 
 
 def load_vintage_frame(

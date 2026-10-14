@@ -108,22 +108,35 @@ def test_get_form_metadata_raises_when_login_fails(unauthenticated_client):
         unauthenticated_client.get_form_metadata()
 
 
-def test_datastore_keeps_data_and_cache_when_login_fails(
-    unauthenticated_client, tmp_path
-):
+def test_datastore_keeps_data_when_login_fails(unauthenticated_client):
     import pandas as pd
 
     from glow_api.data import DataStore
 
-    cache_path = tmp_path / "cache.parquet"
-    ds = DataStore(
-        odk_client=unauthenticated_client, refresh_hours=0, cache_path=cache_path
-    )
+    ds = DataStore(odk_client=unauthenticated_client)
     ds._df = pd.DataFrame({"uid": ["S001"]})
 
     ds.refresh()
 
     assert list(ds.to_frozen().df["uid"]) == ["S001"]
+
+
+def test_counts_store_keeps_counts_and_writes_no_cache_when_login_fails(
+    unauthenticated_client, tmp_path
+):
+    import pandas as pd
+
+    from glow_api.counts_store import CountsStore
+
+    cache_path = tmp_path / "counts.parquet"
+    store = CountsStore(
+        odk_client=unauthenticated_client, refresh_hours=0, cache_path=cache_path
+    )
+    store._frame = pd.DataFrame({"uid": ["S001"], "school": ["A"], "period_id": ["p"]})
+
+    store.refresh()
+
+    assert list(store.frame()["uid"]) == ["S001"]
     assert not cache_path.exists()
 
 
@@ -144,3 +157,62 @@ def test_host_header_sent_when_configured(monkeypatch):
 def test_no_host_header_guessed_from_url(monkeypatch):
     client = _client_with(monkeypatch, base_url="https://nginx")
     assert "Host" not in client.default_headers
+
+
+def test_fetch_submissions_select_narrows_odata_columns(client, monkeypatch):
+    # The hourly counts poll only needs uid/school/submission date: $select
+    # keeps it from pulling every answer column on each change.
+    calls = []
+
+    def fake_get(url, **kw):
+        calls.append((url, kw.get("params")))
+        if url.endswith("/forms"):
+            return FakeResponse(payload=[{"xmlFormId": "f1"}])
+        if url == "http://odk.test/next":
+            return FakeResponse(payload={"value": []})
+        return FakeResponse(
+            payload={
+                "value": [
+                    {
+                        "__id": "a",
+                        "uid": "S001",
+                        "school": "Focus",
+                        "__system": {"submissionDate": "2024-01-01T00:00:00Z"},
+                    }
+                ],
+                "@odata.nextLink": "http://odk.test/next",
+            },
+            etag="etag-1",
+        )
+
+    monkeypatch.setattr(client, "get", fake_get)
+
+    frames, etags = client.fetch_submissions(select=["__id", "uid"])
+
+    assert etags == {"f1": "etag-1"}
+    assert list(frames["f1"]["uid"]) == ["S001"]
+    assert (
+        "http://odk.test/v1/projects/1/forms/f1.svc/Submissions",
+        {"$select": "__id,uid"},
+    ) in calls
+    # nextLink already carries the query string; don't append it twice.
+    assert ("http://odk.test/next", None) in calls
+
+
+def test_fetch_submissions_without_select_sends_no_params(client, monkeypatch):
+    calls = []
+
+    def fake_get(url, **kw):
+        calls.append((url, kw.get("params")))
+        if url.endswith("/forms"):
+            return FakeResponse(payload=[{"xmlFormId": "f1"}])
+        return FakeResponse(payload={"value": []})
+
+    monkeypatch.setattr(client, "get", fake_get)
+
+    client.fetch_submissions()
+
+    assert (
+        "http://odk.test/v1/projects/1/forms/f1.svc/Submissions",
+        None,
+    ) in calls

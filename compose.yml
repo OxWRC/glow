@@ -321,7 +321,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      # First boot runs `openssl dhparam 2048`, whose runtime is random and
+      # can exceed two minutes on a CI runner. Poll quickly during a long
+      # start period so a fast boot still goes healthy within seconds.
+      start_period: 300s
+      start_interval: 5s
     restart: unless-stopped
 
 networks:

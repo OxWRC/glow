@@ -392,6 +392,22 @@ export const en = {
     noData: "No data available.",
     sortBy: "Sort by {label}",
   },
+  awaitingData: {
+    title: "Waiting for data",
+    body: "No data has been published yet. Results will appear here once the first dataset is ready.",
+    adminBody:
+      "No data has been published yet. When you're ready, cut a vintage to publish the responses collected so far.",
+    adminAction: "Go to vintages",
+    countsCaptionAll: "Responses collected so far across all schools",
+    countsCaptionSchool: "Responses collected so far at {school}",
+    period: "Period",
+    students: "Students",
+    tooFew: "Too few to show",
+    countsNote:
+      "These counts include responses that haven't been published yet.",
+    noResponses: "No responses have been collected yet.",
+    countsUnavailable: "Response counts are unavailable right now.",
+  },
   dashboard: {
     title: "Dashboard",
     subtitle: "Overview of GLOW longitudinal questionnaire data.",

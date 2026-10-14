@@ -1,13 +1,10 @@
-import json
 import logging
 import os
 import threading
 import copy
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from apscheduler.schedulers.background import BackgroundScheduler
 
 from glow_api.odk_client import ODKClient
 from glow_api.settings import settings
@@ -30,28 +27,31 @@ class DataFrameWithWhitelists(BaseModel):
     }
 
 
-class DataStore:
-    """Thread-safe data store for the questionnaire DataFrame."""
+class ODKFetchError(RuntimeError):
+    """A strict refresh couldn't fetch from ODK Central - main.py maps it to a 502."""
 
-    def __init__(
-        self,
-        odk_client: ODKClient,
-        refresh_hours: int,
-        cache_path: Optional[Path] = None,
-    ) -> None:
+
+class DataStore:
+    """Thread-safe data store for the full questionnaire DataFrame.
+
+    Empty until the first vintage cut, and refreshed only by cuts (see
+    vintages.cut_vintage): never at startup, never polled. Live collection
+    progress comes from the slim CountsStore instead.
+    """
+
+    def __init__(self, odk_client: ODKClient) -> None:
         self._odk_client = odk_client
-        self._refresh_hours = refresh_hours
-        self._cache_path = cache_path
         self._df: pd.DataFrame = pd.DataFrame()
         self._metadata: Dict[str, Any] = {}
         self._response_etags: Dict[str, Optional[str]] = {}
         self._form_frames_cache: Dict[str, pd.DataFrame] = {}
         self._lock = threading.Lock()
-        self._scheduler = BackgroundScheduler()
+        # Serialises whole loads: _load mutates ETag/form-frame state, and
+        # two cuts (scheduled + manual) can overlap.
+        self._refresh_lock = threading.Lock()
         self._categorical_whitelist: List[str] = []
         self._numerical_whitelist: List[str] = []
         self._observed_periods: Dict[Optional[str], List[str]] = {}
-        self._initial_load_complete = threading.Event()
 
     def _load(self) -> pd.DataFrame:
         with log_duration("Load data from ODK Central") as log_data:
@@ -98,10 +98,6 @@ class DataStore:
             log_data["derived_col_count"] = (
                 len(df.columns) - log_data["original_col_count"]
             )
-
-            # Cache if configured
-            if self._cache_path:
-                self._save_cache(df, new_etags)
 
             return df
 
@@ -392,58 +388,23 @@ class DataStore:
 
         return df
 
-    def _save_cache(self, df: pd.DataFrame, etags: dict[str, Optional[str]]) -> None:
-        """Save DataFrame and ETAG to cache."""
-        if not self._cache_path:
-            return
+    def refresh(self, strict: bool = False) -> None:
+        """Reload data from ODK Central, replacing the in-memory DataFrame.
 
-        try:
-            cache_dir = self._cache_path.parent
-            cache_dir.mkdir(parents=True, exist_ok=True)
-
-            # Save DataFrame
-            df.to_parquet(self._cache_path)
-
-            etag_path = self._cache_path.with_suffix(".etag")
-            etag_path.write_text(json.dumps(etags))
-
-            logger.info("Cached data to %s", self._cache_path)
-        except Exception:
-            logger.exception("Failed to save cache")
-
-    def _load_cache(self) -> Optional[Tuple[pd.DataFrame, dict[str, Optional[str]]]]:
-        """Load DataFrame and per-form ETAGs from cache.
-
-        Returns:
-            Tuple of (DataFrame, ETAG map) or None if cache doesn't exist
+        On failure the previous data is kept; strict callers (vintage cuts,
+        which mustn't freeze stale data unnoticed) also get an ODKFetchError.
         """
-        if not self._cache_path or not self._cache_path.exists():
-            return None
-
-        try:
-            df = pd.read_parquet(self._cache_path)
-
-            # Load ETAG map if it exists
-            etag_path = self._cache_path.with_suffix(".etag")
-            etag_text = etag_path.read_text() if etag_path.exists() else "{}"
-            etags = json.loads(etag_text)
-
-            logger.info("Loaded cached data from %s", self._cache_path)
-            return df, etags
-        except Exception:
-            logger.exception("Failed to load cache")
-            return None
-
-    def refresh(self) -> None:
-        """Reload data from ODK Central, replacing the in-memory DataFrame."""
         logger.info("Refreshing data from ODK Central")
         try:
-            df = self._load()
-        except Exception:
+            with self._refresh_lock:
+                df = self._load()
+        except Exception as exc:
             logger.warning(
                 "Failed to load data from ODK Central; keeping previous data",
                 exc_info=True,
             )
+            if strict:
+                raise ODKFetchError(f"Could not fetch data from ODK Central: {exc}")
             # Serve stale data on error (graceful degradation)
             return
         with self._lock:
@@ -461,74 +422,36 @@ class DataStore:
                 observed_periods=self._observed_periods.copy(),
             )
 
-    def startup(self) -> None:
-        """Initial load and schedule periodic refresh."""
-        # Try loading from cache first
-        cached = self._load_cache()
-        if cached:
-            df, etags = cached
-            self._extract_whitelists(df)
-            self._compute_observed_periods(df)
-            with self._lock:
-                self._df = df
-                self._response_etags = etags
-            logger.info(
-                "Loaded from cache: %d rows, %d columns", len(df), len(df.columns)
-            )
-
-        def _initial_refresh() -> None:
-            try:
-                self.refresh()
-            finally:
-                self._initial_load_complete.set()
-
-        threading.Thread(
-            target=_initial_refresh, daemon=True, name="datastore-initial-refresh"
-        ).start()
-
-        if self._refresh_hours > 0:
-            self._scheduler.add_job(
-                self.refresh,
-                trigger="interval",
-                hours=self._refresh_hours,
-                id="data_refresh",
-            )
-            logger.info("Data refresh scheduled every %d hour(s)", self._refresh_hours)
-            self._scheduler.start()
-
-    def shutdown(self) -> None:
-        """Stop the background scheduler."""
-        if self._scheduler.running:
-            self._scheduler.shutdown(wait=False)
-            logger.info("Data refresh scheduler stopped")
-
 
 # Module-level singleton (lazy initialization)
 _odk_client: Optional[ODKClient] = None
 datastore: Optional[DataStore] = None
 
 
+def get_odk_client() -> ODKClient:
+    """The process-wide ODK client, shared by DataStore and CountsStore."""
+    global _odk_client
+
+    if _odk_client is None:
+        _odk_client = ODKClient(
+            base_url=settings.ODK_API_URL,
+            username=settings.ODK_API_EMAIL,
+            password=settings.ODK_API_PASSWORD,
+            project_id=settings.ODK_PROJECT_ID,
+            verify_ssl=os.getenv("GLOW_ODK_VERIFY_SSL", "true").lower() != "false",
+            host_header=settings.ODK_HOST_HEADER,
+        )
+    return _odk_client
+
+
 def _init_singleton():
     """Initialize the module-level singleton DataStore."""
-    global _odk_client, datastore
+    global datastore
 
     if datastore is not None:
         return
 
-    _odk_client = ODKClient(
-        base_url=settings.ODK_API_URL,
-        username=settings.ODK_API_EMAIL,
-        password=settings.ODK_API_PASSWORD,
-        project_id=settings.ODK_PROJECT_ID,
-        verify_ssl=os.getenv("GLOW_ODK_VERIFY_SSL", "true").lower() != "false",
-        host_header=settings.ODK_HOST_HEADER,
-    )
-
-    datastore = DataStore(
-        odk_client=_odk_client,
-        refresh_hours=settings.DATA_REFRESH_HOURS,
-        cache_path=Path(settings.DATA_CACHE_PATH) if settings.DATA_CACHE_PATH else None,
-    )
+    datastore = DataStore(odk_client=get_odk_client())
 
 
 def get_datastore() -> DataStore:

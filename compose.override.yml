@@ -44,9 +44,9 @@ services:
       - ./api:/app
     environment:
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
-      # Same cache file api itself writes to (shared via the /app bind mount
-      # above) -- lets schools_sync's own fresh DataStore pick up api's
-      # already-fetched data instead of racing its own ODK fetch.
+      # Same counts cache file api itself writes to (shared via the /app bind
+      # mount above) -- lets `demo reset` seed schools from api's slim poll
+      # instead of racing its own ODK fetch.
       GLOW_DATA_CACHE_PATH: ${GLOW_DATA_CACHE_PATH:-.cache.parquet}
       <<: *dev-vintages-s3
     depends_on:
@@ -61,7 +61,7 @@ services:
       - sh
       - -c
       - |
-        echo "Waiting for api's ODK data to reach cache..."
+        echo "Waiting for api's first counts poll to reach cache..."
         for i in $$(seq 1 60); do
           [ -s "$$GLOW_DATA_CACHE_PATH" ] && break
           sleep 2

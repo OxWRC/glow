@@ -1,9 +1,8 @@
 """GET /query/counts and GET /export/counts: live, un-pinned, floored at
 min_n. Mirrors each endpoint's own access scope (school-filtered for an
 authenticated /query caller, dataset-wide for /export's API-key holders).
+Served from the slim CountsStore, never the full DataStore.
 """
-
-import threading
 
 import pandas as pd
 import pytest
@@ -12,7 +11,8 @@ from fastapi.testclient import TestClient
 from glow_api.api_keys import issue_api_key
 from glow_api.audit import AUDIT_ROUTES
 from glow_api.auth import create_access_token
-from glow_api.data import DataStore, get_datastore
+from glow_api.counts_store import CountsStore, get_counts_store
+from glow_api.data import get_datastore
 from glow_api.database import get_db, upsert_user_by_sub
 from glow_api.export import get_suppression_rules
 from glow_api.main import app
@@ -36,16 +36,14 @@ _COUNTS_DF = pd.DataFrame(
 _EXPORT_RULES = parse_rules("min_n: 10\ndimensions: [school]\nescalation: []\n")
 
 
-def _make_counts_store() -> DataStore:
-    ds = DataStore(odk_client=MockODKClient(), refresh_hours=0)
-    ds._df = _COUNTS_DF.copy()
-    ds._categorical_whitelist = []
-    ds._numerical_whitelist = []
-    ds._observed_periods = {}
-    ds._lock = threading.Lock()
-    ds.startup = lambda: None
-    ds.shutdown = lambda: None
-    return ds
+def _make_counts_store() -> CountsStore:
+    store = CountsStore(odk_client=MockODKClient(), refresh_hours=0)
+    store._frame = _COUNTS_DF.copy()
+    return store
+
+
+def _no_full_datastore():
+    raise AssertionError("counts must not read the full DataStore")
 
 
 @pytest.fixture()
@@ -55,11 +53,9 @@ def counts_client(db_session):
     def override_get_db():
         yield db_session
 
-    def override_get_datastore():
-        return fake_store
-
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_datastore] = override_get_datastore
+    app.dependency_overrides[get_counts_store] = lambda: fake_store
+    app.dependency_overrides[get_datastore] = _no_full_datastore
     app.dependency_overrides[get_suppression_rules] = lambda: _EXPORT_RULES
 
     with TestClient(app, raise_server_exceptions=True) as c:

@@ -87,3 +87,20 @@ def test_cut_without_bucket_is_a_clear_503_not_an_opaque_500(admin_client, monke
     assert response.status_code == 503
     assert "GLOW_VINTAGES_S3_BUCKET" in response.json()["detail"]
     assert "access-control-allow-origin" in response.headers
+
+
+def test_cut_when_odk_unreachable_is_a_502_and_cuts_nothing(admin_client, s3_bucket):
+    import glow_api.data as data_module
+
+    def boom(**kwargs):
+        raise RuntimeError("ODK down")
+
+    data_module.datastore._odk_client.fetch_submissions = boom
+    origin = "http://localhost:3000"
+
+    response = admin_client.post("/admin/vintages", headers={"Origin": origin})
+
+    assert response.status_code == 502
+    assert "ODK" in response.json()["detail"]
+    assert "access-control-allow-origin" in response.headers
+    assert admin_client.get("/admin/vintages").json() == []

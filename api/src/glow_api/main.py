@@ -10,7 +10,8 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from glow_api.data import get_datastore
+from glow_api.counts_store import get_counts_store
+from glow_api.data import ODKFetchError, get_datastore
 from glow_api.database import run_migrations
 from glow_api.logging_config import configure_logging
 from glow_api.request_logging import RequestLoggingMiddleware
@@ -35,11 +36,11 @@ async def lifespan(app: FastAPI):
 
     # Skip datastore initialization in test mode
     if not os.getenv("GLOW_TESTING"):
-        logger.info("Initializing datastore...")
+        # No full fetch here: DataStore stays empty until the first vintage
+        # cut. Only the slim counts poll runs from startup.
         ds = get_datastore()
-        logger.info("Datastore created, starting up...")
-        ds.startup()
-        logger.info("Datastore startup complete")
+        counts_store = get_counts_store()
+        counts_store.startup()
 
         vintage_scheduler = None
         if settings.VINTAGES_S3_BUCKET:
@@ -61,8 +62,7 @@ async def lifespan(app: FastAPI):
 
         yield
 
-        logger.info("Shutting down datastore...")
-        ds.shutdown()
+        counts_store.shutdown()
         if vintage_scheduler:
             vintage_scheduler.shutdown()
     else:
@@ -105,6 +105,13 @@ def vintage_storage_not_configured(
     return JSONResponse(
         status_code=503, content={"detail": f"Vintage storage not configured: {exc}"}
     )
+
+
+@app.exception_handler(ODKFetchError)
+def odk_fetch_failed(request: Request, exc: ODKFetchError) -> JSONResponse:
+    # Same CORS reasoning as above: a cut that couldn't reach ODK should say
+    # so in the dashboard, not surface as "NetworkError".
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
 app.add_middleware(

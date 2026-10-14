@@ -6,6 +6,8 @@ vintages.py module itself - the differencing-closing mechanism.
 """
 
 import json
+import threading
+import time
 
 import boto3
 import pytest
@@ -19,6 +21,7 @@ from glow_api.vintages import (
     list_vintages,
     load_vintage_frame,
 )
+from glow_api.data import ODKFetchError
 from tests.conftest import _make_mock_datastore
 
 BUCKET = "test-glow-vintages"
@@ -89,8 +92,82 @@ def test_cut_vintage_records_admin_trigger(s3_client, sample_df):
     assert info.created_by_username == "admin1"
 
 
-def test_load_vintage_frame_round_trips_df_and_whitelists(s3_client, sample_df):
+def test_cut_vintage_fetches_latest_data_before_freezing(s3_client, sample_df):
+    # No hourly full poll any more: the cut itself is the fetch, so a
+    # submission made since startup must land in the vintage.
     datastore = _make_mock_datastore(sample_df)
+    datastore._odk_client.submissions_df = sample_df.iloc[:3]
+    datastore._odk_client.response_etags["bewell_questionnaire"] = "newer"
+
+    info = cut_vintage(datastore, s3_client, bucket=BUCKET)
+
+    assert info.row_count == 3
+    assert datastore._odk_client.fetch_count == 1
+
+
+def test_cut_vintage_writes_nothing_when_odk_fetch_fails(s3_client, sample_df):
+    datastore = _make_mock_datastore(sample_df)
+
+    def boom(**kwargs):
+        raise RuntimeError("ODK down")
+
+    datastore._odk_client.fetch_submissions = boom
+
+    with pytest.raises(ODKFetchError):
+        cut_vintage(datastore, s3_client, bucket=BUCKET)
+
+    assert "Contents" not in s3_client.list_objects_v2(Bucket=BUCKET)
+
+
+def test_overlapping_cuts_run_one_after_the_other(s3_client, sample_df):
+    # A manual cut racing a scheduled one must not interleave: otherwise the
+    # older fetch can be published last and frozen under the newer timestamp.
+    datastore = _make_mock_datastore(sample_df)
+    first_in_refresh = threading.Event()
+    release_first = threading.Event()
+    events = []
+
+    def refresh(strict=False):
+        call = len([e for e in events if e.startswith("start")])
+        events.append(f"start {call}")
+        if call == 0:
+            first_in_refresh.set()
+            release_first.wait(timeout=5)
+        events.append(f"end {call}")
+
+    datastore.refresh = refresh
+    first = threading.Thread(
+        target=cut_vintage, args=(datastore, s3_client), kwargs={"bucket": BUCKET}
+    )
+    second = threading.Thread(
+        target=cut_vintage, args=(datastore, s3_client), kwargs={"bucket": BUCKET}
+    )
+
+    first.start()
+    try:
+        assert first_in_refresh.wait(timeout=5)
+        second.start()
+        time.sleep(0.2)
+        assert events == ["start 0"]
+    finally:
+        release_first.set()
+        first.join(timeout=5)
+        if second.ident is not None:  # started
+            second.join(timeout=5)
+
+    assert events == ["start 0", "end 0", "start 1", "end 1"]
+    assert len(list_vintages(s3_client, bucket=BUCKET)) == 2
+
+
+def _hand_set_datastore(df):
+    """A store whose state is set by hand, so the cut's ODK fetch is skipped."""
+    datastore = _make_mock_datastore(df)
+    datastore.refresh = lambda strict=False: None
+    return datastore
+
+
+def test_load_vintage_frame_round_trips_df_and_whitelists(s3_client, sample_df):
+    datastore = _hand_set_datastore(sample_df)
     info = cut_vintage(datastore, s3_client, bucket=BUCKET)
 
     loaded = load_vintage_frame(info.prefix, s3_client, bucket=BUCKET)
@@ -102,7 +179,7 @@ def test_load_vintage_frame_round_trips_df_and_whitelists(s3_client, sample_df):
 
 
 def test_load_vintage_frame_round_trips_none_keyed_observed_periods(s3_client, sample_df):
-    datastore = _make_mock_datastore(sample_df)
+    datastore = _hand_set_datastore(sample_df)
     datastore._observed_periods = {None: ["2026-W01"], "Focus School Academy": ["2026-W01"]}
     info = cut_vintage(datastore, s3_client, bucket=BUCKET)
 

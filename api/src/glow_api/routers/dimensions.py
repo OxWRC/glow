@@ -8,9 +8,10 @@ from typing import Optional
 
 from glow_api import request_context
 from glow_api.auth import get_optional_school_user
-from glow_api.data import DataStore, get_datastore
+from glow_api.data import DataFrameWithWhitelists
 from glow_api.database import get_db
 from glow_api.models import DimensionsResponse, VariableDefinition, DimensionDefinition
+from glow_api.vintages import get_current_vintage_frame
 
 router = APIRouter(tags=["discovery"])
 
@@ -33,7 +34,7 @@ def get_dimensions(
     ),
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
-    datastore: DataStore = Depends(get_datastore),
+    dfwl: DataFrameWithWhitelists = Depends(get_current_vintage_frame),
 ) -> DimensionsResponse:
     """Get available variables and dimensions.
 
@@ -49,7 +50,6 @@ def get_dimensions(
         _user, school = get_optional_school_user(credentials, db, school_id)
 
         # Get data scoped to this school
-        dfwl = datastore.to_frozen()
         df = dfwl.df
         if "school" in df.columns and school.odk_school_id is not None:
             df = df[df["school"] == school.odk_school_id]
@@ -60,7 +60,6 @@ def get_dimensions(
             "auth_assessed", outcome="anonymous", success=None, school_id=None
         )
         # Dataset-scoped query - use full dataset
-        dfwl = datastore.to_frozen()
         df = dfwl.df
 
     # Build variables list (all numeric measures including derived totals)

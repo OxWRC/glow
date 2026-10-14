@@ -25,6 +25,8 @@ MODEL_MAP = {
     "ApiKeyCreate": models.ApiKeyCreate,
     "VintageReadList": list[models.VintageRead],
     "VintageRead": models.VintageRead,
+    "VintageStatus": models.VintageStatus,
+    "CountsResponse": models.CountsResponse,
 }
 
 

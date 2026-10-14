@@ -22,8 +22,8 @@ services:
   api:
     environment:
       GLOW_DEMO_MODE: "true"
-      # Shared with glow-init so it reuses api's fetched data instead of
-      # racing its own ODK fetch (same pattern as compose.test.yml).
+      # api's slim counts poll writes here; glow-init seeds schools from it
+      # instead of racing its own ODK fetch (same pattern as compose.test.yml).
       GLOW_DATA_CACHE_PATH: /cache/data.parquet
     volumes:
       - glow_cache:/cache
@@ -43,8 +43,9 @@ services:
     environment:
       # Same values compose.yml gives api, replacing compose.glow-init.yml's
       # fixed dev creds (rotated away by activation). Not on the ODK network:
-      # glow-init reads api's data from the shared glow_cache volume, never a
-      # live ODK fetch.
+      # glow-init reads api's counts cache from the shared glow_cache volume,
+      # never a live ODK fetch. No vintage is cut here: an admin cuts the
+      # first one from the dashboard.
       GLOW_ODK_API_URL: ${GLOW_ODK_API_URL:-http://odk-service:8383}
       GLOW_ODK_HOST_HEADER: ${GLOW_ODK_HOST_HEADER:-}
       GLOW_ODK_API_EMAIL: ${GLOW_ODK_API_EMAIL:-}
@@ -68,7 +69,7 @@ services:
       - -c
       - |
         set -eu
-        echo "Waiting for api's ODK data to reach cache..."
+        echo "Waiting for api's first counts poll to reach cache..."
         for i in $$(seq 1 60); do
           [ -s "$$GLOW_DATA_CACHE_PATH" ] && break
           if [ "$$i" -eq 60 ]; then

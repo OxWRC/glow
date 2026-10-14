@@ -60,6 +60,8 @@ class MockODKClient:
         self.fetch_count = 0
         self.metadata_fetch_count = 0
         self.list_forms_count = 0
+        self.last_select: Optional[list[str]] = None
+        self.last_etags: Dict[str, str] = {}
 
     @property
     def submissions_df(self) -> pd.DataFrame:
@@ -85,10 +87,13 @@ class MockODKClient:
     def fetch_submissions(
         self,
         etags: Optional[Dict[str, str]] = None,
+        select: Optional[list[str]] = None,
     ) -> tuple[Dict[str, Optional[pd.DataFrame]], Dict[str, Optional[str]]]:
         """Mock multi-form fetch_submissions."""
         self.fetch_count += 1
+        self.last_select = select
         existing_etags = etags or {}
+        self.last_etags = dict(existing_etags)
         frames: Dict[str, Optional[pd.DataFrame]] = {}
         new_etags: Dict[str, Optional[str]] = {}
         for form_id, df in self.submissions_by_form.items():

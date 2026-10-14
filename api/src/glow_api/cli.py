@@ -478,15 +478,11 @@ def schools_sync(
 
 
 def _load_df_or_exit():
-    """Return the loaded datastore frame, loading it if needed; exit 1 if empty."""
-    from glow_api.data import get_datastore
+    """Return the slim counts frame (enough for school names), from the cache
+    or a fresh poll; exit 1 if there's no data."""
+    from glow_api import counts_store
 
-    datastore = get_datastore()
-    df = datastore.to_frozen().df
-    if df.empty:
-        click.echo("Data not yet loaded, loading now...")
-        datastore.startup()
-        df = datastore.to_frozen().df
+    df = counts_store.get_counts_store().ensure_loaded()
     if df.empty:
         click.echo("Error: No data loaded. Cannot extract schools.", err=True)
         sys.exit(1)
@@ -610,13 +606,13 @@ def vintages() -> None:
 def vintages_cut() -> None:
     """Cut a vintage now, outside the scheduled cadence (e.g. right after a
     school finishes a data collection push)."""
-    from glow_api.data import get_datastore
+    from glow_api.data import ODKFetchError, get_datastore
 
-    datastore = get_datastore()
-    if datastore.to_frozen().df.empty:
-        click.echo("Data not yet loaded, loading now...")
-        datastore.startup()
-    info = cut_vintage(datastore, get_s3_client(), created_by=None)
+    try:
+        info = cut_vintage(get_datastore(), get_s3_client(), created_by=None)
+    except ODKFetchError as exc:
+        click.echo(f"Error: {exc}. No vintage cut.", err=True)
+        sys.exit(1)
     _audit_cli("vintage_cut", prefix=info.prefix, row_count=info.row_count)
     click.echo(f"Cut vintage {info.prefix} ({info.row_count} rows).")
 
