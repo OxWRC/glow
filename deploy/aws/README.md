@@ -354,11 +354,12 @@ The repository checkout at `/opt/glow` has `docker-mount-data` symlinked to `/va
 
 Routine updates happen via SSM without replacing the instance:
 
-1. Clone or refresh `/opt/glow` to the target repository
-2. Checkout the target git ref
-3. Rerun `runner-userdata.sh.tpl` with git overrides
-4. Reconcile containers via `activate-stack.sh`
-5. Verify health
+1. Raise the instance's IMDS hop limit to 2 if needed (Terraform isn't applied on update, so older runners keep 1 and containers get no instance-role credentials)
+2. Clone or refresh `/opt/glow` to the target repository
+3. Checkout the target git ref
+4. Rerun `runner-userdata.sh.tpl` with git overrides
+5. Reconcile containers via `activate-stack.sh`
+6. Verify health
 
 AMI rebuilds are only needed for:
 
