@@ -30,6 +30,8 @@ cleanup() {
 	if [ -f "$VERIFY/pg/postmaster.pid" ]; then
 		su-exec postgres pg_ctl -D "$VERIFY/pg" -m immediate -w stop >/dev/null 2>&1 || true
 	fi
+	# A previous step may have been SIGKILLed, leaving its postgres running.
+	pkill -u postgres -f "$VERIFY" 2>/dev/null || true
 	rm -rf "$DUMPS" "$VERIFY"
 }
 trap cleanup EXIT
@@ -71,6 +73,7 @@ do_backup() {
 		-U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$DUMPS/glow.dump"
 	PGPASSWORD=$ODK_POSTGRES_PASSWORD pg_dump -Fc -h "${ODK_POSTGRES_HOST:-postgres14}" \
 		-U "$ODK_POSTGRES_USER" -d "$ODK_POSTGRES_DB" -f "$DUMPS/odk.dump"
+	# Counted just after the dump (tiny race; verify only checks empty vs non-empty).
 	# Source row counts (-1: table missing) so verify can tell "empty" from "lost".
 	g_users=$(count_rows "$POSTGRES_PASSWORD" "${POSTGRES_HOST:-api-db}" "$POSTGRES_USER" "$POSTGRES_DB" users)
 	g_schools=$(count_rows "$POSTGRES_PASSWORD" "${POSTGRES_HOST:-api-db}" "$POSTGRES_USER" "$POSTGRES_DB" schools)
@@ -122,7 +125,7 @@ do_verify() {
 			{ echo "verify FAILED: table $db.$tbl missing after restore"; return 1; }
 		want=$(jq -r ".$db.$tbl" "$meta")
 		if [ "$want" -gt 0 ] && [ "$n" -eq 0 ]; then
-			echo "verify FAILED: table $db.$tbl empty after restore (source had $want rows)"; return 1
+			echo "verify FAILED: $db.$tbl empty after restore (source had $want rows)"; return 1
 		fi
 	done
 }

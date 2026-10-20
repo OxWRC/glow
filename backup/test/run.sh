@@ -67,8 +67,21 @@ bk verify || fail "verify exited non-zero"
 status | jq -e '.last_verify_ok == true and (.last_verify_at | test("Z$")) and .last_backup_ok == true' >/dev/null || fail "bad verify status: $(status)"
 echo "$(ls -A "$GLOW_STATE_DIR/backup-status" | grep -c 'backup-status.json.')" | grep -qx 0 || fail "temp status file left behind"
 # Restore test really restores: the log names the checks and nothing is left behind.
-bk verify 2>&1 | grep -q . || true
-dc exec -T backup sh -c 'test ! -e /tmp/glow-verify; ! pgrep postgres >/dev/null' || fail "throwaway cluster left behind"
+gone() { dc exec -T backup sh -c 'test ! -e /tmp/glow-verify && ! pgrep postgres >/dev/null' || fail "throwaway cluster left behind ($1)"; }
+gone "after success"
+# Valid snapshot whose restored users table is empty while meta.json claims rows:
+# pg_restore --list and the restore both succeed; only the row-count check fails.
+dc exec -T api-db psql -q -U glow -d glow -c "drop database if exists scratch" -c "create database scratch"
+dc exec -T api-db psql -q -U glow -d scratch -c "create table users(id int); create table schools(id int); insert into schools values (1);"
+dc exec -T backup sh -c 'set -e; rm -rf /tmp/x /tmp/glow-dumps
+  restic restore latest --tag glow --target /tmp/x --include /tmp/glow-dumps >/dev/null
+  mv /tmp/x/tmp/glow-dumps /tmp/glow-dumps
+  PGPASSWORD=$POSTGRES_PASSWORD pg_dump -Fc -h api-db -U "$POSTGRES_USER" -d scratch -f /tmp/glow-dumps/glow.dump
+  jq ".glow.users = 5" /tmp/glow-dumps/meta.json > /tmp/glow-dumps/m && mv /tmp/glow-dumps/m /tmp/glow-dumps/meta.json
+  restic backup --tag glow --host glow /tmp/glow-dumps >/dev/null; rm -rf /tmp/x /tmp/glow-dumps'
+if bk verify; then fail "verify passed though restored users was empty and meta claimed rows"; fi
+status | jq -e '.last_verify_ok == false and (.last_verify_error | test("glow.users empty after restore"))' >/dev/null || fail "bad empty-users verify status: $(status)"
+gone "after row-count failure"
 # A snapshot whose GLOW dump is truncated must fail verify, naming the check.
 dc exec -T backup sh -c 'set -e; rm -rf /tmp/x /tmp/glow-dumps
   restic restore latest --tag glow --target /tmp/x --include /tmp/glow-dumps >/dev/null
@@ -77,6 +90,7 @@ dc exec -T backup sh -c 'set -e; rm -rf /tmp/x /tmp/glow-dumps
   restic backup --tag glow --host glow /tmp/glow-dumps >/dev/null; rm -rf /tmp/x /tmp/glow-dumps'
 if bk verify; then fail "verify passed on a truncated GLOW dump"; fi
 status | jq -e '.last_verify_ok == false and (.last_verify_error | test("glow.dump"))' >/dev/null || fail "bad truncated-dump verify status: $(status)"
+gone "after truncated-dump failure"
 
 # Failure path: repository mounted read-only.
 RO=$T/ro; mkdir -p "$RO"
