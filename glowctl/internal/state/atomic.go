@@ -37,5 +37,17 @@ func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	ok = true
-	return nil
+	return syncDir(filepath.Dir(path))
+}
+
+var syncDir = realSyncDir
+
+// realSyncDir fsyncs a directory so the rename survives a crash.
+func realSyncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }

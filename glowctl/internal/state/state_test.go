@@ -122,7 +122,7 @@ func TestRuntimeEnv(t *testing.T) {
 	m := parseEnv(t, p)
 	want := map[string]string{
 		"GLOW_DOMAIN": "glow.example.org", "GLOW_VERSION": "v1.2.3", "GLOW_STATE_DIR": "/var/lib/glow",
-		"GLOW_TLS_CERT_DIR": "/var/lib/glow/certs", "GLOW_HTTPS_PORT": "8443", "ODK_PUBLIC_HTTPS_PORT": "443",
+		"GLOW_TLS_CERT_DIR": "/var/lib/glow/certs", "GLOW_HTTPS_PORT": "8443", "ODK_PUBLIC_HTTPS_PORT": "8443",
 		"GLOW_CORS_ORIGINS": `["https://glow.example.org"]`, "PUBLIC_API_BASE": "https://api.glow.example.org",
 		"ODK_DOMAIN": "odk.glow.example.org", "ODK_SSL_TYPE": "upstream", "GLOW_ODK_API_URL": "http://nginx",
 		"GLOW_ODK_HOST_HEADER": "odk.glow.example.org", "GLOW_ODK_VERIFY_SSL": "false",
@@ -164,29 +164,118 @@ func TestRuntimeEnvFilesModeAndVersionFallback(t *testing.T) {
 	}
 }
 
-// Drift guard: every compose.yml variable without a default must be provided.
-func TestRuntimeEnvCoversComposeRequiredVars(t *testing.T) {
-	b, err := os.ReadFile("../../../compose.yml")
-	if err != nil {
-		t.Fatal(err)
+var composeVarRe = regexp.MustCompile(`\$\{([A-Z_][A-Z0-9_]*)(:?[-+?][^}]*)?\}`)
+
+func composeFiles(t *testing.T) []string {
+	t.Helper()
+	files := []string{"../../../compose.yml", "../../../compose.demo.yml"}
+	more, _ := filepath.Glob("../../../proxy/compose.*.yml")
+	files = append(files, more...)
+	if len(more) == 0 {
+		t.Fatal("no proxy/compose.*.yml found")
 	}
-	re := regexp.MustCompile(`\$\{([A-Z_][A-Z0-9_]*)(:?[-+?][^}]*)?\}`)
+	return files
+}
+
+func envKeys(drop string) map[string]bool {
 	kv, _ := RuntimeEnv(sample(), Secrets{}, "")
 	have := map[string]bool{}
 	for _, p := range kv {
-		have[p[0]] = true
-	}
-	n := 0
-	for _, m := range re.FindAllStringSubmatch(string(b), -1) {
-		if m[2] != "" && !strings.HasPrefix(m[2], ":?") && !strings.HasPrefix(m[2], "?") {
-			continue
+		if p[0] != drop {
+			have[p[0]] = true
 		}
-		n++
-		if !have[m[1]] {
-			t.Errorf("compose.yml requires %s but runtime.env does not provide it", m[1])
+	}
+	return have
+}
+
+// checkDrift returns problems: required vars (no default) not provided, and
+// vars with an unsafe default (placeholder secret/host) not provided.
+func checkDrift(t *testing.T, have map[string]bool) []string {
+	var probs []string
+	n := 0
+	for _, f := range composeFiles(t) {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range composeVarRe.FindAllStringSubmatch(string(b), -1) {
+			name, op := m[1], m[2]
+			switch {
+			case op == "" || strings.HasPrefix(op, ":?") || strings.HasPrefix(op, "?"):
+				n++
+				if !have[name] {
+					probs = append(probs, f+": required "+name)
+				}
+			case strings.HasPrefix(op, ":-") || strings.HasPrefix(op, "-"):
+				d := strings.TrimLeft(op, ":-")
+				if (strings.Contains(d, "change-me") || strings.Contains(d, "localhost") ||
+					strings.Contains(d, "example.com") || d == "odk") && !have[name] {
+					probs = append(probs, f+": unsafe default for "+name)
+				}
+			}
 		}
 	}
 	if n == 0 {
 		t.Fatal("found no required vars; regexp broken")
+	}
+	return probs
+}
+
+func TestRuntimeEnvCoversComposeVars(t *testing.T) {
+	if p := checkDrift(t, envKeys("")); len(p) > 0 {
+		t.Fatal(strings.Join(p, "\n"))
+	}
+}
+
+// The guard must actually fire when a secret key is dropped.
+func TestDriftGuardDetectsMissingSecret(t *testing.T) {
+	if len(checkDrift(t, envKeys("POSTGRES_PASSWORD"))) == 0 {
+		t.Fatal("dropping POSTGRES_PASSWORD was not detected")
+	}
+}
+
+func envMap(c *config.Config) map[string]string {
+	kv, _ := RuntimeEnv(c, Secrets{}, "")
+	m := map[string]string{}
+	for _, p := range kv {
+		m[p[0]] = p[1]
+	}
+	return m
+}
+
+func TestODKPublicHTTPSPort(t *testing.T) {
+	c := sample() // acme, https 8443
+	if got := envMap(c)["ODK_PUBLIC_HTTPS_PORT"]; got != "8443" {
+		t.Errorf("acme: %q", got)
+	}
+	c.TLSMode, c.TLSCertDir = "files", "/c"
+	if got := envMap(c)["ODK_PUBLIC_HTTPS_PORT"]; got != "8443" {
+		t.Errorf("files: %q", got)
+	}
+	c.TLSMode = "off"
+	if got := envMap(c)["ODK_PUBLIC_HTTPS_PORT"]; got != "443" {
+		t.Errorf("off: %q", got)
+	}
+}
+
+func TestDemoStillSetsODKAPIKeys(t *testing.T) {
+	c := sample()
+	c.Demo = true
+	m := envMap(c)
+	if m["GLOW_ODK_API_URL"] != "http://nginx" || m["GLOW_ODK_HOST_HEADER"] != "odk.glow.example.org" {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestAtomicWriteSyncsDir(t *testing.T) {
+	var synced string
+	syncDir = func(d string) error { synced = d; return nil }
+	defer func() { syncDir = realSyncDir }()
+	dir := t.TempDir()
+	if err := WriteFileAtomic(filepath.Join(dir, "f"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if synced != dir {
+		t.Fatalf("parent dir not synced: %q", synced)
 	}
 }

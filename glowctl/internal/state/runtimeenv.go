@@ -46,6 +46,14 @@ func RuntimeEnv(cfg *config.Config, s Secrets, releaseDir string) ([][2]string, 
 	if cfg.Demo {
 		odkEmail, adminEmail = "api@glow.local", "admin@glow.local"
 	}
+	odkPort := strconv.Itoa(cfg.HTTPSPort)
+	if cfg.TLSMode == "off" {
+		odkPort = "443" // operator terminates TLS on the public 443
+	}
+	smtpFrom := cfg.SMTP.From
+	if smtpFrom == "" {
+		smtpFrom = "no-reply@" + d
+	}
 	kv := [][2]string{
 		{"GLOW_DOMAIN", d},
 		{"GLOW_VERSION", version},
@@ -80,24 +88,19 @@ func RuntimeEnv(cfg *config.Config, s Secrets, releaseDir string) ([][2]string, 
 		{"ODK_POSTGRES_DB", "odk"},
 		{"ODK_POSTGRES_USER", "odk"},
 		{"ODK_POSTGRES_PASSWORD", s.ODKPostgresPass},
-		{"ODK_PUBLIC_HTTPS_PORT", "443"},
+		{"ODK_PUBLIC_HTTPS_PORT", odkPort},
 		{"GLOW_SMTP_HOST", cfg.SMTP.Host},
 		{"GLOW_SMTP_PORT", strconv.Itoa(cfg.SMTP.Port)},
 		{"GLOW_SMTP_SECURE", strconv.FormatBool(cfg.SMTP.Secure)},
 		{"GLOW_SMTP_USER", cfg.SMTP.User},
 		{"GLOW_SMTP_PASSWORD", cfg.SMTP.Password},
-	}
-	if cfg.SMTP.From != "" {
-		kv = append(kv, [2]string{"GLOW_SMTP_FROM", cfg.SMTP.From})
+		{"GLOW_SMTP_FROM", smtpFrom},
+		{"GLOW_ODK_API_URL", "http://nginx"},
+		{"GLOW_ODK_HOST_HEADER", "odk." + d},
+		{"GLOW_ODK_VERIFY_SSL", "false"},
 	}
 	if cfg.Registry != "" {
 		kv = append(kv, [2]string{"GLOW_REGISTRY", cfg.Registry})
-	}
-	if !cfg.Demo {
-		kv = append(kv,
-			[2]string{"GLOW_ODK_API_URL", "http://nginx"},
-			[2]string{"GLOW_ODK_HOST_HEADER", "odk." + d},
-			[2]string{"GLOW_ODK_VERIFY_SSL", "false"})
 	}
 	return kv, nil
 }
