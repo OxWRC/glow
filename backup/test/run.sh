@@ -67,7 +67,7 @@ bk verify || fail "verify exited non-zero"
 status | jq -e '.last_verify_ok == true and (.last_verify_at | test("Z$")) and .last_backup_ok == true' >/dev/null || fail "bad verify status: $(status)"
 echo "$(ls -A "$GLOW_STATE_DIR/backup-status" | grep -c 'backup-status.json.')" | grep -qx 0 || fail "temp status file left behind"
 # Restore test really restores: the log names the checks and nothing is left behind.
-gone() { dc exec -T backup sh -c 'test ! -e /tmp/glow-verify && ! pgrep postgres >/dev/null' || fail "throwaway cluster left behind ($1)"; }
+gone() { dc exec -T backup sh -c 'command -v pgrep >/dev/null || { echo "pgrep missing"; exit 99; }; test ! -e /tmp/glow-verify && ! pgrep postgres >/dev/null' || fail "throwaway cluster left behind ($1)"; }
 gone "after success"
 # Valid snapshot whose restored users table is empty while meta.json claims rows:
 # pg_restore --list and the restore both succeed; only the row-count check fails.

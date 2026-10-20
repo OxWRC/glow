@@ -31,7 +31,14 @@ cleanup() {
 		su-exec postgres pg_ctl -D "$VERIFY/pg" -m immediate -w stop >/dev/null 2>&1 || true
 	fi
 	# A previous step may have been SIGKILLed, leaving its postgres running.
-	pkill -u postgres -f "$VERIFY" 2>/dev/null || true
+	if pgrep -u postgres -f "$VERIFY" >/dev/null 2>&1; then
+		pkill -INT -u postgres -f "$VERIFY" 2>/dev/null || true # fast shutdown
+		i=0
+		while [ "$i" -lt 20 ] && pgrep -u postgres -f "$VERIFY" >/dev/null 2>&1; do
+			sleep 0.5; i=$((i + 1))
+		done
+		pkill -KILL -u postgres -f "$VERIFY" 2>/dev/null || true
+	fi
 	rm -rf "$DUMPS" "$VERIFY"
 }
 trap cleanup EXIT
@@ -73,7 +80,7 @@ do_backup() {
 		-U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$DUMPS/glow.dump"
 	PGPASSWORD=$ODK_POSTGRES_PASSWORD pg_dump -Fc -h "${ODK_POSTGRES_HOST:-postgres14}" \
 		-U "$ODK_POSTGRES_USER" -d "$ODK_POSTGRES_DB" -f "$DUMPS/odk.dump"
-	# Counted just after the dump (tiny race; verify only checks empty vs non-empty).
+	# Counted just after the dump (tiny race: rows arriving after the dump can only cause a false verify FAILURE, never hide a loss).
 	# Source row counts (-1: table missing) so verify can tell "empty" from "lost".
 	g_users=$(count_rows "$POSTGRES_PASSWORD" "${POSTGRES_HOST:-api-db}" "$POSTGRES_USER" "$POSTGRES_DB" users)
 	g_schools=$(count_rows "$POSTGRES_PASSWORD" "${POSTGRES_HOST:-api-db}" "$POSTGRES_USER" "$POSTGRES_DB" schools)
