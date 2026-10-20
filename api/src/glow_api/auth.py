@@ -131,7 +131,8 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
 
 
 def _email_verified(claims: dict[str, Any]) -> bool:
-    return claims.get("email_verified") in (True, "true")
+    v = claims.get("email_verified")
+    return v is True or v == "true"
 
 
 def resolve_user(db: Session, claims: dict[str, Any]) -> User | None:
@@ -154,13 +155,24 @@ def resolve_user(db: Session, claims: dict[str, Any]) -> User | None:
     user = get_unlinked_user_by_email(db, email)
     if user is None or not user.is_active:
         return None
-    user.oidc_sub = sub
+    # Atomic compare-and-set: only link if still unlinked, so concurrent first
+    # logins with different subs can't overwrite each other.
     try:
+        linked = (
+            db.query(User)
+            .filter(User.id == user.id, User.oidc_sub.is_(None))
+            .update({"oidc_sub": sub}, synchronize_session=False)
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
-        return None
-    return user
+        linked = 0
+    if linked:
+        db.refresh(user)
+        return user
+    # Lost the race: fine only if the winner was this same sub.
+    user = get_user_by_sub(db, sub)
+    return user if user is not None and user.is_active else None
 
 
 def sync_user_claims(db: Session, user: User, claims: dict[str, Any]) -> None:

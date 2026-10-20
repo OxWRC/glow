@@ -47,7 +47,16 @@ def test_email_verified_string_true_links(auth_client, db_session, pre):
 
 
 @pytest.mark.parametrize(
-    "extra", [{}, {"email_verified": False}, {"email_verified": "false"}]
+    "extra",
+    [
+        {},
+        {"email_verified": False},
+        {"email_verified": "false"},
+        {"email_verified": "True"},
+        {"email_verified": "1"},
+        {"email_verified": 1},
+        {"email_verified": "yes"},
+    ],
 )
 def test_unverified_email_is_no_access(auth_client, db_session, pre, extra):
     r = _me(auth_client, {"sub": "s1", "email": EMAIL, **extra})
@@ -135,3 +144,35 @@ def test_school_scoped_query_unverified_not_linked(
     )
     assert r.status_code in (401, 403)
     assert _row(db_session).oidc_sub is None
+
+
+def _stale_lookup(monkeypatch, db_session, linked_to):
+    from glow_api import auth as auth_module
+
+    real = auth_module.get_unlinked_user_by_email
+
+    def stale(db, email):
+        user = real(db, email)
+        db.query(User).filter(User.id == user.id).update({"oidc_sub": linked_to})
+        db.commit()
+        return user
+
+    monkeypatch.setattr(auth_module, "get_unlinked_user_by_email", stale)
+
+
+def test_concurrent_link_to_other_sub_does_not_overwrite(db_session, pre, monkeypatch):
+    from glow_api.auth import resolve_user
+
+    _stale_lookup(monkeypatch, db_session, "other")
+    claims = {"sub": "s1", "email": EMAIL, "email_verified": True}
+    assert resolve_user(db_session, claims) is None
+    assert _row(db_session).oidc_sub == "other"
+
+
+def test_concurrent_link_to_same_sub_returns_user(db_session, pre, monkeypatch):
+    from glow_api.auth import resolve_user
+
+    _stale_lookup(monkeypatch, db_session, "s1")
+    claims = {"sub": "s1", "email": EMAIL, "email_verified": True}
+    user = resolve_user(db_session, claims)
+    assert user is not None and user.oidc_sub == "s1"
