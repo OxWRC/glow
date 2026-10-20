@@ -115,6 +115,12 @@ if "${COMPOSE[@]}" exec -T nginx cat /etc/nginx/conf.d/odk.conf | grep -q 'inges
 fi
 sentry_key=$("${COMPOSE[@]}" exec -T odk-service printenv SENTRY_KEY || true)
 [ -z "$sentry_key" ] || { echo "odk-service SENTRY_KEY is set: $sentry_key" >&2; exit 1; }
+# Analytics and mailing-list opt-in phone-home URLs must be blank in the
+# effective config (odk-central/local-glow.json).
+effective=$("${COMPOSE[@]}" exec -T odk-service sh -c 'cd /usr/odk && node -e "
+const c = require(\"config\");
+process.stdout.write(c.get(\"default.external.analytics.url\") + c.get(\"default.external.mailingListOptIn.url\"))"')
+[ -z "$effective" ] || { echo "ODK phone-home URLs not blank: $effective" >&2; exit 1; }
 status=$(via_proxy odk.glow.test -o /dev/null -w '%{http_code}' -X POST https://odk.glow.test/csp-report)
 [ "$status" = 204 ] || { echo "POST /csp-report: HTTP $status (want 204)" >&2; exit 1; }
 

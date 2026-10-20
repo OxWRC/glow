@@ -1,0 +1,8 @@
+{
+  "default": {
+    "external": {
+      "analytics": { "url": "", "formId": "", "version": "" },
+      "mailingListOptIn": { "url": "", "formId": "", "version": "" }
+    }
+  }
+}

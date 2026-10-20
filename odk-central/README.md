@@ -188,4 +188,6 @@ Upstream Central ships with a default Sentry project and sends backend error rep
 - `odk-central/nginx/odk.conf.template` answers `POST /csp-report` with `204` locally instead of proxying to Sentry.
 - `scripts/smoke_compose.sh` asserts both, so an upstream template bump that reintroduces the DSN fails CI.
 
+- Central's analytics report and mailing-list opt-in (both POST to `data.getodk.cloud`; analytics runs from a daily cron once an admin enables it in the UI) are disabled by `odk-central/local-glow.json`. `NODE_CONFIG_ENV=glow` makes node-config merge it over `default.json` after the generated `local.json` (which `start-odk.sh` rewrites on every boot, so it cannot be mounted over). Blank URL/formId/version make Central use its "not configured" no-op reporter, so a submit is rejected rather than sent.
+
 Operators who really want error reporting can set `ODK_SENTRY_*` in their environment.
