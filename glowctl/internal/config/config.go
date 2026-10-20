@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata" // validate timezones on hosts without system tzdata
 )
 
 // SMTPConfig holds the optional outbound mail settings.
@@ -45,11 +46,24 @@ type Config struct {
 
 var hostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
 
-func unquote(v string) string {
-	if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
-		return v[1 : len(v)-1]
+// parseValue strips matching quotes (the text after the closing quote may only
+// be a comment) or, for unquoted values, a trailing " #..." comment.
+func parseValue(v string) (string, error) {
+	if v != "" && (v[0] == '"' || v[0] == '\'') {
+		if i := strings.IndexByte(v[1:], v[0]); i >= 0 {
+			rest := strings.TrimSpace(v[i+2:])
+			if rest != "" && !strings.HasPrefix(rest, "#") {
+				return "", fmt.Errorf("unexpected text after closing quote")
+			}
+			return v[1 : i+1], nil
+		}
 	}
-	return v
+	if i := strings.IndexAny(v, " \t"); i >= 0 {
+		if j := strings.Index(v[i:], "#"); j >= 0 && strings.TrimSpace(v[i:i+j]) == "" {
+			v = v[:i]
+		}
+	}
+	return strings.TrimSpace(v), nil
 }
 
 // Load parses path. Defaults are applied; problems with the content are
@@ -82,7 +96,8 @@ func Load(path string) (*Config, error) {
 			c.errs = append(c.errs, fmt.Errorf("%s: %q must be true or false", key, v))
 		}
 	}
-	for i, line := range strings.Split(string(data), "\n") {
+	seen := map[string]int{}
+	for i, line := range strings.Split(strings.TrimPrefix(string(data), "\xef\xbb\xbf"), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -93,7 +108,16 @@ func Load(path string) (*Config, error) {
 			c.errs = append(c.errs, fmt.Errorf("line %d: expected KEY=VALUE", i+1))
 			continue
 		}
-		v = unquote(strings.TrimSpace(v))
+		if first, dup := seen[k]; dup {
+			c.errs = append(c.errs, fmt.Errorf("%s: duplicate key (line %d, first at line %d)", k, i+1, first))
+			continue
+		}
+		seen[k] = i + 1
+		v, err := parseValue(strings.TrimSpace(v))
+		if err != nil {
+			c.errs = append(c.errs, fmt.Errorf("%s: %v", k, err))
+			continue
+		}
 		switch k {
 		case "GLOW_DOMAIN":
 			c.Domain = v
@@ -182,7 +206,7 @@ func (c *Config) Validate() []error {
 	default:
 		add("GLOW_TLS_MODE: %q must be acme, files or off", c.TLSMode)
 	}
-	if _, err := time.LoadLocation(c.PeriodTimezone); err != nil || c.PeriodTimezone == "" {
+	if _, err := time.LoadLocation(c.PeriodTimezone); err != nil || c.PeriodTimezone == "" || c.PeriodTimezone == "Local" {
 		add("GLOW_PERIOD_TIMEZONE: %q is not an IANA timezone name", c.PeriodTimezone)
 	}
 	return errs

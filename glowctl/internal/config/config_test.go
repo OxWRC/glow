@@ -38,7 +38,7 @@ func TestValidate(t *testing.T) {
 		{"http issuer", strings.Replace(prod, "https://id", "http://id", 1), []string{"GLOW_OIDC_ISSUER"}},
 		{"missing client id", strings.Replace(prod, "GLOW_OIDC_CLIENT_ID=abc\n", "", 1), []string{"GLOW_OIDC_CLIENT_ID"}},
 		{"missing backup", strings.Replace(prod, "GLOW_BACKUP_PATH="+backup+"\n", "", 1), []string{"GLOW_BACKUP_PATH"}},
-		{"backup not existing", prod + "GLOW_BACKUP_PATH=/nonexistent/zzz\n", []string{"GLOW_BACKUP_PATH"}},
+		{"backup not existing", strings.Replace(prod, backup, "/nonexistent/zzz", 1), []string{"GLOW_BACKUP_PATH"}},
 		{"bad tls mode", prod + "GLOW_TLS_MODE=magic\n", []string{"GLOW_TLS_MODE"}},
 		{"files without dir", prod + "GLOW_TLS_MODE=files\n", []string{"GLOW_TLS_CERT_DIR"}},
 		{"files with empty dir", prod + "GLOW_TLS_MODE=files\nGLOW_TLS_CERT_DIR=" + emptyCerts + "\n", []string{"GLOW_TLS_CERT_DIR", "GLOW_TLS_CERT_DIR"}},
@@ -51,6 +51,16 @@ func TestValidate(t *testing.T) {
 		{"bad timezone", prod + "GLOW_PERIOD_TIMEZONE=Mars/Base\n", []string{"GLOW_PERIOD_TIMEZONE"}},
 		{"bad smtp port", prod + "GLOW_SMTP_PORT=x\n", []string{"GLOW_SMTP_PORT"}},
 		{"bad smtp secure", prod + "GLOW_SMTP_SECURE=maybe\n", []string{"GLOW_SMTP_SECURE"}},
+		{"duplicate key", prod + "GLOW_DOMAIN=other.example.org\n", []string{"GLOW_DOMAIN: duplicate key (line 5"}},
+		{"bom ok", "\xef\xbb\xbf" + prod, nil},
+		{"crlf ok", strings.ReplaceAll(prod, "\n", "\r\n"), nil},
+		{"empty value", strings.Replace(prod, "GLOW_DOMAIN=glow.example.org", "GLOW_DOMAIN=", 1), []string{"GLOW_DOMAIN"}},
+		{"spaces around equals", strings.Replace(prod, "GLOW_DOMAIN=glow.example.org", "GLOW_DOMAIN = glow.example.org", 1), nil},
+		{"domain with scheme", strings.Replace(prod, "glow.example.org", "https://x", 1), []string{"GLOW_DOMAIN"}},
+		{"domain with port", strings.Replace(prod, "glow.example.org", "host:443", 1), []string{"GLOW_DOMAIN"}},
+		{"backup is file", strings.Replace(prod, backup, filepath.Join(certs, "privkey.pem"), 1), []string{"GLOW_BACKUP_PATH"}},
+		{"timezone Local", prod + "GLOW_PERIOD_TIMEZONE=Local\n", []string{"GLOW_PERIOD_TIMEZONE"}},
+		{"text after quote", prod + "GLOW_REGISTRY=\"a\" b\n", []string{"GLOW_REGISTRY"}},
 		{"unknown key typo", prod + "GLOW_DOMIAN=x\n", []string{"GLOW_DOMIAN"}},
 		{"syntax error line", prod + "garbage\n", []string{"line"}},
 		{"multiple errors", "GLOW_TLS_MODE=bad\nGLOW_HTTP_PORT=0\nGLOW_TYPO=1\n",
@@ -99,5 +109,24 @@ func TestDefaultsAndValues(t *testing.T) {
 func TestLoadMissingFile(t *testing.T) {
 	if _, err := Load(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Fatal("want error")
+	}
+}
+
+func TestParsedValues(t *testing.T) {
+	c, err := Load(write(t, "\xef\xbb\xbfGLOW_DOMAIN = a.example.org # note\r\n"+
+		"GLOW_OIDC_CLIENT_ID=abc\t# note\r\n"+
+		"GLOW_ACME_EMAIL=\"a#b@x.org\" # c\n"+
+		"GLOW_SMTP_PASSWORD=\"a=b\"\n"+
+		"GLOW_REGISTRY=ghcr.io/x#y\n"+
+		"GLOW_SMTP_USER=\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Domain != "a.example.org" || c.OIDCClientID != "abc" || c.ACMEEmail != "a#b@x.org" ||
+		c.SMTP.Password != "a=b" || c.Registry != "ghcr.io/x#y" || c.SMTP.User != "" {
+		t.Errorf("unexpected %+v", c)
+	}
+	if e := c.Validate(); anyContains(e, "GLOW_DOMAIN") || anyContains(e, "line") {
+		t.Errorf("unexpected errors %v", e)
 	}
 }
