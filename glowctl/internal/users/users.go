@@ -6,13 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 
 	"github.com/oxwrc/glow/glowctl/internal/compose"
+	"github.com/oxwrc/glow/glowctl/internal/config"
 )
-
-var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 type multi []string
 
@@ -63,7 +61,7 @@ func Run(ctx context.Context, r compose.Runner, args []string, out io.Writer) er
 		if email != "" {
 			return fmt.Errorf("users list takes no arguments")
 		}
-	} else if strings.HasPrefix(email, "-") || !emailRe.MatchString(email) {
+	} else if strings.HasPrefix(email, "-") || !config.ValidEmail(email) {
 		return fmt.Errorf("%q is not a valid email address", email)
 	}
 

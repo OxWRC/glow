@@ -166,7 +166,7 @@ func (c *Client) publishForm(ctx context.Context, token string, project int, id,
 // filename and, when several share an xmlFormId (e.g. bewell v1/v2), only the
 // last one is synced (older ones are skipped with a note), so reruns are
 // idempotent. It returns the xmlFormIds actually uploaded.
-func SyncForms(ctx context.Context, c *Client, token string, projectID int, formsDir, statePath string) (uploaded []string, err error) {
+func SyncForms(ctx context.Context, c *Client, token string, projectID int, formsDir, statePath string, out io.Writer) (uploaded []string, err error) {
 	st := formState{}
 	if b, err := os.ReadFile(statePath); err == nil {
 		if err := json.Unmarshal(b, &st); err != nil {
@@ -199,7 +199,7 @@ func SyncForms(ctx context.Context, c *Client, token string, projectID int, form
 			return nil, fmt.Errorf("%s: form has no version attribute; ODK needs a unique version for updates", filepath.Base(p))
 		}
 		if i, ok := last[id]; ok {
-			fmt.Printf("[glowctl] skipping %s: superseded by %s (same xmlFormId %s)\n", forms[i].name, filepath.Base(p), id)
+			fmt.Fprintf(out, "[glowctl] skipping %s: superseded by %s (same xmlFormId %s)\n", forms[i].name, filepath.Base(p), id)
 			forms[i].body = nil
 		}
 		last[id] = len(forms)

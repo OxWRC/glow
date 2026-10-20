@@ -124,8 +124,10 @@ func Run(cfg *config.Config, cfgErrs []error, env Env) []Finding {
 			case err == nil:
 			case errors.Is(err, syscall.EADDRINUSE):
 				add(Warn, "port %d is already in use by another process", p)
-			default:
+			case errors.Is(err, syscall.EACCES):
 				add(Warn, "cannot check whether port %d is free (%v; binding low ports may need root)", p, err)
+			default:
+				add(Warn, "cannot check whether port %d is free (%v)", p, err)
 			}
 		}
 	}

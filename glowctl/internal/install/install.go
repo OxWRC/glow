@@ -37,6 +37,7 @@ type Options struct {
 	IsTTY    bool
 	Out      io.Writer
 	Interval time.Duration // overrides every poll interval (tests); 0 = defaults
+	Progress time.Duration // how often waits print a progress line; 0 = 30s
 }
 
 // StateDirs are created under GLOW_STATE_DIR before compose so Docker never
@@ -49,6 +50,10 @@ const cliJS = "/usr/odk/lib/bin/cli.js"
 // Run performs (or re-performs, idempotently) the install.
 func Run(ctx context.Context, o Options) error {
 	step := func(s string) { fmt.Fprintf(o.Out, "[glowctl] %s\n", s) }
+	every := o.Progress
+	if every <= 0 {
+		every = 30 * time.Second
+	}
 	wait := func(d time.Duration) time.Duration {
 		if o.Interval > 0 {
 			return o.Interval
@@ -62,7 +67,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	if errs := cfg.Validate(); len(errs) > 0 {
-		return fmt.Errorf("glow.env is invalid:\n  %v", errors.Join(errs...).Error())
+		return fmt.Errorf("glow.env is invalid:\n%s", config.FormatErrors(errs))
 	}
 	adminEmail := o.AdminEmail
 	if cfg.Demo && strings.TrimSpace(adminEmail) != "" {
@@ -151,8 +156,8 @@ func Run(ctx context.Context, o Options) error {
 		c = o.ODK(cfg)
 	}
 	step("waiting for ODK Central")
-	if err := odk.WaitReady(ctx, c, 60, wait(10*time.Second)); err != nil {
-		return err
+	if err := odk.WaitReady(ctx, c, 60, wait(10*time.Second), o.Out, every); err != nil {
+		return withHint(cfg, err)
 	}
 
 	if cfg.Demo {
@@ -166,8 +171,8 @@ func Run(ctx context.Context, o Options) error {
 			return err
 		}
 		step("waiting for the API (migrations)")
-		if err := verify(ctx, get, Targets(cfg)[1:2], 60, wait(5*time.Second)); err != nil {
-			return err
+		if err := verify(ctx, get, Targets(cfg)[1:2], 60, wait(5*time.Second), o.Out, every, "the API (migrations)"); err != nil {
+			return withHint(cfg, err)
 		}
 		step("ensuring GLOW admin " + adminEmail)
 		if err := ensureGlowAdmin(run, adminEmail); err != nil {
@@ -181,7 +186,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	uploaded, err := odk.SyncForms(ctx, c, tok, odk.RequiredProjectID, filepath.Join(o.ReleaseDir, "odk-forms"),
-		filepath.Join(cfg.StateDir, "odk-forms-state.json"))
+		filepath.Join(cfg.StateDir, "odk-forms-state.json"), o.Out)
 	c.Logout(context.WithoutCancel(ctx), tok) //nolint:errcheck // best effort
 	if err != nil {
 		return err
@@ -206,8 +211,8 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	step("verifying through the proxy")
-	if err := verify(ctx, get, Targets(cfg), 30, wait(5*time.Second)); err != nil {
-		return err
+	if err := verify(ctx, get, Targets(cfg), 30, wait(5*time.Second), o.Out, every, "the stack through the proxy"); err != nil {
+		return withHint(cfg, err)
 	}
 
 	step("writing deployment.json")
@@ -223,6 +228,9 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	step("install complete: https://" + cfg.Domain)
+	if !cfg.Demo {
+		step("ODK Central admin: " + odkAdmin + " — password: ODK_ADMIN_PASSWORD in " + filepath.Join(cfg.StateDir, "secrets.env"))
+	}
 	return nil
 }
 
@@ -240,7 +248,7 @@ func askAdmin(o Options) (string, error) {
 		}
 		e = strings.TrimSpace(line)
 	}
-	if at := strings.Index(e, "@"); at < 1 || at == len(e)-1 || strings.ContainsAny(e, " \t") {
+	if !config.ValidEmail(e) {
 		return "", fmt.Errorf("admin email %q is not a valid email address", e)
 	}
 	return e, nil
@@ -316,8 +324,10 @@ func Targets(cfg *config.Config) [][2]string {
 }
 
 // verify polls the targets via the proxy until all answer 200.
-func verify(ctx context.Context, get func(context.Context, string, string) (int, error), targets [][2]string, attempts int, interval time.Duration) error {
+func verify(ctx context.Context, get func(context.Context, string, string) (int, error), targets [][2]string, attempts int, interval time.Duration, out io.Writer, every time.Duration, what string) error {
 	var last error
+	start := time.Now()
+	lastLine := start
 	for i := 0; i < attempts; i++ {
 		last = nil
 		for _, t := range targets {
@@ -334,6 +344,10 @@ func verify(ctx context.Context, get func(context.Context, string, string) (int,
 			return nil
 		}
 		if i < attempts-1 {
+			if now := time.Now(); now.Sub(lastLine) >= every {
+				lastLine = now
+				fmt.Fprintf(out, "[glowctl] still waiting for %s (%s): %v\n", what, now.Sub(start).Round(time.Second), last)
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -342,6 +356,16 @@ func verify(ctx context.Context, get func(context.Context, string, string) (int,
 		}
 	}
 	return fmt.Errorf("stack not healthy after %d attempts: %w", attempts, last)
+}
+
+// withHint appends ACME troubleshooting advice to a failed wait.
+func withHint(cfg *config.Config, err error) error {
+	if cfg.TLSMode != "acme" {
+		return err
+	}
+	d := cfg.Domain
+	return fmt.Errorf("%w\nhint: certificate issuance needs DNS A/AAAA records for %s, api.%s and odk.%s pointing at this server, "+
+		"and ports 80/443 reachable from the internet; check `docker compose logs proxy`", err, d, d, d)
 }
 
 // ProxyGet dials the local proxy on loopback with SNI/Host = host (plain

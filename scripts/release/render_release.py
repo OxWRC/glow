@@ -19,6 +19,8 @@ VAR_RE = re.compile(r"\$\{(\w+):-([^}]*)\}")
 EXTENDS = {
     "proxy": {"file": "proxy/compose.${GLOW_TLS_MODE:-acme}.yml", "service": "proxy-networks"},
 }
+# Container ports whose mapping lives in the extends file (compose inlines it).
+EXTENDS_PORTS = {"proxy": {443}}
 
 
 class RenderError(Exception):
@@ -37,6 +39,14 @@ def _digest_for(image, digests, variables):
                 raise RenderError(f"malformed digest for {key}: {d!r}")
             return d
     raise RenderError(f"no digest for image {image}")
+
+
+def _target(port):
+    """Container port of a short ("host:80/tcp") or long-syntax port entry."""
+    if isinstance(port, dict):
+        return port.get("target")
+    tail = str(port).rsplit(":", 1)[-1].split("/")[0]
+    return int(tail) if tail.isdigit() else None
 
 
 def _volume(v, stage):
@@ -81,6 +91,8 @@ def render(compose, digests, stage, variables=None):
             svc["volumes"] = [_volume(v, stage) for v in svc["volumes"]]
         if name in EXTENDS:
             svc.pop("networks", None)
+            if "ports" in svc:
+                svc["ports"] = [p for p in svc["ports"] if _target(p) not in EXTENDS_PORTS[name]]
             svc["extends"] = dict(EXTENDS[name])
     return out
 

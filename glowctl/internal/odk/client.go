@@ -108,15 +108,22 @@ func (c *Client) Ready(ctx context.Context) error {
 	return nil
 }
 
-// WaitReady polls Ready up to attempts times, interval apart.
-func WaitReady(ctx context.Context, c *Client, attempts int, interval time.Duration) error {
+// WaitReady polls Ready up to attempts times, interval apart, writing a
+// progress line to out every `every` while it keeps failing.
+func WaitReady(ctx context.Context, c *Client, attempts int, interval time.Duration, out io.Writer, every time.Duration) error {
 	var last error
+	start := time.Now()
+	lastLine := start
 	for i := 0; i < attempts; i++ {
 		if last = c.Ready(ctx); last == nil {
 			return nil
 		}
 		if i == attempts-1 {
 			break
+		}
+		if now := time.Now(); now.Sub(lastLine) >= every {
+			lastLine = now
+			fmt.Fprintf(out, "[glowctl] still waiting for ODK Central (%s): %v\n", now.Sub(start).Round(time.Second), last)
 		}
 		select {
 		case <-ctx.Done():

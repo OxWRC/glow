@@ -25,6 +25,7 @@ When the deployment tooling runs on a deployed runner:
 - ODK Central automatically creates a new version when uploading a form with an existing `xmlFormId`
 - Forms are only re-uploaded if their content hash changes
 - Unchanged forms are skipped (idempotent deployment)
+- If several files share the same `xmlFormId`, the lexically last filename wins and the others are skipped (name versions so they sort correctly: `v02`, `v10`, ...)
 
 ## Form State Tracking
 

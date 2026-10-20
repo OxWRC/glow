@@ -44,7 +44,7 @@ func cli(ctx context.Context, r compose.Runner, email, cmd, password string) (st
 }
 
 // alreadyExists matches ODK's "A resource already exists ..." wording
-// (problem 409.3); the exact promote wording on a re-grant is unverified.
+// (problem 409.3); a repeated promote returns the same 409.3 (verified).
 func alreadyExists(out string, err error) bool {
 	s := out
 	if err != nil {

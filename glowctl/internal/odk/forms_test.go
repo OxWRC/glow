@@ -103,7 +103,7 @@ func TestSyncFormsNewUnchangedAndMode(t *testing.T) {
 	defer srv.Close()
 	c := NewClientForBase(srv.URL, "odk.x")
 	dir, st := writeForms(t, map[string]string{"a.xml": formXML("a", "1"), "notes.txt": "x"})
-	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st, io.Discard)
 	if err != nil || !reflect.DeepEqual(up, []string{"a"}) {
 		t.Fatalf("up=%v err=%v", up, err)
 	}
@@ -117,7 +117,7 @@ func TestSyncFormsNewUnchangedAndMode(t *testing.T) {
 		t.Fatalf("mode %v", fi.Mode())
 	}
 	f.reqs = nil
-	up, err = SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	up, err = SyncForms(context.Background(), c, "TOK", 1, dir, st, io.Discard)
 	if err != nil || len(up) != 0 || len(f.reqs) != 0 {
 		t.Fatalf("rerun up=%v err=%v reqs=%v", up, err, f.reqs)
 	}
@@ -129,7 +129,7 @@ func TestSyncFormsNewVersionPublishes(t *testing.T) {
 	defer srv.Close()
 	c := NewClientForBase(srv.URL, "odk.x")
 	dir, st := writeForms(t, map[string]string{"a.xml": formXML("a", "2")})
-	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st, io.Discard)
 	if err != nil || !reflect.DeepEqual(up, []string{"a"}) {
 		t.Fatalf("up=%v err=%v", up, err)
 	}
@@ -154,7 +154,7 @@ func TestSyncFormsSameVersionIsUnchanged(t *testing.T) {
 	defer srv.Close()
 	c := NewClientForBase(srv.URL, "odk.x")
 	dir, st := writeForms(t, map[string]string{"a.xml": formXML("a", "1")})
-	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st, io.Discard)
 	if err != nil || len(up) != 0 {
 		t.Fatalf("up=%v err=%v", up, err)
 	}
@@ -175,7 +175,7 @@ func TestSyncFormsPublish409IsUnchanged(t *testing.T) {
 	defer srv.Close()
 	c := NewClientForBase(srv.URL, "odk.x")
 	dir, st := writeForms(t, map[string]string{"a.xml": formXML("a", "2")})
-	if _, err := SyncForms(context.Background(), c, "TOK", 1, dir, st); err != nil {
+	if _, err := SyncForms(context.Background(), c, "TOK", 1, dir, st, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.reqs[len(f.reqs)-1]; got != "DELETE /v1/projects/1/forms/a/draft?" {
@@ -194,9 +194,13 @@ func TestSyncFormsSameIDDedupedAndIdempotent(t *testing.T) {
 	dir, st := writeForms(t, map[string]string{
 		"b_v1.xml": formXML("b", "1"), "b_v2.xml": formXML("b", "2"), "z.xml": formXML("z", "1"),
 	})
-	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	var note strings.Builder
+	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st, &note)
 	if err != nil || !reflect.DeepEqual(up, []string{"b", "z"}) {
 		t.Fatalf("up=%v err=%v", up, err)
+	}
+	if !strings.Contains(note.String(), "skipping b_v1.xml: superseded by b_v2.xml") {
+		t.Fatalf("skip note not written to writer: %q", note.String())
 	}
 	if f.published["b"] != "2" {
 		t.Fatalf("pub=%v", f.published)
@@ -207,7 +211,7 @@ func TestSyncFormsSameIDDedupedAndIdempotent(t *testing.T) {
 		t.Fatalf("state=%s", b)
 	}
 	f.reqs = nil
-	up, err = SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	up, err = SyncForms(context.Background(), c, "TOK", 1, dir, st, io.Discard)
 	if err != nil || len(up) != 0 || len(f.reqs) != 0 {
 		t.Fatalf("rerun up=%v err=%v reqs=%v", up, err, f.reqs)
 	}
@@ -219,7 +223,7 @@ func TestSyncFormsPartialStateAndErrorBody(t *testing.T) {
 	defer srv.Close()
 	c := NewClientForBase(srv.URL, "odk.x")
 	dir, st := writeForms(t, map[string]string{"a.xml": formXML("a", "1"), "z.xml": formXML("z", "1")})
-	_, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	_, err := SyncForms(context.Background(), c, "TOK", 1, dir, st, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "boom from odk") || strings.Contains(err.Error(), "TOK") {
 		t.Fatalf("err=%v", err)
 	}
@@ -235,7 +239,7 @@ func TestSyncFormsMissingVersion(t *testing.T) {
 	defer srv.Close()
 	c := NewClientForBase(srv.URL, "odk.x")
 	dir, st := writeForms(t, map[string]string{"n.xml": strings.Replace(formXML("n", "1"), ` version="1"`, "", 1)})
-	_, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	_, err := SyncForms(context.Background(), c, "TOK", 1, dir, st, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "n.xml") || !strings.Contains(err.Error(), "no version attribute") {
 		t.Fatalf("err=%v", err)
 	}

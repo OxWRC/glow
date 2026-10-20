@@ -143,11 +143,11 @@ services:
       - ${GLOW_STATE_DIR:-./docker-mount-data}/caddy-data:/data
     ports:
       - "${GLOW_HTTP_PORT:-80}:80"
-      - "${GLOW_HTTPS_PORT:-443}:443"
-    # Network aliases come from proxy/compose.${GLOW_TLS_MODE}.yml. In acme
-    # and files modes the proxy answers to the three hostnames on `public`, so
+    # Network aliases and the HTTPS port mapping come from
+    # proxy/compose.${GLOW_TLS_MODE}.yml. In acme and files modes the proxy answers to the three hostnames on `public`, so
     # Enketo's fetch of https://odk.<domain> hairpins to Caddy. In off mode
-    # Caddy has no :443, so no aliases: Enketo must reach https://odk.<domain>
+    # Caddy has no :443, so no aliases and no 443 mapping (the operator's own
+    # terminator owns it): Enketo must reach https://odk.<domain>
     # (the operator's TLS terminator) via normal DNS.
     extends:
       file: proxy/compose.${GLOW_TLS_MODE:-acme}.yml

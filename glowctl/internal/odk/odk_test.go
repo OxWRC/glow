@@ -226,10 +226,10 @@ func TestWaitReady(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewClientForBase(srv.URL, "odk.x")
-	if err := WaitReady(context.Background(), c, 5, time.Millisecond); err != nil || n != 3 {
+	if err := WaitReady(context.Background(), c, 5, time.Millisecond, io.Discard, time.Hour); err != nil || n != 3 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
-	if err := WaitReady(context.Background(), NewClientForBase("http://127.0.0.1:1", "x"), 2, time.Millisecond); err == nil {
+	if err := WaitReady(context.Background(), NewClientForBase("http://127.0.0.1:1", "x"), 2, time.Millisecond, io.Discard, time.Hour); err == nil {
 		t.Fatal("want error")
 	}
 }
@@ -304,5 +304,19 @@ func TestLogoutErrorRedactsToken(t *testing.T) {
 	err = NewClientForBase(srv2.URL, "h").Logout(context.Background(), "SECRETTOKEN")
 	if err == nil || strings.Contains(err.Error(), "SECRETTOKEN") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+func TestWaitReadyReportsProgress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(502) }))
+	defer srv.Close()
+	var out strings.Builder
+	err := WaitReady(context.Background(), NewClientForBase(srv.URL, "odk.x"), 20, 2*time.Millisecond, &out, 5*time.Millisecond)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	n := strings.Count(out.String(), "[glowctl] still waiting for ODK Central (")
+	if n < 2 || !strings.Contains(out.String(), "): ") {
+		t.Fatalf("want >=2 progress lines, got %d:\n%s", n, out.String())
 	}
 }

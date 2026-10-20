@@ -68,9 +68,17 @@ func loadValid(dir string) (*config.Config, error) {
 		return nil, err
 	}
 	if errs := cfg.Validate(); len(errs) > 0 {
-		return nil, fmt.Errorf("glow.env is invalid:\n  %v", errors.Join(errs...))
+		return nil, fmt.Errorf("glow.env is invalid:\n%s", config.FormatErrors(errs))
 	}
 	return cfg, nil
+}
+
+// requireInstalled fails with a plain message when install has not run yet.
+func requireInstalled(cfg *config.Config) error {
+	if _, err := os.Stat(filepath.Join(cfg.StateDir, "runtime.env")); err != nil {
+		return fmt.Errorf("not installed; run glowctl install")
+	}
+	return nil
 }
 
 func statusCmd(args []string) int {
@@ -79,6 +87,9 @@ func statusCmd(args []string) int {
 		return fail("status", errors.Join(err, fmt.Errorf("usage: glowctl status [--dir DIR]")))
 	}
 	cfg, err := loadValid(dir)
+	if err == nil {
+		err = requireInstalled(cfg)
+	}
 	if err != nil {
 		return fail("status", err)
 	}
@@ -140,6 +151,9 @@ func usersCmd(args []string) int {
 		return fail("users", err)
 	}
 	cfg, err := loadValid(dir)
+	if err == nil {
+		err = requireInstalled(cfg)
+	}
 	if err != nil {
 		return fail("users", err)
 	}
@@ -170,6 +184,10 @@ func installCmd(args []string) int {
 	admin := fs.String("admin-email", "", "first GLOW admin (production; prompted on a TTY)")
 	bundleDir := fs.String("bundle", "", "offline bundle directory (images loaded instead of pulled)")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "[glowctl] install: unexpected argument %q\n%s\n", fs.Arg(0), "usage: glowctl install [--dir DIR] [--admin-email EMAIL] [--bundle DIR]")
 		return 2
 	}
 	rel, err := filepath.Abs(*dir)

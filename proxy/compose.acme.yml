@@ -1,6 +1,8 @@
 # Mounted via `extends` from compose.yml's proxy service (see there).
 services:
   proxy-networks:
+    ports:
+      - "${GLOW_HTTPS_PORT:-443}:443"
     networks:
       public:
         aliases:

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,5 +141,49 @@ func TestInlineCommentErrorHidesValue(t *testing.T) {
 		if strings.Contains(e.Error(), "hunter2") {
 			t.Errorf("error leaks value: %v", e)
 		}
+	}
+}
+
+func TestRelativePathsResolveAgainstEnvFileDir(t *testing.T) {
+	p := write(t, "GLOW_DOMAIN=a.example.org\nGLOW_STATE_DIR=state\nGLOW_TLS_CERT_DIR=./certs\nGLOW_BACKUP_PATH=../bk\n")
+	dir := filepath.Dir(p)
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.StateDir != filepath.Join(dir, "state") || c.TLSCertDir != filepath.Join(dir, "certs") ||
+		c.BackupPath != filepath.Join(filepath.Dir(dir), "bk") {
+		t.Errorf("not resolved against %s: %q %q %q", dir, c.StateDir, c.TLSCertDir, c.BackupPath)
+	}
+	abs, _ := Load(write(t, "GLOW_STATE_DIR=/var/x\n"))
+	if abs.StateDir != "/var/x" || abs.TLSCertDir != "" || abs.BackupPath != "" {
+		t.Errorf("absolute/empty changed: %+v", abs)
+	}
+}
+
+func TestRelativePathsResolveFromRelativeEnvPath(t *testing.T) {
+	d := t.TempDir()
+	os.WriteFile(filepath.Join(d, "glow.env"), []byte("GLOW_STATE_DIR=s\n"), 0o600)
+	wd, _ := os.Getwd()
+	defer os.Chdir(wd)
+	os.Chdir(d)
+	c, _ := Load("glow.env")
+	if !filepath.IsAbs(c.StateDir) || filepath.Base(c.StateDir) != "s" {
+		t.Errorf("got %q", c.StateDir)
+	}
+}
+
+func TestValidEmail(t *testing.T) {
+	for e, want := range map[string]bool{"a@b.org": true, "a@b": false, "@b.org": false, "a b@c.org": false, "a@@b.org": false, "": false} {
+		if ValidEmail(e) != want {
+			t.Errorf("ValidEmail(%q) != %v", e, want)
+		}
+	}
+}
+
+func TestFormatErrorsIndentsEveryLine(t *testing.T) {
+	got := FormatErrors([]error{errors.New("a"), errors.New("b\nc")})
+	if got != "  a\n  b\n  c" {
+		t.Errorf("%q", got)
 	}
 }

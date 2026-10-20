@@ -21,6 +21,9 @@ for name, s in services.items():
         src = v["source"]
         if "/deploy" in src or src.rstrip("/") == os.path.join(os.getcwd(), "data"):
             errors.append(f"{name}: forbidden bind source {src}")
+published = {n: s["ports"] for n, s in services.items() if s.get("ports")}
+if list(published) != ["proxy"]:
+    errors.append(f"only proxy may publish ports, got {sorted(published)}")
 if "mail" in services:
     errors.append("base file defines a mail service")
 for name, s in services.items():
@@ -48,6 +51,18 @@ for name, s in services.items():
 if bad:
     sys.exit("check_compose: state not under GLOW_STATE_DIR: " + "; ".join(bad))
 '
+# Proxy ports per TLS mode: HTTP always; HTTPS only when Caddy terminates TLS.
+for mode in acme files off; do
+  GLOW_TLS_MODE=$mode GLOW_TLS_CERT_DIR=$PWD/proxy render | MODE=$mode python3 -c '
+import json, os, sys
+mode = os.environ["MODE"]
+svc = json.load(sys.stdin)["services"]
+ports = sorted(p["target"] for s in svc.values() for p in s.get("ports") or [])
+want = [80] if mode == "off" else [80, 443]
+if ports != want:
+    sys.exit(f"check_compose: {mode} mode publishes {ports}, want {want}")
+'
+done
 # Image naming for publishing: built services carry GLOW_REGISTRY/GLOW_VERSION
 # names; third-party images pin an explicit non-latest tag.
 imgcheck() {

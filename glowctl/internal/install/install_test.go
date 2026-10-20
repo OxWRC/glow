@@ -422,3 +422,66 @@ func TestDemoIgnoresAdminEmailWithNotice(t *testing.T) {
 		t.Fatalf("no notice:\n%s", out.String())
 	}
 }
+
+func TestPrintsODKAdminLocationNotValue(t *testing.T) {
+	e := setup(t, false)
+	var out strings.Builder
+	must(t, Run(context.Background(), e.opts(&out)))
+	want := "ODK Central admin: glow-admin@example.org — password: ODK_ADMIN_PASSWORD in " + filepath.Join(e.st, "secrets.env")
+	if !strings.Contains(out.String(), want) || strings.Contains(out.String(), adminPw(t, e.st)) {
+		t.Fatalf("missing line or leaks value:\n%s", out.String())
+	}
+	d := setup(t, true)
+	var dout strings.Builder
+	must(t, Run(context.Background(), d.opts(&dout)))
+	if strings.Contains(dout.String(), "ODK Central admin") {
+		t.Error("demo must not print production admin line")
+	}
+}
+
+func failingGets(e *env, o *Options, api bool) {
+	o.Progress = 5 * time.Millisecond
+	o.Get = func(_ context.Context, _ *config.Config, host, path string) (int, error) {
+		if api && host == "api.example.org" {
+			return 0, errors.New("connection refused")
+		}
+		return 200, nil
+	}
+}
+
+func TestFinalVerifyShowsProgressAndAcmeHint(t *testing.T) {
+	e := setup(t, false)
+	var out strings.Builder
+	o := e.opts(&out)
+	failingGets(e, &o, true)
+	o.Interval = 2 * time.Millisecond
+	err := Run(context.Background(), o)
+	if err == nil {
+		t.Fatal("want failure")
+	}
+	if n := strings.Count(out.String(), "[glowctl] still waiting for the API (migrations) ("); n < 2 {
+		t.Fatalf("want progress lines, got %d:\n%s", n, out.String())
+	}
+	if !strings.Contains(out.String(), "connection refused") {
+		t.Errorf("progress lacks last error:\n%s", out.String())
+	}
+	for _, w := range []string{"DNS", "api.example.org", "odk.example.org", "80/443", "docker compose logs proxy"} {
+		if !strings.Contains(err.Error(), w) {
+			t.Errorf("hint missing %q: %v", w, err)
+		}
+	}
+}
+
+func TestNoAcmeHintInOffMode(t *testing.T) {
+	e := setup(t, false)
+	f, _ := os.OpenFile(filepath.Join(e.rel, "glow.env"), os.O_APPEND|os.O_WRONLY, 0)
+	f.WriteString("GLOW_TLS_MODE=off\n")
+	f.Close()
+	o := e.opts(io.Discard)
+	failingGets(e, &o, true)
+	o.Interval = time.Millisecond
+	err := Run(context.Background(), o)
+	if err == nil || strings.Contains(err.Error(), "DNS") {
+		t.Fatalf("want error without hint, got %v", err)
+	}
+}

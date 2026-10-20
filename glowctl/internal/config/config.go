@@ -163,7 +163,34 @@ func Load(path string) (*Config, error) {
 			c.errs = append(c.errs, fmt.Errorf("%s: unknown key (typo?)", k))
 		}
 	}
+	base := filepath.Dir(path)
+	if abs, err := filepath.Abs(path); err == nil {
+		base = filepath.Dir(abs)
+	}
+	for _, p := range []*string{&c.StateDir, &c.TLSCertDir, &c.BackupPath} {
+		// Relative paths mean "relative to glow.env", as compose sees them
+		// relative to the release dir; store absolute paths so every consumer agrees.
+		if *p != "" && !filepath.IsAbs(*p) {
+			*p = filepath.Join(base, *p)
+		}
+	}
 	return c, nil
+}
+
+var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+
+// ValidEmail uses the same check as the GLOW API (glow_api/models.py).
+func ValidEmail(e string) bool { return emailRe.MatchString(e) }
+
+// FormatErrors renders errors one per line, every line indented two spaces.
+func FormatErrors(errs []error) string {
+	var lines []string
+	for _, e := range errs {
+		for _, l := range strings.Split(e.Error(), "\n") {
+			lines = append(lines, "  "+l)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Validate returns every problem found, each naming the offending key.

@@ -128,7 +128,16 @@ func TestPortUncheckable(t *testing.T) {
 	cfg, env := good()
 	env.PortFree = func(int) error { return syscall.EACCES }
 	fs := Run(cfg, nil, env)
-	if has(fs, Warn, "already in use") || !has(fs, Warn, "cannot check") {
+	if has(fs, Warn, "already in use") || !has(fs, Warn, "cannot check") || !has(fs, Warn, "may need root") {
+		t.Fatalf("%+v", fs)
+	}
+}
+
+func TestPortUncheckableOtherErrorHasNoRootHint(t *testing.T) {
+	cfg, env := good()
+	env.PortFree = func(int) error { return syscall.EMFILE }
+	fs := Run(cfg, nil, env)
+	if !has(fs, Warn, "cannot check") || has(fs, Warn, "may need root") {
 		t.Fatalf("%+v", fs)
 	}
 }
