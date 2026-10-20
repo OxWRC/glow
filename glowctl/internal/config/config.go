@@ -46,21 +46,21 @@ type Config struct {
 
 var hostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
 
-// parseValue strips matching quotes (the text after the closing quote may only
-// be a comment) or, for unquoted values, a trailing " #..." comment.
+// parseValue strips matching quotes (everything inside is literal). There are
+// no inline comments: an unquoted value with whitespace then '#' is rejected
+// rather than silently truncated. Errors never echo the value.
 func parseValue(v string) (string, error) {
 	if v != "" && (v[0] == '"' || v[0] == '\'') {
 		if i := strings.IndexByte(v[1:], v[0]); i >= 0 {
-			rest := strings.TrimSpace(v[i+2:])
-			if rest != "" && !strings.HasPrefix(rest, "#") {
-				return "", fmt.Errorf("unexpected text after closing quote")
+			if strings.TrimSpace(v[i+2:]) != "" {
+				return "", fmt.Errorf("text after closing quote; put the whole value inside the quotes and comments on their own line")
 			}
 			return v[1 : i+1], nil
 		}
 	}
-	if i := strings.IndexAny(v, " \t"); i >= 0 {
-		if j := strings.Index(v[i:], "#"); j >= 0 && strings.TrimSpace(v[i:i+j]) == "" {
-			v = v[:i]
+	for i := 1; i < len(v); i++ {
+		if v[i] == '#' && (v[i-1] == ' ' || v[i-1] == '\t') {
+			return "", fmt.Errorf("unquoted value contains ' #'; quote the value or put comments on their own line")
 		}
 	}
 	return strings.TrimSpace(v), nil

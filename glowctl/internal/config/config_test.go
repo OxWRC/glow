@@ -31,7 +31,7 @@ func TestValidate(t *testing.T) {
 	}{
 		{"valid minimal production", prod, nil},
 		{"demo without oidc/backup", "GLOW_DOMAIN=demo.example.org\nGLOW_DEMO_MODE=true\n", nil},
-		{"comments blanks quotes", "# hi\n\nGLOW_DOMAIN=\"glow.example.org\"\nGLOW_OIDC_ISSUER='https://id.example.org'\nGLOW_OIDC_CLIENT_ID=abc # not stripped\nGLOW_BACKUP_PATH=" + backup + "\n", nil},
+		{"comments blanks quotes", "# hi\n\nGLOW_DOMAIN=\"glow.example.org\"\nGLOW_OIDC_ISSUER='https://id.example.org'\nGLOW_OIDC_CLIENT_ID=abc\nGLOW_BACKUP_PATH=" + backup + "\n", nil},
 		{"missing domain", strings.Replace(prod, "GLOW_DOMAIN=glow.example.org\n", "", 1), []string{"GLOW_DOMAIN"}},
 		{"bad domain", strings.Replace(prod, "glow.example.org", "not a host/x", 1), []string{"GLOW_DOMAIN"}},
 		{"missing oidc issuer", strings.Replace(prod, "GLOW_OIDC_ISSUER=https://id.example.org\n", "", 1), []string{"GLOW_OIDC_ISSUER"}},
@@ -60,6 +60,9 @@ func TestValidate(t *testing.T) {
 		{"domain with port", strings.Replace(prod, "glow.example.org", "host:443", 1), []string{"GLOW_DOMAIN"}},
 		{"backup is file", strings.Replace(prod, backup, filepath.Join(certs, "privkey.pem"), 1), []string{"GLOW_BACKUP_PATH"}},
 		{"timezone Local", prod + "GLOW_PERIOD_TIMEZONE=Local\n", []string{"GLOW_PERIOD_TIMEZONE"}},
+		{"inline comment unquoted", prod + "GLOW_SMTP_PASSWORD=abc #1\n", []string{"GLOW_SMTP_PASSWORD"}},
+		{"inline comment tab", prod + "GLOW_SMTP_PASSWORD=abc\t#1\n", []string{"GLOW_SMTP_PASSWORD"}},
+		{"inline comment after quote", prod + "GLOW_REGISTRY=\"a\" # c\n", []string{"GLOW_REGISTRY"}},
 		{"text after quote", prod + "GLOW_REGISTRY=\"a\" b\n", []string{"GLOW_REGISTRY"}},
 		{"unknown key typo", prod + "GLOW_DOMIAN=x\n", []string{"GLOW_DOMIAN"}},
 		{"syntax error line", prod + "garbage\n", []string{"line"}},
@@ -113,20 +116,29 @@ func TestLoadMissingFile(t *testing.T) {
 }
 
 func TestParsedValues(t *testing.T) {
-	c, err := Load(write(t, "\xef\xbb\xbfGLOW_DOMAIN = a.example.org # note\r\n"+
-		"GLOW_OIDC_CLIENT_ID=abc\t# note\r\n"+
-		"GLOW_ACME_EMAIL=\"a#b@x.org\" # c\n"+
+	c, err := Load(write(t, "\xef\xbb\xbfGLOW_DOMAIN = a.example.org\r\n"+
+		"GLOW_OIDC_CLIENT_ID=\"abc #1\"\r\n"+
+		"GLOW_ACME_EMAIL=\"a#b@x.org\"\n"+
 		"GLOW_SMTP_PASSWORD=\"a=b\"\n"+
 		"GLOW_REGISTRY=ghcr.io/x#y\n"+
 		"GLOW_SMTP_USER=\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Domain != "a.example.org" || c.OIDCClientID != "abc" || c.ACMEEmail != "a#b@x.org" ||
+	if c.Domain != "a.example.org" || c.OIDCClientID != "abc #1" || c.ACMEEmail != "a#b@x.org" ||
 		c.SMTP.Password != "a=b" || c.Registry != "ghcr.io/x#y" || c.SMTP.User != "" {
 		t.Errorf("unexpected %+v", c)
 	}
 	if e := c.Validate(); anyContains(e, "GLOW_DOMAIN") || anyContains(e, "line") {
 		t.Errorf("unexpected errors %v", e)
+	}
+}
+
+func TestInlineCommentErrorHidesValue(t *testing.T) {
+	c, _ := Load(write(t, "GLOW_SMTP_PASSWORD=hunter2 #1\n"))
+	for _, e := range c.Validate() {
+		if strings.Contains(e.Error(), "hunter2") {
+			t.Errorf("error leaks value: %v", e)
+		}
 	}
 }
