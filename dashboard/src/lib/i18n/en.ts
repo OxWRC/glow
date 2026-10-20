@@ -497,6 +497,8 @@ export const en = {
     loadingUsers: "Loading users…",
     id: "ID",
     username: "Username",
+    email: "Email",
+    emailPlaceholder: "teacher@school.org",
     status: "Status",
     role: "Role",
     scope: "Scope",

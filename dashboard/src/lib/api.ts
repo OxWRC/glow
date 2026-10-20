@@ -206,10 +206,11 @@ export interface User {
   school_names: string[];
   is_active: boolean;
   is_admin: boolean;
+  email: string | null;
 }
 
 export interface UserCreate {
-  username: string;
+  email: string;
   school_ids: number[];
   is_admin?: boolean;
 }

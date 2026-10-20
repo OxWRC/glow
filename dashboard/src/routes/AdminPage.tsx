@@ -83,7 +83,7 @@ export function AdminPage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const editDialogRef = useRef<HTMLDialogElement>(null);
 
-  const [formUsername, setFormUsername] = useState("");
+  const [formEmail, setFormEmail] = useState("");
   const [formSchoolIds, setFormSchoolIds] = useState<number[]>([]);
   const [formIsActive, setFormIsActive] = useState(true);
   const [formIsAdmin, setFormIsAdmin] = useState(false);
@@ -98,7 +98,7 @@ export function AdminPage() {
   function openCreate() {
     setModalMode("create");
     setEditingUser(null);
-    setFormUsername("");
+    setFormEmail("");
     setFormSchoolIds([]);
     setFormIsActive(true);
     setFormIsAdmin(false);
@@ -109,7 +109,7 @@ export function AdminPage() {
   function openEdit(user: User) {
     setModalMode("edit");
     setEditingUser(user);
-    setFormUsername(user.username);
+    setFormEmail(user.email ?? user.username);
     setFormSchoolIds([...user.school_ids]);
     setFormIsActive(user.is_active);
     setFormIsAdmin(user.is_admin);
@@ -139,7 +139,7 @@ export function AdminPage() {
     try {
       if (modalMode === "create") {
         const payload: UserCreate = {
-          username: formUsername,
+          email: formEmail,
           school_ids: formSchoolIds,
           is_admin: formIsAdmin,
         };
@@ -367,19 +367,27 @@ export function AdminPage() {
                 : i18n.t("admin.editUser")}
             </h2>
           </div>
-          <form method="dialog" className="p-6 space-y-4">
+          <form
+            id="user-form"
+            className="p-6 space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleSubmit();
+            }}
+          >
             <div>
-              <label className="label" htmlFor="f-username">
-                {i18n.t("admin.username")}
+              <label className="label" htmlFor="f-email">
+                {i18n.t("admin.email")}
               </label>
               <input
-                id="f-username"
-                type="text"
+                id="f-email"
+                type="email"
+                required
                 className="input"
-                value={formUsername}
-                onChange={(e) => setFormUsername(e.target.value)}
+                value={formEmail}
+                onChange={(e) => setFormEmail(e.target.value)}
                 disabled={modalMode === "edit"}
-                placeholder="username"
+                placeholder={i18n.t("admin.emailPlaceholder")}
               />
             </div>
 
@@ -466,9 +474,9 @@ export function AdminPage() {
               {i18n.t("admin.cancel")}
             </button>
             <button
-              type="button"
+              type="submit"
+              form="user-form"
               className="btn-primary"
-              onClick={handleSubmit}
               disabled={formLoading}
             >
               {formLoading
