@@ -1,0 +1,21 @@
+# TLS mode "acme": Caddy gets and renews Let's Encrypt certificates itself.
+# Needs GLOW_DOMAIN, api.GLOW_DOMAIN and odk.GLOW_DOMAIN to resolve to this
+# host and ports 80/443 reachable from the internet.
+(upstream) {
+	reverse_proxy {args[0]} {
+		# Host is forwarded unchanged by default; ODK's nginx 421s on a wrong one.
+		header_up X-Forwarded-Proto https
+	}
+}
+
+{$GLOW_DOMAIN} {
+	import upstream dashboard:3000
+}
+
+api.{$GLOW_DOMAIN} {
+	import upstream api:8000
+}
+
+odk.{$GLOW_DOMAIN} {
+	import upstream nginx:80
+}

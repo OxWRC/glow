@@ -10,8 +10,8 @@ services:
     environment:
       GLOW_TESTING: ${GLOW_TESTING:-}
       GLOW_ALEMBIC_INI: /app/alembic.ini
-      GLOW_ODK_API_URL: ${GLOW_ODK_API_URL:-http://odk-service:8383}
-      GLOW_ODK_HOST_HEADER: ${GLOW_ODK_HOST_HEADER:-}
+      GLOW_ODK_API_URL: ${GLOW_ODK_API_URL:-http://nginx}
+      GLOW_ODK_HOST_HEADER: ${GLOW_ODK_HOST_HEADER:-odk.${GLOW_DOMAIN:-localhost}}
       GLOW_ODK_API_EMAIL: ${GLOW_ODK_API_EMAIL:-}
       GLOW_ODK_API_PASSWORD: ${GLOW_ODK_API_PASSWORD:-}
       GLOW_ODK_PROJECT_ID: ${GLOW_ODK_PROJECT_ID:-1}
@@ -37,13 +37,13 @@ services:
       GLOW_VINTAGES_DIR: /var/lib/glow-vintages
       GLOW_APP_VERSION: ${APP_VERSION:-dev}
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
-      GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+      GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["https://${GLOW_DOMAIN:-localhost}"]}
       GLOW_AUDIT_LOG_PATH: ${GLOW_AUDIT_LOG_PATH:-/var/log/glow-api/audit.jsonl}
     volumes:
       - ./data:/data:ro
       - ./deploy/.deploy/share:/deploy:ro
-      - ./docker-mount-data/api-audit-logs:/var/log/glow-api
-      - ./docker-mount-data/vintages:/var/lib/glow-vintages
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/api-audit-logs:/var/log/glow-api
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/vintages:/var/lib/glow-vintages
     depends_on:
       api-db:
         condition: service_healthy
@@ -56,8 +56,6 @@ services:
       - api_db
       - dashboard_api
       - odk_api
-    ports:
-      - "8000:8000"
     restart: unless-stopped
     healthcheck:
       test:
@@ -77,7 +75,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-glow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-production}
     volumes:
-      - ./docker-mount-data/glow-postgres:/var/lib/postgresql/data
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/glow-postgres:/var/lib/postgresql/data
     networks:
       - api_db
     restart: unless-stopped
@@ -96,7 +94,7 @@ services:
       dockerfile: Dockerfile
     environment:
       NODE_ENV: production
-      PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
+      PUBLIC_API_BASE: ${PUBLIC_API_BASE:-https://api.${GLOW_DOMAIN:-localhost}}
       # Passthrough only - no `:-` default, same reasoning as the api
       # service's GLOW_OIDC_* vars above: there is no working default
       # client/issuer, so an empty-string default would just
@@ -109,8 +107,6 @@ services:
     networks:
       - public
       - dashboard_api
-    ports:
-      - "3000:3000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/en/login"]
@@ -118,6 +114,33 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  # The only service that publishes host ports. Routes by hostname:
+  #   ${GLOW_DOMAIN}      -> dashboard
+  #   api.${GLOW_DOMAIN}  -> api
+  #   odk.${GLOW_DOMAIN}  -> ODK Central's nginx (SSL_TYPE=upstream: plain HTTP
+  #                          behind this proxy, which terminates TLS)
+  # GLOW_TLS_MODE picks the Caddyfile: acme (default), files, or off.
+  proxy:
+    image: caddy:2.10.2
+    environment:
+      GLOW_DOMAIN: ${GLOW_DOMAIN:-localhost}
+    volumes:
+      - ./proxy/Caddyfile.${GLOW_TLS_MODE:-acme}:/etc/caddy/Caddyfile:ro
+      - ${GLOW_TLS_CERT_DIR:-./proxy/certs}:/certs:ro
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/caddy-data:/data
+    ports:
+      - "${GLOW_HTTP_PORT:-80}:80"
+      - "${GLOW_HTTPS_PORT:-443}:443"
+    networks:
+      public:
+        # Containers on `public` (Enketo fetching forms from Central's public
+        # URL) reach the proxy by name, matching what browsers see.
+        aliases:
+          - ${GLOW_DOMAIN:-localhost}
+          - api.${GLOW_DOMAIN:-localhost}
+          - odk.${GLOW_DOMAIN:-localhost}
+    restart: unless-stopped
 
   postgres14:
     build:
@@ -128,7 +151,7 @@ services:
       POSTGRES_USER: ${ODK_POSTGRES_USER:-odk}
       POSTGRES_PASSWORD: ${ODK_POSTGRES_PASSWORD:-odk}
     volumes:
-      - ./docker-mount-data/odk-postgres:/var/lib/postgresql/data
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-postgres:/var/lib/postgresql/data
     networks:
       - odk_internal
     restart: unless-stopped
@@ -164,7 +187,7 @@ services:
         fi
         exec tail -f /dev/null
     volumes:
-      - ./docker-mount-data/odk-secrets:/etc/secrets
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets:/etc/secrets
     healthcheck:
       test:
         - CMD
@@ -195,11 +218,11 @@ services:
       enketo_redis_cache:
         condition: service_started
     environment:
-      DOMAIN: ${ODK_DOMAIN:-odk.local}
-      HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-8443}
+      DOMAIN: ${ODK_DOMAIN:-odk.${GLOW_DOMAIN:-localhost}}
+      HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-443}
       SUPPORT_EMAIL: ${ODK_SYSADMIN_EMAIL:-admin@example.com}
     volumes:
-      - ./docker-mount-data/odk-secrets:/etc/secrets
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets:/etc/secrets
     networks:
       # public: Enketo fetches forms from Central's public URL
       # (https://${ODK_DOMAIN}), which odk_internal can't resolve or reach.
@@ -211,7 +234,7 @@ services:
     image: redis:8.6.2
     volumes:
       - ./odk-central/redis/redis-enketo-main.conf:/usr/local/etc/redis/redis.conf:ro
-      - ./docker-mount-data/odk-enketo-redis-main:/data
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-enketo-redis-main:/data
     command:
       - redis-server
       - /usr/local/etc/redis/redis.conf
@@ -223,7 +246,7 @@ services:
     image: redis:8.6.2
     volumes:
       - ./odk-central/redis/redis-enketo-cache.conf:/usr/local/etc/redis/redis.conf:ro
-      - ./docker-mount-data/odk-enketo-redis-cache:/data
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-enketo-redis-cache:/data
     command:
       - redis-server
       - /usr/local/etc/redis/redis.conf
@@ -246,9 +269,9 @@ services:
         condition: service_started
     command: ["/usr/odk/start-odk.sh"]
     environment:
-      DOMAIN: ${ODK_DOMAIN:-odk.local}
+      DOMAIN: ${ODK_DOMAIN:-odk.${GLOW_DOMAIN:-localhost}}
       SYSADMIN_EMAIL: ${ODK_SYSADMIN_EMAIL:-admin@example.com}
-      HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-8443}
+      HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-443}
       PGHOST: postgres14
       PGDATABASE: ${ODK_POSTGRES_DB:-odk}
       PGUSER: ${ODK_POSTGRES_USER:-odk}
@@ -276,8 +299,8 @@ services:
       S3_BUCKET_NAME: ${ODK_S3_BUCKET_NAME:-}
       SESSION_LIFETIME: ${ODK_SESSION_LIFETIME:-86400}
     volumes:
-      - ./docker-mount-data/odk-secrets:/etc/secrets
-      - ./docker-mount-data/odk-transfer:/data/transfer
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets:/etc/secrets
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-transfer:/data/transfer
     networks:
       odk_internal:
         aliases:
@@ -293,10 +316,10 @@ services:
       enketo:
         condition: service_started
     environment:
-      DOMAIN: ${ODK_DOMAIN:-odk.local}
+      DOMAIN: ${ODK_DOMAIN:-odk.${GLOW_DOMAIN:-localhost}}
       EXTRA_SERVER_NAMES: ${ODK_EXTRA_SERVER_NAMES:-}
       CERTBOT_EMAIL: ${ODK_SYSADMIN_EMAIL:-admin@example.com}
-      SSL_TYPE: ${ODK_SSL_TYPE:-selfsign}
+      SSL_TYPE: ${ODK_SSL_TYPE:-upstream}
       OIDC_ENABLED: ${ODK_OIDC_ENABLED:-false}
       SENTRY_ORG_SUBDOMAIN: ${ODK_SENTRY_ORG_SUBDOMAIN:-o130137}
       SENTRY_KEY: ${ODK_SENTRY_KEY:-3cf75f54983e473da6bd07daddf0d2ee}
@@ -308,9 +331,6 @@ services:
     networks:
       - public
       - odk_internal
-    ports:
-      - "${ODK_HTTP_PORT:-8080}:80"
-      - "${ODK_HTTPS_PORT:-8443}:443"
     healthcheck:
       test:
         - CMD-SHELL

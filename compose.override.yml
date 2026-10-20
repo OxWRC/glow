@@ -1,7 +1,14 @@
 # Development overrides for compose.yml.
 
 services:
+  # Dev publishes service ports directly and skips the proxy; run it with
+  # `docker compose --profile proxy up` to try the production routing.
+  proxy:
+    profiles: [proxy]
+
   api:
+    ports:
+      - "8000:8000"
     working_dir: /app
     volumes:
       - ./data:/data
@@ -59,6 +66,8 @@ services:
         glow-api vintages cut
 
   dashboard:
+    ports:
+      - "3000:3000"
     build:
       target: dev
     command: npm run dev -- --host 0.0.0.0 --port 3000
@@ -79,6 +88,7 @@ services:
       # (likely unconfigured) real identity provider. Pairs with the api
       # service's GLOW_DEMO_MODE above.
       VITE_PUBLIC_DEMO_MODE: "true"
+      PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
     healthcheck:
       # Override compose.yml's wget-based check: the dev target runs on a
       # plain node:22-bookworm-slim base with neither wget nor curl.
@@ -92,9 +102,26 @@ services:
       retries: 3
       start_period: 20s
 
+  # compose.yml defaults ODK to production wiring (SSL_TYPE=upstream behind
+  # the proxy); dev keeps ODK's own self-signed TLS on published ports.
   nginx:
+    ports:
+      - "${ODK_HTTP_PORT:-8080}:80"
+      - "${ODK_HTTPS_PORT:-8443}:443"
     environment:
+      DOMAIN: ${ODK_DOMAIN:-odk.local}
+      SSL_TYPE: ${ODK_SSL_TYPE:-selfsign}
       EXTRA_SERVER_NAMES: " localhost 127.0.0.1"
+
+  odk-service:
+    environment:
+      DOMAIN: ${ODK_DOMAIN:-odk.local}
+      HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-8443}
+
+  enketo:
+    environment:
+      DOMAIN: ${ODK_DOMAIN:-odk.local}
+      HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-8443}
 
   postgres14:
     build:

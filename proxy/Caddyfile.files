@@ -1,0 +1,27 @@
+# TLS mode "files": serve the operator's own certificate from GLOW_TLS_CERT_DIR
+# (fullchain.pem + privkey.pem, valid for all three hostnames). Caddy never
+# contacts an ACME CA.
+{
+	auto_https disable_certs
+}
+
+(upstream) {
+	reverse_proxy {args[0]} {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+{$GLOW_DOMAIN} {
+	tls /certs/fullchain.pem /certs/privkey.pem
+	import upstream dashboard:3000
+}
+
+api.{$GLOW_DOMAIN} {
+	tls /certs/fullchain.pem /certs/privkey.pem
+	import upstream api:8000
+}
+
+odk.{$GLOW_DOMAIN} {
+	tls /certs/fullchain.pem /certs/privkey.pem
+	import upstream nginx:80
+}

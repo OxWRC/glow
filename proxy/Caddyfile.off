@@ -1,0 +1,24 @@
+# TLS mode "off": plain HTTP only. Another proxy or load balancer in front
+# terminates TLS; X-Forwarded-Proto is still sent as https so the apps build
+# https URLs.
+{
+	auto_https off
+}
+
+(upstream) {
+	reverse_proxy {args[0]} {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+http://{$GLOW_DOMAIN} {
+	import upstream dashboard:3000
+}
+
+http://api.{$GLOW_DOMAIN} {
+	import upstream api:8000
+}
+
+http://odk.{$GLOW_DOMAIN} {
+	import upstream nginx:80
+}

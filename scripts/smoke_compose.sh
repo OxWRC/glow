@@ -6,14 +6,35 @@ cd "$ROOT_DIR"
 
 export GLOW_SECRET_KEY="${GLOW_SECRET_KEY:-smoke-test-secret}"
 
+# Never touch the developer's ./docker-mount-data: all state lives in a
+# throwaway dir. Containers write root-owned files into it, so delete via a
+# container.
+STATE_DIR="$(mktemp -d)"
+export GLOW_STATE_DIR="$STATE_DIR"
+CERT_DIR="$STATE_DIR/certs"
+mkdir -p "$CERT_DIR"
+export GLOW_TLS_CERT_DIR="$CERT_DIR"
+export GLOW_DOMAIN=glow.test
+export GLOW_TLS_MODE=files
+
 COMPOSE=(docker compose -f compose.yml -f compose.test.yml)
 
-# A failure anywhere below (compose or the Python smoke checks) is useless
-# without knowing which container actually broke -- an HTTPError from the
-# api container, say, is often caused by odk-service or nginx underneath
-# it. Dump every service's logs on any non-zero exit so CI output names
-# the culprit instead of just the client-side traceback.
-dump_logs_on_failure() {
+# Restricted build environments may need the proxy passed into builds.
+BUILD_ARGS=()
+for var in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy; do
+  if [ -n "${!var:-}" ]; then
+    BUILD_ARGS+=(--build-arg "$var=${!var}")
+  fi
+done
+
+# A failure anywhere below is useless without knowing which container
+# actually broke -- an HTTPError from the api container, say, is often caused
+# by odk-service or nginx underneath it. Dump every service's logs on any
+# non-zero exit so CI output names the culprit instead of just the
+# client-side traceback.
+# GLOW_SMOKE_KEEP_UP=1 (CI) leaves a passing stack and its state dir in place
+# for the browser tests that follow.
+cleanup() {
   local status=$?
   if [ "$status" -ne 0 ]; then
     echo "::group::smoke_compose.sh failed (exit $status) -- container logs" >&2
@@ -23,25 +44,87 @@ dump_logs_on_failure() {
     done
     echo "::endgroup::" >&2
   fi
+  if [ "$status" -ne 0 ] || [ "${GLOW_SMOKE_KEEP_UP:-}" != "1" ]; then
+    "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+    docker run --rm -v "$STATE_DIR:/d" busybox:1.36 sh -c 'rm -rf /d/* /d/.[!.]*' >/dev/null 2>&1 || true
+    rm -rf "$STATE_DIR"
+  fi
   exit "$status"
 }
-trap dump_logs_on_failure EXIT
+trap cleanup EXIT
 
-# Use canonical compose.yml + test overrides
+# Self-signed cert for the proxy's `files` TLS mode.
+openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+  -keyout "$CERT_DIR/privkey.pem" -out "$CERT_DIR/fullchain.pem" \
+  -subj "/CN=glow.test" \
+  -addext "subjectAltName=DNS:glow.test,DNS:api.glow.test,DNS:odk.glow.test" 2>/dev/null
+
+# Base file only: Caddy must be the only thing publishing host ports.
+docker compose -f compose.yml config --format json | python3 -c '
+import json, sys
+services = json.load(sys.stdin)["services"]
+published = sorted(n for n, s in services.items() if s.get("ports"))
+assert published == ["proxy"], f"services publishing ports: {published}"
+'
+if docker compose -f compose.yml port nginx 80 >/dev/null 2>&1; then
+  echo "nginx publishes a host port in compose.yml" >&2
+  exit 1
+fi
+
 "${COMPOSE[@]}" down -v --remove-orphans
-"${COMPOSE[@]}" build api dashboard glow-init
+"${COMPOSE[@]}" build "${BUILD_ARGS[@]}" api dashboard glow-init
 # glow-init creates the admin@example.org/alpha-user@example.org and syncs schools once api is
 # healthy (compose.glow-init.yml); dashboard depends_on its successful
 # completion, so --wait blocks here until seeding is done.
 "${COMPOSE[@]}" up -d --wait
 
+# Through the proxy, by hostname (no DNS for glow.test: pin to localhost).
+via_proxy() {
+  local host="$1"; shift
+  curl -sS --noproxy '*' --resolve "$host:443:127.0.0.1" \
+    --cacert "$CERT_DIR/fullchain.pem" "$@"
+}
+
+body=$(mktemp)
+status=$(via_proxy glow.test -o "$body" -w '%{http_code}' https://glow.test/en/login)
+[ "$status" = 200 ] && grep -qi '<html' "$body" \
+  || { echo "dashboard via proxy: HTTP $status" >&2; exit 1; }
+
+status=$(via_proxy api.glow.test -o /dev/null -w '%{http_code}' https://api.glow.test/health)
+[ "$status" = 200 ] || { echo "api /health via proxy: HTTP $status" >&2; exit 1; }
+
+status=$(via_proxy odk.glow.test -o "$body" -w '%{http_code}' https://odk.glow.test/)
+[ "$status" = 200 ] && grep -qi 'ODK Central' "$body" \
+  || { echo "ODK via proxy: HTTP $status (421 = wrong Host)" >&2; head -c 500 "$body" >&2; exit 1; }
+rm -f "$body"
+
+# `files` mode must never try to obtain certificates from an ACME CA.
+if "${COMPOSE[@]}" logs --no-color proxy 2>&1 | grep -i acme; then
+  echo "proxy attempted ACME in files mode" >&2
+  exit 1
+fi
+
 python3 - <<'PY'
 import json
+import os
 import sys
+import socket
+import ssl
 import urllib.error
 import urllib.request
 
-base = "http://127.0.0.1:8000"
+# The proxy serves *.glow.test with a self-signed cert; pin those names to
+# localhost and trust that cert.
+_getaddrinfo = socket.getaddrinfo
+socket.getaddrinfo = lambda host, *a, **k: _getaddrinfo(
+    "127.0.0.1" if str(host).endswith("glow.test") else host, *a, **k
+)
+_ctx = ssl.create_default_context(cafile=os.environ["GLOW_TLS_CERT_DIR"] + "/fullchain.pem")
+urllib.request.install_opener(
+    urllib.request.build_opener(urllib.request.HTTPSHandler(context=_ctx), urllib.request.ProxyHandler({}))
+)
+
+base = "https://api.glow.test"
 
 
 def request(req):

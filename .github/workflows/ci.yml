@@ -52,6 +52,8 @@ jobs:
       - name: Bring up compose stack and run API smoke checks
         env:
           PLAYWRIGHT_SCOPED_SCHOOL: Beahanberg High School
+          # Leave the stack up for the browser tests below.
+          GLOW_SMOKE_KEEP_UP: "1"
         run: bash scripts/smoke_compose.sh
       - name: Run dashboard browser smoke tests
         working-directory: dashboard
