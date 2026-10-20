@@ -109,3 +109,13 @@ def test_response_models_reject_naive_datetimes():
         ApiKeyRead(
             id=1, name="n", prefix="p", created_at=naive, expires_at=naive, use_count=0
         )
+
+
+def test_normalization_parses_mixed_fractional_iso():
+    from glow_api.normalization import normalize_submissions
+
+    df = pd.DataFrame(
+        {"createdAt": ["2024-01-01T10:00:00Z", "2024-01-01T10:00:00.123Z"]}
+    )
+    out = normalize_submissions(df)
+    assert out["period_id"].notna().all()

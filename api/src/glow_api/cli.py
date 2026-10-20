@@ -454,7 +454,7 @@ def api_keys_create(name: str, expires_in_days: int | None) -> None:
         record, raw_key = issue_api_key(db, name, expires_in_days, None)
         key_id, expires_at = record.id, record.expires_at
     _audit_cli("api_key_created", api_key_id=key_id, name=name)
-    click.echo(f"Created API key {key_id} '{name}', expires {expires_at:%Y-%m-%d}.")
+    click.echo(f"Created API key {key_id} '{name}', expires {expires_at:%Y-%m-%d} UTC.")
     click.echo("Copy it now - it will not be shown again:")
     click.echo(raw_key)
 
@@ -480,7 +480,7 @@ def api_keys_list() -> None:
         click.echo("No API keys.")
         return
     for key_id, name, prefix, status, expires_at, last_used_at, use_count in rows:
-        last_used = f"{last_used_at:%Y-%m-%d %H:%M}" if last_used_at else "never"
+        last_used = f"{last_used_at:%Y-%m-%d %H:%M} UTC" if last_used_at else "never"
         click.echo(
             f"  [{key_id}] {name} ({prefix}...) {status}, "
             f"expires {expires_at:%Y-%m-%d}, last used {last_used}, uses {use_count}"
@@ -543,7 +543,7 @@ def vintages_list() -> None:
     for info in rows:
         creator = info.created_by_username or "scheduler"
         click.echo(
-            f"  {info.prefix} created {info.created_at:%Y-%m-%d %H:%M} by {creator}, "
+            f"  {info.prefix} created {info.created_at:%Y-%m-%d %H:%M} UTC by {creator}, "
             f"{info.row_count} rows"
         )
 

@@ -50,7 +50,7 @@ def normalize_submissions(df: pd.DataFrame) -> pd.DataFrame:
     if "createdAt" in df_normalized.columns:
         # Convert to datetime if not already
         df_normalized["createdAt_parsed"] = pd.to_datetime(
-            df_normalized["createdAt"], utc=True
+            df_normalized["createdAt"], utc=True, format="ISO8601"
         )
 
         # Derive period_id for all rows at once: convert to deployment

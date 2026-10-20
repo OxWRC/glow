@@ -16,6 +16,7 @@ handling still happens, exactly as required.
 import time
 import traceback
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,7 @@ class RequestLoggingMiddleware:
                 "audit": is_audit,
             }
             if is_audit:
+                log_fields["ts"] = datetime.now(timezone.utc).isoformat()
                 log_fields["timeline"] = timeline
 
             if error_fields is not None:

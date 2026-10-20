@@ -3,6 +3,7 @@ the local JSONL sink, and unhandled-exception traceback filtering.
 """
 
 import json
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -150,6 +151,8 @@ class TestAuditFileSink:
         payload = json.loads(lines[0])
         assert payload["path"] == "/query/"
         assert payload["audit"] is True
+        ts = datetime.fromisoformat(payload["ts"])
+        assert ts.utcoffset() == timedelta(0)
 
 
 class TestAdminMutationAuditEvents:
