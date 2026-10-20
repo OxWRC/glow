@@ -3,31 +3,153 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
+	"github.com/oxwrc/glow/glowctl/internal/compose"
+	"github.com/oxwrc/glow/glowctl/internal/config"
+	"github.com/oxwrc/glow/glowctl/internal/doctor"
 	"github.com/oxwrc/glow/glowctl/internal/install"
+	"github.com/oxwrc/glow/glowctl/internal/state"
+	"github.com/oxwrc/glow/glowctl/internal/status"
+	"github.com/oxwrc/glow/glowctl/internal/users"
 )
+
+// version is set at release time with -ldflags "-X main.version=<tag>".
+var version = "dev"
 
 const usage = "usage: glowctl <install|status|doctor|users|version> [--dir DIR] [args...]"
 
 var commands = map[string]func(args []string) int{
 	"install": installCmd,
-	"status":  notImplemented("status"),
-	"doctor":  notImplemented("doctor"),
-	"users":   notImplemented("users"),
-	"version": func([]string) int { fmt.Println("glowctl dev"); return 0 },
+	"status":  statusCmd,
+	"doctor":  doctorCmd,
+	"users":   usersCmd,
+	"version": func([]string) int { fmt.Println("glowctl " + version); return 0 },
 }
 
-func notImplemented(name string) func([]string) int {
-	return func([]string) int {
-		fmt.Fprintf(os.Stderr, "[glowctl] %s: not implemented yet\n", name)
+func fail(name string, err error) int {
+	fmt.Fprintf(os.Stderr, "[glowctl] %s: %v\n", name, err)
+	return 1
+}
+
+// splitDir extracts --dir/-dir from args (anywhere) and returns the rest, so
+// subcommands with their own flags and positionals keep working.
+func splitDir(args []string) (dir string, rest []string, err error) {
+	dir = defaultDir()
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--dir" || a == "-dir":
+			if i+1 >= len(args) {
+				return "", nil, fmt.Errorf("--dir needs a value")
+			}
+			dir = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--dir="):
+			dir = strings.TrimPrefix(a, "--dir=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	dir, err = filepath.Abs(dir)
+	return dir, rest, err
+}
+
+func loadValid(dir string) (*config.Config, error) {
+	cfg, err := config.Load(filepath.Join(dir, "glow.env"))
+	if err != nil {
+		return nil, err
+	}
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return nil, fmt.Errorf("glow.env is invalid:\n  %v", errors.Join(errs...))
+	}
+	return cfg, nil
+}
+
+func statusCmd(args []string) int {
+	dir, rest, err := splitDir(args)
+	if err != nil || len(rest) > 0 {
+		return fail("status", errors.Join(err, fmt.Errorf("usage: glowctl status [--dir DIR]")))
+	}
+	cfg, err := loadValid(dir)
+	if err != nil {
+		return fail("status", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	cs, err := status.Run(ctx, status.Options{
+		Cfg: cfg, Version: state.ReleaseVersion(dir),
+		Runner: compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)},
+	})
+	if err != nil {
+		return fail("status", err)
+	}
+	for _, c := range cs {
+		mark := "ok  "
+		if !c.OK {
+			mark = "FAIL"
+		}
+		fmt.Printf("[glowctl] %s %-40s %s\n", mark, c.Name, c.Detail)
+	}
+	if !status.AllOK(cs) {
 		return 1
 	}
+	return 0
+}
+
+func doctorCmd(args []string) int {
+	dir, rest, err := splitDir(args)
+	if err != nil || len(rest) > 0 {
+		return fail("doctor", errors.Join(err, fmt.Errorf("usage: glowctl doctor [--dir DIR]")))
+	}
+	var errs []error
+	cfg, err := config.Load(filepath.Join(dir, "glow.env"))
+	if err != nil {
+		errs = append(errs, err)
+	} else {
+		errs = cfg.Validate()
+	}
+	installed := false
+	if cfg != nil {
+		_, serr := os.Stat(filepath.Join(cfg.StateDir, "runtime.env"))
+		installed = serr == nil
+	}
+	fs := doctor.Run(cfg, errs, doctor.HostEnv(installed))
+	for _, f := range fs {
+		fmt.Printf("[glowctl] %s: %s\n", f.Level, f.Msg)
+	}
+	if doctor.HasErrors(fs) {
+		return 1
+	}
+	if len(fs) == 0 {
+		fmt.Println("[glowctl] no problems found")
+	}
+	return 0
+}
+
+func usersCmd(args []string) int {
+	dir, rest, err := splitDir(args)
+	if err != nil {
+		return fail("users", err)
+	}
+	cfg, err := loadValid(dir)
+	if err != nil {
+		return fail("users", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	r := compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)}
+	if err := users.Run(ctx, r, rest, os.Stdout); err != nil {
+		return fail("users", err)
+	}
+	return 0
 }
 
 // defaultDir is the binary's directory when it holds compose.yml, else the cwd.

@@ -119,7 +119,7 @@ func Run(ctx context.Context, o Options) error {
 		if o.Get != nil {
 			return o.Get(ctx, cfg, host, path)
 		}
-		return proxyGet(ctx, cfg, host, path)
+		return ProxyGet(ctx, cfg, host, path)
 	}
 
 	r := o.Runner
@@ -166,7 +166,7 @@ func Run(ctx context.Context, o Options) error {
 			return err
 		}
 		step("waiting for the API (migrations)")
-		if err := verify(ctx, get, targets(cfg)[1:2], 60, wait(5*time.Second)); err != nil {
+		if err := verify(ctx, get, Targets(cfg)[1:2], 60, wait(5*time.Second)); err != nil {
 			return err
 		}
 		step("ensuring GLOW admin " + adminEmail)
@@ -206,7 +206,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	step("verifying through the proxy")
-	if err := verify(ctx, get, targets(cfg), 30, wait(5*time.Second)); err != nil {
+	if err := verify(ctx, get, Targets(cfg), 30, wait(5*time.Second)); err != nil {
 		return err
 	}
 
@@ -310,8 +310,8 @@ func ensureGlowAdmin(run runFn, email string) error {
 	return nil
 }
 
-// targets are the proxy checks: dashboard, api (index 1) and ODK.
-func targets(cfg *config.Config) [][2]string {
+// Targets are the proxy checks: dashboard, api (index 1) and ODK.
+func Targets(cfg *config.Config) [][2]string {
 	return [][2]string{{cfg.Domain, "/en/login"}, {"api." + cfg.Domain, "/health"}, {"odk." + cfg.Domain, "/"}}
 }
 
@@ -344,9 +344,9 @@ func verify(ctx context.Context, get func(context.Context, string, string) (int,
 	return fmt.Errorf("stack not healthy after %d attempts: %w", attempts, last)
 }
 
-// proxyGet dials the local proxy on loopback with SNI/Host = host (plain
+// ProxyGet dials the local proxy on loopback with SNI/Host = host (plain
 // HTTP in off mode). Certificates are not checked: ACME may not have issued.
-func proxyGet(ctx context.Context, cfg *config.Config, host, path string) (int, error) {
+func ProxyGet(ctx context.Context, cfg *config.Config, host, path string) (int, error) {
 	scheme, port := "https", cfg.HTTPSPort
 	if cfg.TLSMode == "off" {
 		scheme, port = "http", cfg.HTTPPort

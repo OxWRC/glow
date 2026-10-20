@@ -13,3 +13,16 @@ func TestRunDispatch(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitDir(t *testing.T) {
+	d, rest, err := splitDir([]string{"add", "--dir", "/x", "a@b.org", "--admin"})
+	if err != nil || d != "/x" || len(rest) != 3 || rest[0] != "add" || rest[2] != "--admin" {
+		t.Fatalf("%q %q %v", d, rest, err)
+	}
+	if d, _, _ := splitDir([]string{"--dir=/y"}); d != "/y" {
+		t.Fatal(d)
+	}
+	if _, _, err := splitDir([]string{"--dir"}); err == nil {
+		t.Fatal("want error")
+	}
+}

@@ -85,13 +85,27 @@ jobs:
           done < images.txt
           cat digests.json
 
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: glowctl/go.mod
+          cache-dependency-path: glowctl/go.mod
+
       - name: Build glowctl
-        run: echo "glowctl is added by a later plan" # then: copy the binary into glow-stage/ below
+        working-directory: glowctl
+        run: |
+          set -euo pipefail
+          mkdir -p ../glowctl-bin
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X main.version=$GLOW_VERSION" \
+              -o "../glowctl-bin/glowctl-linux-$arch" .
+          done
 
       - name: Stage and render release archive
         run: |
           set -euo pipefail
           uv run --with pyyaml bash scripts/release/stage_release.sh glow-stage "$GLOW_VERSION" "$GLOW_REGISTRY" digests.json
+          install -m 0755 glowctl-bin/glowctl-linux-amd64 glow-stage/glowctl
 
       - name: Validate rendered compose files
         run: |
@@ -118,6 +132,7 @@ jobs:
           { cat pinned.txt; jq -r 'keys[]' digests.json; } | sort -u > saveset.txt
           xargs docker save < saveset.txt | gzip | split -b 1900M -d - "assets/glow-images-$GLOW_VERSION.tar.gz.part-"
           cp digests.json assets/digests.json
+          cp glowctl-bin/glowctl-linux-amd64 glowctl-bin/glowctl-linux-arm64 assets/
           cp glow-stage/glow.env.example assets/
           (cd assets && sha256sum ./* | sed "s, \./, ," > ../SHA256SUMS)
           mv SHA256SUMS assets/SHA256SUMS && cat assets/SHA256SUMS && ls -l assets

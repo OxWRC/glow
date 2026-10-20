@@ -13,6 +13,20 @@ jobs:
       - name: Test release renderer
         run: uv run --with pyyaml --with pytest pytest scripts/release -q
 
+  glowctl:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: glowctl
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: glowctl/go.mod
+          cache-dependency-path: glowctl/go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
   compose-smoke:
     runs-on: ubuntu-latest
     steps:
