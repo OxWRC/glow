@@ -290,10 +290,14 @@ services:
       OIDC_ISSUER_URL: ${ODK_OIDC_ISSUER_URL:-}
       OIDC_CLIENT_ID: ${ODK_OIDC_CLIENT_ID:-}
       OIDC_CLIENT_SECRET: ${ODK_OIDC_CLIENT_SECRET:-}
-      SENTRY_ORG_SUBDOMAIN: ${ODK_SENTRY_ORG_SUBDOMAIN:-o130137}
-      SENTRY_KEY: ${ODK_SENTRY_KEY:-3cf75f54983e473da6bd07daddf0d2ee}
-      SENTRY_PROJECT: ${ODK_SENTRY_PROJECT:-1298632}
-      SENTRY_TRACE_RATE: ${ODK_SENTRY_TRACE_RATE:-0.1}
+      # Telemetry off: ODK's start script requires these variables to be
+      # defined, and an empty key/project/subdomain makes Central skip
+      # Sentry.init entirely (lib/external/sentry.js). Error reports can
+      # carry request data, so nothing may leave the deployment.
+      SENTRY_ORG_SUBDOMAIN: ${ODK_SENTRY_ORG_SUBDOMAIN:-}
+      SENTRY_KEY: ${ODK_SENTRY_KEY:-}
+      SENTRY_PROJECT: ${ODK_SENTRY_PROJECT:-}
+      SENTRY_TRACE_RATE: ${ODK_SENTRY_TRACE_RATE:-0}
       S3_SERVER: ${ODK_S3_SERVER:-}
       S3_ACCESS_KEY: ${ODK_S3_ACCESS_KEY:-}
       S3_SECRET_KEY: ${ODK_S3_SECRET_KEY:-}
@@ -322,9 +326,9 @@ services:
       CERTBOT_EMAIL: ${ODK_SYSADMIN_EMAIL:-admin@example.com}
       SSL_TYPE: ${ODK_SSL_TYPE:-upstream}
       OIDC_ENABLED: ${ODK_OIDC_ENABLED:-false}
-      SENTRY_ORG_SUBDOMAIN: ${ODK_SENTRY_ORG_SUBDOMAIN:-o130137}
-      SENTRY_KEY: ${ODK_SENTRY_KEY:-3cf75f54983e473da6bd07daddf0d2ee}
-      SENTRY_PROJECT: ${ODK_SENTRY_PROJECT:-1298632}
+      # Sentry vars deliberately absent: the central-nginx image and our
+      # odk.conf.template no longer reference them (CSP reports are
+      # swallowed locally by /csp-report).
     volumes:
       - ./odk-central/nginx/odk.conf.template:/usr/share/odk/nginx/odk.conf.template:ro
       - ./odk-central/nginx/redirector.conf:/usr/share/odk/nginx/redirector.conf:ro

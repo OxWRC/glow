@@ -177,3 +177,15 @@ When upgrading, compare this repo against the corresponding upstream `getodk/cen
 ## Public URL reachability (proxy TLS modes)
 
 Enketo fetches forms from Central's public URL, `https://odk.<domain>`. In `acme` and `files` modes the proxy is aliased to that name on the internal `public` network, so the fetch goes straight to Caddy. In `off` mode there is no alias (Caddy does not serve :443): the server must be able to reach `https://odk.<domain>` (its own public URL, i.e. the operator's TLS terminator) via normal DNS. In `files` mode with a private CA, Enketo must trust that CA (not configured here).
+
+## Deviations From Upstream
+
+### No third-party telemetry
+
+Upstream Central ships with a default Sentry project and sends backend error reports (which can include request data) to `*.ingest.sentry.io`, and its nginx forwards CSP violation reports there too. GLOW disables both because nothing may leave the deployment:
+
+- `odk-service` gets empty `SENTRY_ORG_SUBDOMAIN`, `SENTRY_KEY` and `SENTRY_PROJECT` (and `SENTRY_TRACE_RATE=0`). Central's start script only requires the variables to be defined; with an empty key, `lib/external/sentry.js` returns a no-op client instead of calling `Sentry.init`.
+- `odk-central/nginx/odk.conf.template` answers `POST /csp-report` with `204` locally instead of proxying to Sentry.
+- `scripts/smoke_compose.sh` asserts both, so an upstream template bump that reintroduces the DSN fails CI.
+
+Operators who really want error reporting can set `ODK_SENTRY_*` in their environment.

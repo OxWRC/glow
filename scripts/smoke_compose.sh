@@ -107,6 +107,17 @@ status=$(via_proxy odk.glow.test -o "$body" -w '%{http_code}' https://odk.glow.t
   || { echo "ODK via proxy: HTTP $status (421 = wrong Host)" >&2; head -c 500 "$body" >&2; exit 1; }
 rm -f "$body"
 
+# No third-party telemetry: ODK's Sentry must be disabled, and nothing in
+# nginx's rendered config may point at ingest.sentry.io.
+if "${COMPOSE[@]}" exec -T nginx cat /etc/nginx/conf.d/odk.conf | grep -q 'ingest.sentry.io'; then
+  echo "nginx odk.conf still references ingest.sentry.io" >&2
+  exit 1
+fi
+sentry_key=$("${COMPOSE[@]}" exec -T odk-service printenv SENTRY_KEY || true)
+[ -z "$sentry_key" ] || { echo "odk-service SENTRY_KEY is set: $sentry_key" >&2; exit 1; }
+status=$(via_proxy odk.glow.test -o /dev/null -w '%{http_code}' -X POST https://odk.glow.test/csp-report)
+[ "$status" = 204 ] || { echo "POST /csp-report: HTTP $status (want 204)" >&2; exit 1; }
+
 # `files` mode must never try to obtain certificates from an ACME CA.
 if "${COMPOSE[@]}" logs --no-color proxy 2>&1 | grep -i acme; then
   echo "proxy attempted ACME in files mode" >&2
