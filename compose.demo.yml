@@ -36,7 +36,7 @@ services:
     extends:
       file: compose.glow-init.yml
       service: glow-init
-    # Not started by `up`: activate-stack.sh runs it with `compose run` once
+    # Not started by `up`: the deployment tooling runs it with `compose run` once
     # the seeded ODK passwords have been rotated and api can fetch data.
     profiles:
       - demo-init

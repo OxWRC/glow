@@ -1,6 +1,6 @@
 # DRAFT, pending client sign-off.
 #
-# Any change to this file is a BREAKING change. The deploy tool refuses
+# Any change to this file is a BREAKING change. Changing it requires a fresh deployment: the deployment tooling refuses
 # updates that modify it on non-demo deployments, so the same dataset can
 # never be released under two different coarsenings. A live deployment that
 # needs new rules must be re-provisioned.
