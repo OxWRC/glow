@@ -142,7 +142,7 @@ def test_school_scoped_query_unverified_not_linked(
         {"sub": "s1", "email": EMAIL},
         params={"school_id": sid},
     )
-    assert r.status_code in (401, 403)
+    assert r.status_code == 401
     assert _row(db_session).oidc_sub is None
 
 

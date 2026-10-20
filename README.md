@@ -96,6 +96,10 @@ This keeps ODK Central isolated from the dashboard while still allowing API-medi
 | `GLOW_ALGORITHM` | `HS256` | JWT algorithm |
 | `GLOW_ACCESS_TOKEN_EXPIRE_MINUTES` | `480` | Token lifetime (8 hours) |
 | `GLOW_METADATA_DATABASE_URL` | `sqlite:///./metadata.db` | SQLAlchemy metadata database URL |
+| `GLOW_OIDC_ISSUER` | *(none)* | OIDC issuer URL (endpoints discovered from `/.well-known/openid-configuration`) |
+| `GLOW_OIDC_CLIENT_ID` | *(none)* | OIDC client ID the dashboard signs in with and the API validates as audience |
+| `GLOW_VINTAGES_DIR` | *(none)* | Directory where cut vintages are stored |
+| `GLOW_DEMO_MODE` | `false` | Enable `POST /demo/login` and skip OIDC (dev/demo only) |
 | `GLOW_CORS_ORIGINS` | `["*"]` | JSON list of allowed CORS origins |
 
 ### Endpoints
@@ -118,7 +122,9 @@ Interactive documentation is available at `/docs` (Swagger UI) and `/redoc`.
 
 ### Authentication
 
-Sign-in is Cognito-backed: the dashboard redirects to the Cognito hosted UI, exchanges the returned code for a token, and calls `GET /me` with it. There is no password-grant endpoint. For local dev, set `GLOW_DEMO_MODE`/`VITE_PUBLIC_DEMO_MODE` (on by default via `compose.override.yml`) to skip Cognito and use `POST /demo/login` with the dashboard's role picker instead. The first admin is created with `glow-api users create <email> --admin`; the user is linked to their identity on first verified login (see [Admin CLI](#admin-cli)).
+Sign-in uses any OpenID Connect provider (`GLOW_OIDC_ISSUER`, `GLOW_OIDC_CLIENT_ID`). The dashboard discovers endpoints from `<issuer>/.well-known/openid-configuration`, runs the authorization-code flow with PKCE, and sends the returned `id_token` to the API (`GET /admin/me` etc.). There is no password-grant endpoint. For local dev, set `GLOW_DEMO_MODE`/`VITE_PUBLIC_DEMO_MODE` (on by default via `compose.override.yml`) to skip login and use `POST /demo/login` with the dashboard's role picker instead. The first admin is created with `glow-api users create <email> --admin`.
+
+**Trust model.** Users are pre-registered by email. On first sign-in the API links the account only when the token's `email_verified` claim is true; the provider is trusted to have verified the email. Microsoft Entra ID omits `email_verified` by default, so it must be configured to emit it or users will not link. Linked users are bound to the provider's `sub`: switching provider means re-creating users.
 
 ### Admin CLI
 
@@ -140,6 +146,12 @@ glow-api users update alice@example.org --schools "Greenwood" --admin
 
 # Delete a user
 glow-api users delete alice@example.org
+
+# Validate configuration (OIDC, vintages dir, etc.)
+glow-api config check
+
+# Print the suppression config hash
+glow-api suppression-hash
 
 # Issue an export API key (the key is printed once; lifetime defaults to
 # GLOW_API_KEY_EXPIRE_DAYS), list keys, revoke one
@@ -170,7 +182,7 @@ Any materialized result cell where the contributing student count is less than `
 
 The dashboard provides:
 
-- **Login** — Cognito hosted-UI sign-in (OAuth2 PKCE), with a dev-only role picker when dev-auth-bypass is enabled (see [Authentication](#authentication) above)
+- **Login** — OIDC sign-in (PKCE), with a dev-only role picker when dev-auth-bypass is enabled (see [Authentication](#authentication) above)
 - **Home** — pre-built overview charts
 - **Query Builder** — a step-based analytical query builder with built-in suppression
 - **Admin** — user CRUD (admin users only)

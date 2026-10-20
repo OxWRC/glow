@@ -61,8 +61,10 @@ export function Layout() {
   }, []);
 
   async function logout() {
+    const idToken = token;
     clearAuth();
-    if (!(await endProviderSession(locale))) navigate(`/${locale}/login`);
+    if (!(await endProviderSession(locale, idToken)))
+      navigate(`/${locale}/login`);
   }
 
   // Any path whose first segment isn't a known locale (e.g. /admin, matched

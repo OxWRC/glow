@@ -22,6 +22,7 @@ export function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
   const [noAccess, setNoAccess] = useState(false);
   const ranRef = useRef(false);
+  const idTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     document.title = `${i18n.t("login.signingIn")} — ${i18n.t("login.title")}`;
@@ -60,6 +61,7 @@ export function AuthCallbackPage() {
       try {
         const redirectUri = `${window.location.origin}/auth/callback`;
         const tokens = await exchangeCodeForToken(code, redirectUri, verifier);
+        idTokenRef.current = tokens.id_token;
         const identity = await me(tokens.id_token);
         if (identity.kind !== "authenticated") {
           setNoAccess(identity.kind === "no_access");
@@ -99,7 +101,7 @@ export function AuthCallbackPage() {
                   className="btn-primary inline-block py-2.5 px-6"
                   onClick={async () => {
                     clearAuth();
-                    if (!(await endProviderSession(locale)))
+                    if (!(await endProviderSession(locale, idTokenRef.current)))
                       navigate(`/${locale}/login`);
                   }}
                 >

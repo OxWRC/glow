@@ -49,7 +49,12 @@ from glow_api.models import validate_email
 from glow_api.entry import format_validation_error
 from glow_api.settings import Settings, settings
 from glow_api.suppression import RULES_PATH
-from glow_api.vintages import cut_vintage, get_vintages_dir, list_vintages
+from glow_api.vintages import (
+    VintageStorageNotConfigured,
+    cut_vintage,
+    get_vintages_dir,
+    list_vintages,
+)
 
 
 @click.group()
@@ -517,6 +522,9 @@ def vintages_cut() -> None:
     except ODKFetchError as exc:
         click.echo(f"Error: {exc}. No vintage cut.", err=True)
         sys.exit(1)
+    except VintageStorageNotConfigured as exc:
+        click.echo(f"Error: {exc}.", err=True)
+        sys.exit(1)
     _audit_cli("vintage_cut", prefix=info.prefix, row_count=info.row_count)
     click.echo(f"Cut vintage {info.prefix} ({info.row_count} rows).")
 
@@ -524,7 +532,11 @@ def vintages_cut() -> None:
 @vintages.command("list")
 def vintages_list() -> None:
     """List all vintages, oldest first."""
-    rows = list_vintages(get_vintages_dir())
+    try:
+        rows = list_vintages(get_vintages_dir())
+    except VintageStorageNotConfigured as exc:
+        click.echo(f"Error: {exc}.", err=True)
+        sys.exit(1)
     if not rows:
         click.echo("No vintages.")
         return

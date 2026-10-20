@@ -30,7 +30,7 @@ trap dump_logs_on_failure EXIT
 # Use canonical compose.yml + test overrides
 "${COMPOSE[@]}" down -v --remove-orphans
 "${COMPOSE[@]}" build api dashboard glow-init
-# glow-init creates the admin/alpha-user and syncs schools once api is
+# glow-init creates the admin@example.org/alpha-user@example.org and syncs schools once api is
 # healthy (compose.glow-init.yml); dashboard depends_on its successful
 # completion, so --wait blocks here until seeding is done.
 "${COMPOSE[@]}" up -d --wait
@@ -59,8 +59,8 @@ def request(req):
         raise
 
 
-# Password-based /auth/login was removed with Cognito auth (Task 2); this
-# stack has no real Cognito pool, so use the demo-mode login instead
+# Password-based /auth/login was removed with the move to OIDC (Task 2); this
+# stack has no real identity provider, so use the demo-mode login instead
 # (compose.test.yml sets GLOW_DEMO_MODE for exactly this).
 login_req = urllib.request.Request(
     base + "/demo/login",

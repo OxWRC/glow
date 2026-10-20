@@ -10,7 +10,10 @@ import { getOidcEndpoints } from "./oidc";
  * Navigating straight to /login isn't a real sign-out: the provider's SSO
  * session survives and /login would immediately re-authenticate the same user.
  */
-export async function endProviderSession(locale: string): Promise<boolean> {
+export async function endProviderSession(
+  locale: string,
+  idToken?: string | null,
+): Promise<boolean> {
   if (DEMO_MODE || !OIDC_ISSUER || !OIDC_CLIENT_ID) return false;
   try {
     const { end_session_endpoint } = await getOidcEndpoints(OIDC_ISSUER);
@@ -19,6 +22,7 @@ export async function endProviderSession(locale: string): Promise<boolean> {
       client_id: OIDC_CLIENT_ID,
       post_logout_redirect_uri: `${window.location.origin}/${locale}/login`,
     });
+    if (idToken) params.set("id_token_hint", idToken);
     window.location.href = `${end_session_endpoint}?${params.toString()}`;
     return true;
   } catch {

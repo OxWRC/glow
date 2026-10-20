@@ -103,3 +103,15 @@ def test_cut_fails_cleanly_when_odk_unreachable(cli_env, monkeypatch):
 
     assert result.exit_code == 1
     assert "ODK" in result.output
+
+
+@pytest.mark.parametrize("sub", ["cut", "list"])
+def test_unconfigured_vintages_dir_exits_cleanly(cli_env, monkeypatch, sub):
+    monkeypatch.setattr(settings, "VINTAGES_DIR", None)
+
+    result = CliRunner().invoke(cli_module.cli, ["vintages", sub])
+
+    assert result.exit_code == 1
+    assert "GLOW_VINTAGES_DIR" in result.output
+    assert "Traceback" not in result.output
+    assert isinstance(result.exception, SystemExit)

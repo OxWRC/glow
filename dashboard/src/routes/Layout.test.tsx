@@ -70,6 +70,19 @@ describe("Layout demo banner", () => {
 describe("Layout logout", () => {
   function renderLoggedIn() {
     localStorage.clear();
+    localStorage.setItem(
+      "auth",
+      JSON.stringify({
+        token: "idtok",
+        identity: {
+          kind: "authenticated",
+          id: 1,
+          username: "u",
+          is_admin: false,
+          schools: [],
+        },
+      }),
+    );
     const router = createMemoryRouter(
       [
         {
@@ -124,6 +137,7 @@ describe("Layout logout", () => {
     const url = new URL(assigned.href);
     expect(url.origin + url.pathname).toBe("https://idp.test/logout");
     expect(url.searchParams.get("client_id")).toBe("client-123");
+    expect(url.searchParams.get("id_token_hint")).toBe("idtok");
     expect(url.searchParams.get("post_logout_redirect_uri")).toBe(
       "https://glow.test/en/login",
     );
