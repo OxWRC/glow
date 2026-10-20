@@ -110,8 +110,23 @@ def get_user_by_username(db: Session, username: str) -> User | None:
     return db.query(User).filter(User.username == username).first()
 
 
-def get_user_by_sub(db: Session, cognito_sub: str) -> User | None:
-    return db.query(User).filter(User.cognito_sub == cognito_sub).first()
+def normalise_email(email: str | None) -> str | None:
+    email = (email or "").strip().lower()
+    return email or None
+
+
+def get_user_by_sub(db: Session, oidc_sub: str) -> User | None:
+    return db.query(User).filter(User.oidc_sub == oidc_sub).first()
+
+
+def get_unlinked_user_by_email(db: Session, email: str) -> User | None:
+    """The user pre-registered with this email whose oidc_sub is still NULL."""
+    normalised = normalise_email(email)
+    if normalised is None:
+        return None
+    return (
+        db.query(User).filter(User.email == normalised, User.oidc_sub.is_(None)).first()
+    )
 
 
 def get_user_by_id(db: Session, user_id: int) -> User | None:
@@ -120,36 +135,36 @@ def get_user_by_id(db: Session, user_id: int) -> User | None:
 
 def upsert_user_by_sub(
     db: Session,
-    cognito_sub: str,
+    oidc_sub: str,
     username: str | None = None,
     is_admin: bool = False,
     school_ids: list[int] | None = None,
 ) -> User:
-    """Find or create the local User row for a given Cognito `sub`, syncing
+    """Find or create the local User row for a given OIDC `sub`, syncing
     is_admin/school_ids to the given values on every call.
 
-    Used by the demo-mode login (Task 4) and by real-Cognito bootstrap
-    (Task 5) to link a local row to an identity that only exists as a token
+    Used by the demo-mode login and the user bootstrap CLI
+    to link a local row to an identity that only exists as a token
     claim - `get_user_by_sub` then finds a real row for the rest of the auth
-    stack. `username` defaults to `cognito_sub` when creating a new row (only
+    stack. `username` defaults to `oidc_sub` when creating a new row (only
     used then; an existing row's username is left alone here - that's
     `sync_user_claims`'s job).
 
-    If no row matches `cognito_sub` but one already exists with the given
-    `username` (necessarily with `cognito_sub` still NULL - e.g. a row made
-    by the pre-Cognito `create_user` path), that row is linked by attaching
-    `cognito_sub` to it rather than attempting to insert a second row and
+    If no row matches `oidc_sub` but one already exists with the given
+    `username` (necessarily with `oidc_sub` still NULL - e.g. a row made
+    by the `create_user` path), that row is linked by attaching
+    `oidc_sub` to it rather than attempting to insert a second row and
     hitting the `username` unique constraint.
     """
-    user = get_user_by_sub(db, cognito_sub)
+    user = get_user_by_sub(db, oidc_sub)
     if user is None and username is not None:
         user = get_user_by_username(db, username)
         if user is not None:
-            user.cognito_sub = cognito_sub
+            user.oidc_sub = oidc_sub
     if user is None:
         user = User(
-            username=username or cognito_sub,
-            cognito_sub=cognito_sub,
+            username=username or oidc_sub,
+            oidc_sub=oidc_sub,
             is_admin=is_admin,
         )
         db.add(user)
@@ -170,9 +185,11 @@ def create_user(
     is_admin: bool = False,
     school_ids: list[int] | None = None,
     commit: bool = True,
+    email: str | None = None,
 ) -> User:
     user = User(
         username=username,
+        email=normalise_email(email),
         is_active=is_active,
         is_admin=is_admin,
     )

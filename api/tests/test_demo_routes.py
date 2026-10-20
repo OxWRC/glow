@@ -24,7 +24,7 @@ def test_demo_reset_invalidates_existing_tokens(auth_client):
     ]
     assert auth_client.post("/demo/reset").status_code == 204
     me = auth_client.get("/me", headers={"Authorization": f"Bearer {token}"})
-    assert me.status_code == 401
+    assert me.status_code == 403
 
 
 def test_demo_reset_restores_schools(auth_client, db_session):

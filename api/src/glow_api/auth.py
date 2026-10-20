@@ -26,7 +26,9 @@ from glow_api.database import (
     get_api_key_by_hash,
     get_db,
     get_school_by_id,
+    get_unlinked_user_by_email,
     get_user_by_sub,
+    normalise_email,
 )
 from glow_api.metadata_models import ApiKey, School, User
 from glow_api.models import UserRead
@@ -63,8 +65,12 @@ class _OidcVerifier:
             url = f"{self._issuer.rstrip('/')}/.well-known/openid-configuration"
             try:
                 doc = _fetch_discovery(url)
+                if not isinstance(doc, dict):
+                    raise ValueError("discovery document is not a JSON object")
                 jwks_uri = doc["jwks_uri"]
                 doc_issuer = doc["issuer"]
+                if not isinstance(jwks_uri, str) or not jwks_uri:
+                    raise ValueError("jwks_uri is not a string")
             except (requests.RequestException, OSError, ValueError, KeyError) as exc:
                 raise jwt.PyJWTError(f"OIDC discovery failed: {exc}") from exc
             if doc_issuer != self._issuer:
@@ -80,6 +86,7 @@ class _OidcVerifier:
             algorithms=["RS256", "ES256"],
             issuer=self._issuer,
             audience=self._client_id,
+            options={"require": ["exp", "iss", "aud"]},
         )
 
 
@@ -123,24 +130,50 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
+def _email_verified(claims: dict[str, Any]) -> bool:
+    return claims.get("email_verified") in (True, "true")
+
+
+def resolve_user(db: Session, claims: dict[str, Any]) -> User | None:
+    """Map verified token claims to the active local user, or None.
+
+    A known `sub` wins. Otherwise the token's verified email may claim a
+    pre-registered user whose oidc_sub is still NULL (first login). Users are
+    never created here, and an unverified email never links.
+    """
+    sub = claims.get("sub")
+    if not isinstance(sub, str) or not sub:
+        return None
+    user = get_user_by_sub(db, sub)
+    if user is not None:
+        return user if user.is_active else None
+
+    email = claims.get("email")
+    if not isinstance(email, str) or not _email_verified(claims):
+        return None
+    user = get_unlinked_user_by_email(db, email)
+    if user is None or not user.is_active:
+        return None
+    user.oidc_sub = sub
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return None
+    return user
+
+
 def sync_user_claims(db: Session, user: User, claims: dict[str, Any]) -> None:
-    """Update the local row if the token's username/email claims have drifted.
+    """Update the local row's email if the verified token's email drifted.
 
     No extra network call - reuses the claims already returned with the
-    verified token. Best-effort: a username collision rolls back rather than
+    verified token. Best-effort: an email collision rolls back rather than
     breaking the auth path.
     """
-    changed = False
-    token_username = claims.get("cognito:username")
-    if token_username and token_username != user.username:
-        user.username = token_username
-        changed = True
-    token_email = claims.get("email")
-    if token_email and token_email != user.email:
-        user.email = token_email
-        changed = True
-    if not changed:
+    token_email = normalise_email(claims.get("email"))
+    if not token_email or token_email == user.email or not _email_verified(claims):
         return
+    user.email = token_email
     try:
         db.commit()
     except IntegrityError:
@@ -167,14 +200,11 @@ def _authenticate_token(token: str, db: Session) -> UserRead:
     )
     try:
         claims = verifier.decode(token)
-        sub: str | None = claims.get("sub")
-        if sub is None:
-            raise credentials_exception
     except jwt.PyJWTError:
         raise credentials_exception
 
-    user = get_user_by_sub(db, sub)
-    if user is None or not user.is_active:
+    user = resolve_user(db, claims)
+    if user is None:
         raise credentials_exception
 
     sync_user_claims(db, user, claims)
@@ -226,18 +256,6 @@ def get_optional_school_user(
 
     try:
         claims = verifier.decode(credentials.credentials)
-        sub: str | None = claims.get("sub")
-        if sub is None:
-            request_context.record_event(
-                "auth_assessed",
-                outcome="invalid_token",
-                success=False,
-                school_id=school_id,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-            )
     except jwt.PyJWTError:
         request_context.record_event(
             "auth_assessed", outcome="invalid_token", success=False, school_id=school_id
@@ -247,13 +265,13 @@ def get_optional_school_user(
             detail="Could not validate credentials",
         )
 
-    user = get_user_by_sub(db, sub)
-    if user is None or not user.is_active:
+    user = resolve_user(db, claims)
+    if user is None:
         request_context.record_event(
             "auth_assessed",
             outcome="unknown_or_inactive_user",
             success=False,
-            username=claims.get("cognito:username", sub),
+            username=claims.get("sub"),
             school_id=school_id,
         )
         raise HTTPException(

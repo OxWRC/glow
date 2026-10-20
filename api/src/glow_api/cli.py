@@ -148,7 +148,7 @@ def _bootstrap_cognito_user(
         response = client.admin_get_user(UserPoolId=pool_id, Username=username)
         attributes = response["UserAttributes"]
 
-    cognito_sub = next(a["Value"] for a in attributes if a["Name"] == "sub")
+    oidc_sub = next(a["Value"] for a in attributes if a["Name"] == "sub")
 
     client.admin_set_user_password(
         UserPoolId=pool_id,
@@ -159,7 +159,7 @@ def _bootstrap_cognito_user(
 
     return upsert_user_by_sub(
         db,
-        cognito_sub,
+        oidc_sub,
         username=username,
         is_admin=is_admin,
         school_ids=school_ids,

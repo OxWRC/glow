@@ -6,8 +6,8 @@ import jwt
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from glow_api.auth import sync_user_claims, verifier
-from glow_api.database import get_db, get_user_by_sub
+from glow_api.auth import resolve_user, sync_user_claims, verifier
+from glow_api.database import get_db
 from glow_api.models import MeResponse, MeAnonymous, MeAuthenticated, SchoolSummary
 
 router = APIRouter(tags=["identity"])
@@ -26,34 +26,24 @@ def get_me(
     This endpoint supports both authenticated and anonymous access:
     - No token: returns anonymous response
     - Invalid/expired token: returns 401
+    - Valid token with no linkable active user: returns 403 no_access
     - Valid token: returns authenticated response with school summaries
     """
     # No credentials provided - return anonymous
     if credentials is None:
         return MeAnonymous()
 
-    # Try to decode token
     try:
         claims = verifier.decode(credentials.credentials)
-        sub: str | None = claims.get("sub")
-        if sub is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
-            )
     except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
 
-    # Get user from database
-    user = get_user_by_sub(db, sub)
-    if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-        )
+    user = resolve_user(db, claims)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="no_access")
 
     sync_user_claims(db, user, claims)
 

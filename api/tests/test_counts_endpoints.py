@@ -85,7 +85,7 @@ def test_query_counts_school_scoped_filters_to_one_school(
 ):
     upsert_user_by_sub(
         db_session,
-        cognito_sub="focus-teacher-sub",
+        oidc_sub="focus-teacher-sub",
         username="focus_teacher",
         school_ids=[sample_schools["Focus School Academy"].id],
     )

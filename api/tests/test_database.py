@@ -45,19 +45,19 @@ def test_upsert_user_by_sub_links_existing_username_instead_of_duplicating(
     db_session,
 ):
     """A row created via the pre-Cognito `create_user` path has no
-    `cognito_sub` yet. Bootstrapping/logging in as that same username with a
+    `oidc_sub` yet. Bootstrapping/logging in as that same username with a
     real `sub` must attach the sub to the existing row (matched by
     username), not attempt a second INSERT and hit the username unique
     constraint."""
     existing = database.create_user(db_session, username="alice", is_admin=False)
-    assert existing.cognito_sub is None
+    assert existing.oidc_sub is None
 
     linked = database.upsert_user_by_sub(
         db_session, "sub-123", username="alice", is_admin=True
     )
 
     assert linked.id == existing.id
-    assert linked.cognito_sub == "sub-123"
+    assert linked.oidc_sub == "sub-123"
     assert linked.is_admin is True
     assert len(database.list_users(db_session)) == 1
 

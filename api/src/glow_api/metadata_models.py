@@ -69,8 +69,8 @@ class User(Base):
     username = Column(String, nullable=False, unique=True, index=True)
     is_active = Column(Boolean, nullable=False, default=True)
     is_admin = Column(Boolean, nullable=False, default=False)
-    cognito_sub = Column(String, nullable=True, unique=True, index=True)
-    email = Column(String, nullable=True)
+    oidc_sub = Column(String, nullable=True, unique=True, index=True)
+    email = Column(String, nullable=True, unique=True)
 
     # Many-to-many with schools
     schools = relationship(

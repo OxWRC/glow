@@ -303,3 +303,30 @@ class TestBuildVerifierFailsClosed:
         monkeypatch.setattr(auth_module.settings, "DEMO_MODE", False)
 
         assert isinstance(auth_module._build_verifier(), auth_module._OidcVerifier)
+
+
+class TestHardening:
+    def test_token_without_exp_rejected(self, rsa_keypair, oidc_verifier):
+        token = jwt.encode(
+            {"sub": "x", "iss": TEST_ISSUER, "aud": TEST_CLIENT_ID},
+            rsa_keypair[0],
+            algorithm="RS256",
+        )
+        with pytest.raises(jwt.PyJWTError):
+            oidc_verifier.decode(token)
+
+    @pytest.mark.parametrize(
+        "doc",
+        [
+            ["not", "object"],
+            "str",
+            {"issuer": TEST_ISSUER, "jwks_uri": 5},
+            {"issuer": TEST_ISSUER, "jwks_uri": None},
+        ],
+    )
+    def test_malformed_discovery_doc_raises_pyjwt_error(
+        self, rsa_keypair, oidc_verifier, fetch_spy, doc
+    ):
+        fetch_spy.doc = doc
+        with pytest.raises(jwt.PyJWTError):
+            oidc_verifier.decode(_make_token(rsa_keypair[0]))

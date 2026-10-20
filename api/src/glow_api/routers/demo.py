@@ -79,9 +79,7 @@ def demo_login(
         sub = f"dev-school-{school_id}"
         user = upsert_user_by_sub(db, sub, username=sub, school_ids=[school_id])
 
-    token = create_access_token(
-        {"sub": sub, "cognito:username": user.username, "email": user.email}
-    )
+    token = create_access_token({"sub": sub, "email": user.email})
     return DemoLoginResponse(access_token=token)
 
 
