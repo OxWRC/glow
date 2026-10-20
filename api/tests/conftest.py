@@ -3,7 +3,7 @@
 import io
 import os
 
-# glow_api.auth picks its verifier (Cognito vs. dev-mode HS256) at import
+# glow_api.auth picks its verifier (OIDC vs. dev-mode HS256) at import
 # time, and now refuses to start in dev mode unless this is explicitly
 # enabled (see auth._build_verifier) - must be set before the first
 # glow_api import below, not after.

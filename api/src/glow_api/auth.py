@@ -1,8 +1,8 @@
 """Authentication and authorization logic.
 
-Token verification is Cognito-backed in any environment with a configured
-user pool; a local HS256 "dev" mode is available for development and
-testing when no pool is configured (see settings.validate_auth_config for
+Token verification uses any OIDC issuer (discovery + JWKS) in any
+environment with GLOW_OIDC_ISSUER configured; a local HS256 "dev" mode is
+available for development and testing when no issuer is configured (see settings.validate_auth_config for
 the guard that keeps the two modes from being enabled together).
 """
 
@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import jwt
+import requests
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import (
     APIKeyHeader,
@@ -39,27 +40,51 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 DEV_ISSUER = "glow-dev"
 
 
-class _CognitoVerifier:
-    """Verifies RS256 tokens issued by an AWS Cognito user pool via its JWKS endpoint."""
+def _fetch_discovery(url: str) -> dict[str, Any]:
+    resp = requests.get(url, timeout=5)
+    resp.raise_for_status()
+    return resp.json()
 
-    def __init__(self, user_pool_id: str, client_id: str, region: str):
-        self._issuer = f"https://cognito-idp.{region}.amazonaws.com/{user_pool_id}"
+
+class _OidcVerifier:
+    """Verifies RS256/ES256 tokens from any OIDC issuer via discovery + JWKS.
+
+    Discovery is lazy (first decode) and retried on the next call if it fails,
+    so an IdP outage at startup doesn't stop the API from booting.
+    """
+
+    def __init__(self, issuer: str, client_id: str):
+        self._issuer = issuer
         self._client_id = client_id
-        self._jwks_client = jwt.PyJWKClient(f"{self._issuer}/.well-known/jwks.json")
+        self._jwks_client: jwt.PyJWKClient | None = None
+
+    def _get_jwks_client(self) -> jwt.PyJWKClient:
+        if self._jwks_client is None:
+            url = f"{self._issuer.rstrip('/')}/.well-known/openid-configuration"
+            try:
+                doc = _fetch_discovery(url)
+                jwks_uri = doc["jwks_uri"]
+                doc_issuer = doc["issuer"]
+            except (requests.RequestException, OSError, ValueError, KeyError) as exc:
+                raise jwt.PyJWTError(f"OIDC discovery failed: {exc}") from exc
+            if doc_issuer != self._issuer:
+                raise jwt.PyJWTError("OIDC discovery issuer does not match config")
+            self._jwks_client = jwt.PyJWKClient(jwks_uri)
+        return self._jwks_client
 
     def decode(self, token: str) -> dict[str, Any]:
-        signing_key = self._jwks_client.get_signing_key_from_jwt(token)
+        signing_key = self._get_jwks_client().get_signing_key_from_jwt(token)
         return jwt.decode(
             token,
             signing_key.key,
-            algorithms=["RS256"],
+            algorithms=["RS256", "ES256"],
             issuer=self._issuer,
             audience=self._client_id,
         )
 
 
 class _DevVerifier:
-    """HS256 verifier against SECRET_KEY, for local dev / tests when Cognito isn't configured."""
+    """HS256 verifier against SECRET_KEY, for local dev / tests when no OIDC issuer is configured."""
 
     def decode(self, token: str) -> dict[str, Any]:
         return jwt.decode(
@@ -70,19 +95,15 @@ class _DevVerifier:
         )
 
 
-def _build_verifier() -> _CognitoVerifier | _DevVerifier:
+def _build_verifier() -> _OidcVerifier | _DevVerifier:
     # Fail closed, not open: refuse to pick a verifier at all if the config
     # is ambiguous or incomplete (see validate_auth_config's docstring).
     settings.validate_auth_config()
-    if settings.COGNITO_USER_POOL_ID:
-        return _CognitoVerifier(
-            settings.COGNITO_USER_POOL_ID,
-            settings.COGNITO_CLIENT_ID,
-            settings.COGNITO_REGION,
-        )
+    if settings.OIDC_ISSUER:
+        return _OidcVerifier(settings.OIDC_ISSUER, settings.OIDC_CLIENT_ID)
     if not settings.DEMO_MODE:
         raise RuntimeError(
-            "No Cognito pool configured (GLOW_COGNITO_USER_POOL_ID) and "
+            "No OIDC issuer configured (GLOW_OIDC_ISSUER) and "
             "GLOW_DEMO_MODE is off - refusing to start with demo-mode auth."
         )
     return _DevVerifier()

@@ -81,15 +81,11 @@ def _meta_key(prefix: str) -> str:
 
 
 def _serialize_observed_periods(observed_periods: dict) -> dict:
-    return {
-        (_NULL_KEY if k is None else k): v for k, v in observed_periods.items()
-    }
+    return {(_NULL_KEY if k is None else k): v for k, v in observed_periods.items()}
 
 
 def _deserialize_observed_periods(raw: dict) -> dict:
-    return {
-        (None if k == _NULL_KEY else k): v for k, v in raw.items()
-    }
+    return {(None if k == _NULL_KEY else k): v for k, v in raw.items()}
 
 
 class _LatestPrefixCache:
@@ -279,7 +275,9 @@ def list_vintages(s3_client: Any, bucket: Optional[str] = None) -> list[VintageI
     ]
 
 
-def get_latest_vintage_prefix(s3_client: Any, bucket: Optional[str] = None) -> Optional[str]:
+def get_latest_vintage_prefix(
+    s3_client: Any, bucket: Optional[str] = None
+) -> Optional[str]:
     return _latest_prefix_cache.get(s3_client, _bucket(bucket))
 
 

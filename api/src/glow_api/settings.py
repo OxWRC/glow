@@ -50,10 +50,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
     API_KEY_EXPIRE_DAYS: int = 90  # default lifetime for a newly-created export API key
 
-    # Cognito / auth mode
-    COGNITO_USER_POOL_ID: Optional[str] = None
-    COGNITO_CLIENT_ID: Optional[str] = None
-    COGNITO_REGION: Optional[str] = None
+    # OIDC / auth mode
+    OIDC_ISSUER: Optional[str] = None
+    OIDC_CLIENT_ID: Optional[str] = None
     DEMO_MODE: bool = False
 
     # Vintages (periodic, immutable dataset archives /query and /export pin against)
@@ -107,27 +106,27 @@ class Settings(BaseSettings):
     def validate_auth_config(self) -> None:
         """Raise if the auth configuration is ambiguous or incomplete.
 
-        Two things must hold:
-        - DEMO_MODE and a Cognito pool are never both configured.
-        - A configured Cognito pool always comes with the client id and
-          region PyJWT needs to actually verify `aud`/build the JWKS URL -
-          without them, verification would silently degrade (no audience
-          check, or a garbage issuer/JWKS URL).
+        Three things must hold:
+        - DEMO_MODE and an OIDC issuer are never both configured.
+        - A configured issuer always comes with the client id PyJWT needs
+          to verify `aud` (without it, the audience check would degrade).
+        - The issuer is https (tokens' keys are fetched from it).
         """
-        if self.DEMO_MODE and self.COGNITO_USER_POOL_ID:
+        if self.DEMO_MODE and self.OIDC_ISSUER:
             raise RuntimeError(
-                "GLOW_DEMO_MODE is enabled but GLOW_COGNITO_USER_POOL_ID is also "
-                "set. Use Cognito verification in any environment with real user data; "
-                "enable the demo mode only when no Cognito pool is configured."
+                "GLOW_DEMO_MODE is enabled but GLOW_OIDC_ISSUER is also set. "
+                "Use OIDC verification in any environment with real user data; "
+                "enable the demo mode only when no issuer is configured."
             )
-        if self.COGNITO_USER_POOL_ID and not (
-            self.COGNITO_CLIENT_ID and self.COGNITO_REGION
-        ):
+        if not self.OIDC_ISSUER:
+            return
+        if not self.OIDC_CLIENT_ID:
             raise RuntimeError(
-                "GLOW_COGNITO_USER_POOL_ID is set but GLOW_COGNITO_CLIENT_ID and/or "
-                "GLOW_COGNITO_REGION are not. Both are required to verify Cognito "
-                "tokens (audience check, JWKS endpoint URL)."
+                "GLOW_OIDC_ISSUER is set but GLOW_OIDC_CLIENT_ID is not. "
+                "It is required for the audience check."
             )
+        if not self.OIDC_ISSUER.startswith("https://"):
+            raise RuntimeError("GLOW_OIDC_ISSUER must start with https://")
 
 
 settings = Settings()

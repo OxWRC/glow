@@ -420,6 +420,9 @@ def cut_vintage_route(
 ) -> VintageRead:
     info = cut_vintage(datastore, s3_client, created_by=(admin.id, admin.username))
     request_context.record_event(
-        "vintage_cut", actor=admin.username, prefix=info.prefix, row_count=info.row_count
+        "vintage_cut",
+        actor=admin.username,
+        prefix=info.prefix,
+        row_count=info.row_count,
     )
     return _vintage_read(info)

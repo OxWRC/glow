@@ -178,9 +178,14 @@ def test_load_vintage_frame_round_trips_df_and_whitelists(s3_client, sample_df):
     assert loaded.numerical_whitelist == datastore._numerical_whitelist
 
 
-def test_load_vintage_frame_round_trips_none_keyed_observed_periods(s3_client, sample_df):
+def test_load_vintage_frame_round_trips_none_keyed_observed_periods(
+    s3_client, sample_df
+):
     datastore = _hand_set_datastore(sample_df)
-    datastore._observed_periods = {None: ["2026-W01"], "Focus School Academy": ["2026-W01"]}
+    datastore._observed_periods = {
+        None: ["2026-W01"],
+        "Focus School Academy": ["2026-W01"],
+    }
     info = cut_vintage(datastore, s3_client, bucket=BUCKET)
 
     loaded = load_vintage_frame(info.prefix, s3_client, bucket=BUCKET)
@@ -255,12 +260,16 @@ def test_cut_vintage_does_not_disturb_other_cached_vintages(s3_client, sample_df
     first_calls = []
     first_frame = vintages_module._vintage_cache.get(
         first.prefix,
-        lambda: (first_calls.append(1), load_vintage_frame(first.prefix, s3_client, bucket=BUCKET))[1],
+        lambda: (
+            first_calls.append(1),
+            load_vintage_frame(first.prefix, s3_client, bucket=BUCKET),
+        )[1],
     )
 
     second = cut_vintage(datastore, s3_client, bucket=BUCKET)
     second_frame = vintages_module._vintage_cache.get(
-        second.prefix, lambda: load_vintage_frame(second.prefix, s3_client, bucket=BUCKET)
+        second.prefix,
+        lambda: load_vintage_frame(second.prefix, s3_client, bucket=BUCKET),
     )
     assert second_frame is not None
     assert second.prefix != first.prefix
@@ -269,7 +278,10 @@ def test_cut_vintage_does_not_disturb_other_cached_vintages(s3_client, sample_df
     # re-fetch it from S3 - it's still the same cached object.
     refetched_first = vintages_module._vintage_cache.get(
         first.prefix,
-        lambda: (first_calls.append(1), load_vintage_frame(first.prefix, s3_client, bucket=BUCKET))[1],
+        lambda: (
+            first_calls.append(1),
+            load_vintage_frame(first.prefix, s3_client, bucket=BUCKET),
+        )[1],
     )
     assert refetched_first is first_frame
     assert len(first_calls) == 1

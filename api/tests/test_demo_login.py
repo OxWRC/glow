@@ -85,12 +85,11 @@ def test_demo_routes_absent_when_demo_mode_off():
         import os
         os.environ["GLOW_DEMO_MODE"] = "0"
         os.environ["GLOW_TESTING"] = "1"
-        # A real deployment with demo mode off has a Cognito pool configured
+        # A real deployment with demo mode off has an OIDC issuer configured
         # instead (see auth._build_verifier's fail-closed guard - it refuses
         # to import at all with neither configured).
-        os.environ["GLOW_COGNITO_USER_POOL_ID"] = "eu-west-2_TESTPOOL"
-        os.environ["GLOW_COGNITO_CLIENT_ID"] = "test-client-id"
-        os.environ["GLOW_COGNITO_REGION"] = "eu-west-2"
+        os.environ["GLOW_OIDC_ISSUER"] = "https://idp.example.com"
+        os.environ["GLOW_OIDC_CLIENT_ID"] = "test-client-id"
         from fastapi.testclient import TestClient
         from glow_api.main import app
         client = TestClient(app)

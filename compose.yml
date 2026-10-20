@@ -32,10 +32,9 @@ services:
       # one operator-visible signal that these were left out of a real
       # deploy's .env.runtime. Populating .env.runtime with real values is a
       # separate, later task; this just gives them a path into the container.
-      GLOW_COGNITO_USER_POOL_ID: ${GLOW_COGNITO_USER_POOL_ID}
-      GLOW_COGNITO_CLIENT_ID: ${GLOW_COGNITO_CLIENT_ID}
-      GLOW_COGNITO_REGION: ${GLOW_COGNITO_REGION}
-      # Passthrough, same reasoning as Cognito above.
+      GLOW_OIDC_ISSUER: ${GLOW_OIDC_ISSUER}
+      GLOW_OIDC_CLIENT_ID: ${GLOW_OIDC_CLIENT_ID}
+      # Passthrough, same reasoning as OIDC above.
       GLOW_VINTAGES_S3_BUCKET: ${GLOW_VINTAGES_S3_BUCKET}
       GLOW_AWS_REGION: ${GLOW_AWS_REGION}
       GLOW_APP_VERSION: ${APP_VERSION:-dev}

@@ -11,17 +11,13 @@ def _df(rows: list[dict]) -> pd.DataFrame:
 
 
 def test_period_at_or_above_min_n_returns_exact_count():
-    df = _df(
-        [{"uid": f"S{i}", "period_id": "2026-W01"} for i in range(5)]
-    )
+    df = _df([{"uid": f"S{i}", "period_id": "2026-W01"} for i in range(5)])
 
     assert floored_period_counts(df, min_n=5) == {"2026-W01": 5}
 
 
 def test_period_below_min_n_returns_none_not_the_number():
-    df = _df(
-        [{"uid": f"S{i}", "period_id": "2026-W01"} for i in range(4)]
-    )
+    df = _df([{"uid": f"S{i}", "period_id": "2026-W01"} for i in range(4)])
 
     assert floored_period_counts(df, min_n=5) == {"2026-W01": None}
 
