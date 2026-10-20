@@ -26,7 +26,12 @@ export RESTIC_REPOSITORY=${RESTIC_REPOSITORY:-/backup}
 export RESTIC_CACHE_DIR=${RESTIC_CACHE_DIR:-/cache}
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-cleanup() { rm -rf "$DUMPS" "$VERIFY"; }
+cleanup() {
+	if [ -f "$VERIFY/pg/postmaster.pid" ]; then
+		su-exec postgres pg_ctl -D "$VERIFY/pg" -m immediate -w stop >/dev/null 2>&1 || true
+	fi
+	rm -rf "$DUMPS" "$VERIFY"
+}
 trap cleanup EXIT
 trap 'trap "" TERM INT; cleanup; kill 0 2>/dev/null; exit 143' TERM INT
 
@@ -53,6 +58,10 @@ record() { # record backup|verify|prune ok|fail [error]
 		--arg "last_${kind}_error" "$err"
 }
 
+count_rows() { # PASSWORD HOST USER DB TABLE -> row count, or -1 if unreadable
+	PGPASSWORD=$1 psql -At -h "$2" -U "$3" -d "$4" -c "select count(*) from $5" 2>/dev/null || echo -1
+}
+
 do_backup() {
 	: "${RESTIC_PASSWORD:?GLOW_BACKUP_KEY is not set}"
 	cleanup; mkdir -p "$DUMPS"
@@ -62,6 +71,12 @@ do_backup() {
 		-U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$DUMPS/glow.dump"
 	PGPASSWORD=$ODK_POSTGRES_PASSWORD pg_dump -Fc -h "${ODK_POSTGRES_HOST:-postgres14}" \
 		-U "$ODK_POSTGRES_USER" -d "$ODK_POSTGRES_DB" -f "$DUMPS/odk.dump"
+	# Source row counts (-1: table missing) so verify can tell "empty" from "lost".
+	g_users=$(count_rows "$POSTGRES_PASSWORD" "${POSTGRES_HOST:-api-db}" "$POSTGRES_USER" "$POSTGRES_DB" users)
+	g_schools=$(count_rows "$POSTGRES_PASSWORD" "${POSTGRES_HOST:-api-db}" "$POSTGRES_USER" "$POSTGRES_DB" schools)
+	o_forms=$(count_rows "$ODK_POSTGRES_PASSWORD" "${ODK_POSTGRES_HOST:-postgres14}" "$ODK_POSTGRES_USER" "$ODK_POSTGRES_DB" forms)
+	jq -n --argjson u "$g_users" --argjson s "$g_schools" --argjson f "$o_forms" \
+		'{glow:{users:$u,schools:$s},odk:{forms:$f}}' >"$DUMPS/meta.json"
 	restic backup --tag glow --host glow --exclude '.tmp-*' \
 		"$DUMPS" "$STATE/odk-secrets" "$STATE/secrets.env" "$RELEASE_ENV" \
 		"$STATE/api-audit-logs" "$STATE/vintages" \
@@ -73,15 +88,42 @@ do_prune() {
 		--keep-hourly 48 --keep-daily 30 --keep-monthly 12
 }
 
+# psqlv DB SQL: query the throwaway cluster (unix socket only, trust auth).
+psqlv() { su-exec postgres psql -At -h "$VERIFY/sock" -p "$VPORT" -d "$1" -c "$2"; }
+
 do_verify() {
 	: "${RESTIC_PASSWORD:?GLOW_BACKUP_KEY is not set}"
-	restic check
-	cleanup; mkdir -p "$VERIFY"
-	restic restore latest --tag glow --target "$VERIFY" --include "$DUMPS"
+	restic check || { echo "verify FAILED: restic check"; return 1; }
+	cleanup; mkdir -p "$VERIFY/sock"
+	restic restore latest --tag glow --target "$VERIFY" --include "$DUMPS" ||
+		{ echo "verify FAILED: restic restore"; return 1; }
 	for d in glow odk; do
-		f=$VERIFY$DUMPS/$d.dump
-		[ -s "$f" ] || { echo "restored $d.dump missing or empty"; return 1; }
-		pg_restore --list "$f" >/dev/null
+		[ -s "$VERIFY$DUMPS/$d.dump" ] || { echo "verify FAILED: restored $d.dump missing or empty"; return 1; }
+	done
+	meta=$VERIFY$DUMPS/meta.json
+	jq -e . "$meta" >/dev/null 2>&1 || { echo "verify FAILED: meta.json missing or invalid"; return 1; }
+	# Throwaway cluster: no TCP (listen_addresses=''), socket in the temp dir.
+	VPORT=$(( $(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000 ))
+	chown -R postgres "$VERIFY"
+	su-exec postgres initdb -D "$VERIFY/pg" -A trust --no-sync >/dev/null ||
+		{ echo "verify FAILED: initdb"; return 1; }
+	su-exec postgres pg_ctl -D "$VERIFY/pg" -w -l "$VERIFY/pg.log" \
+		-o "-c listen_addresses='' -c unix_socket_directories=$VERIFY/sock -c port=$VPORT -c fsync=off" start >/dev/null ||
+		{ echo "verify FAILED: start throwaway postgres"; return 1; }
+	for d in glow odk; do
+		psqlv postgres "create database $d" >/dev/null
+		su-exec postgres pg_restore --exit-on-error --no-owner --no-privileges \
+			-h "$VERIFY/sock" -p "$VPORT" -d "$d" "$VERIFY$DUMPS/$d.dump" ||
+			{ echo "verify FAILED: pg_restore of $d.dump"; return 1; }
+	done
+	for t in glow:users glow:schools odk:forms; do
+		db=${t%%:*} tbl=${t##*:}
+		n=$(psqlv "$db" "select count(*) from $tbl" 2>/dev/null) ||
+			{ echo "verify FAILED: table $db.$tbl missing after restore"; return 1; }
+		want=$(jq -r ".$db.$tbl" "$meta")
+		if [ "$want" -gt 0 ] && [ "$n" -eq 0 ]; then
+			echo "verify FAILED: table $db.$tbl empty after restore (source had $want rows)"; return 1
+		fi
 	done
 }
 

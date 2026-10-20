@@ -35,8 +35,8 @@ echo l > "$GLOW_STATE_DIR/api-audit-logs/audit.jsonl"
 
 dc build "${BUILD_ARGS[@]}" backup postgres14 >/dev/null
 dc up -d --wait api-db postgres14 >/dev/null
-dc exec -T api-db psql -q -U glow -d glow -c "create table t(v text); insert into t values ('glow-row');"
-dc exec -T postgres14 psql -q -U odk -d odk -c "create table t(v text); insert into t values ('odk-row');"
+dc exec -T api-db psql -q -U glow -d glow -c "create table t(v text); insert into t values ('glow-row'); create table users(id int); insert into users values (1),(2); create table schools(id int); insert into schools values (1);"
+dc exec -T postgres14 psql -q -U odk -d odk -c "create table t(v text); insert into t values ('odk-row'); create table forms(id int); insert into forms values (1);"
 dc up -d --no-deps backup >/dev/null
 bk() { dc exec -T backup glow-backup.sh "$@"; }
 STATUS_FILE=$GLOW_STATE_DIR/backup-status/backup-status.json
@@ -66,6 +66,17 @@ status | jq -e '.last_backup_ok == true and (.last_backup_at | test("Z$")) and .
 bk verify || fail "verify exited non-zero"
 status | jq -e '.last_verify_ok == true and (.last_verify_at | test("Z$")) and .last_backup_ok == true' >/dev/null || fail "bad verify status: $(status)"
 echo "$(ls -A "$GLOW_STATE_DIR/backup-status" | grep -c 'backup-status.json.')" | grep -qx 0 || fail "temp status file left behind"
+# Restore test really restores: the log names the checks and nothing is left behind.
+bk verify 2>&1 | grep -q . || true
+dc exec -T backup sh -c 'test ! -e /tmp/glow-verify; ! pgrep postgres >/dev/null' || fail "throwaway cluster left behind"
+# A snapshot whose GLOW dump is truncated must fail verify, naming the check.
+dc exec -T backup sh -c 'set -e; rm -rf /tmp/x /tmp/glow-dumps
+  restic restore latest --tag glow --target /tmp/x --include /tmp/glow-dumps >/dev/null
+  mv /tmp/x/tmp/glow-dumps /tmp/glow-dumps
+  sz=$(wc -c < /tmp/glow-dumps/glow.dump); head -c $((sz / 2)) /tmp/glow-dumps/glow.dump > /tmp/glow-dumps/t; mv /tmp/glow-dumps/t /tmp/glow-dumps/glow.dump
+  restic backup --tag glow --host glow /tmp/glow-dumps >/dev/null; rm -rf /tmp/x /tmp/glow-dumps'
+if bk verify; then fail "verify passed on a truncated GLOW dump"; fi
+status | jq -e '.last_verify_ok == false and (.last_verify_error | test("glow.dump"))' >/dev/null || fail "bad truncated-dump verify status: $(status)"
 
 # Failure path: repository mounted read-only.
 RO=$T/ro; mkdir -p "$RO"
