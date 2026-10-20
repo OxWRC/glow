@@ -55,7 +55,7 @@ services:
 
   # Local S3-compatible store for the vintages feature (glow_api.vintages),
   # which has no DB table and treats S3 as its only source of truth. Real
-  # deploys get a provisioned bucket;
+  # deploys use a real vintages store instead.
   # CI has no AWS account, so the api container's cut_vintage /
   # list_vintages calls need something to hit instead, or they 500 the way
   # they did before this existed. initial-buckets auto-creates the bucket

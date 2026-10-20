@@ -113,7 +113,7 @@ services:
     build:
       target: dev
 
-  # Stand-in for the Terraform-provisioned vintages bucket. In-memory: it
+  # Stand-in for a real deploy's vintages store. In-memory: it
   # starts empty on each `up`, and glow-init cuts a fresh vintage.
   s3mock:
     image: adobe/s3mock:5.2.3
