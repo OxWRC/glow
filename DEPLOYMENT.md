@@ -165,3 +165,19 @@ If you want data on a separate partition, you can:
 1. Mount your partition at `/data`
 2. Create symlink: `ln -s /data ./docker-mount-data`
 3. Start the stack as normal
+
+## Releasing
+
+Push a tag `vX.Y.Z`; `.github/workflows/release.yml` builds and pushes the images and publishes the archive and offline bundle. GHCR packages created with `GITHUB_TOKEN` start private. After the first release, set each `glow-*` package to Public and link it to the repository; the release job's "Verify anonymous pull works" step fails until you do.
+
+## Offline install
+
+The release assets double as the offline bundle: `glow-<tag>.tar.gz` (compose files, proxy config), `glow-images-<tag>.tar.gz.part-NN`, `digests.json` (tag ref to digest ref, for every image in the rendered compose files) and `SHA256SUMS`. Put them in one directory, then:
+
+```bash
+sha256sum -c SHA256SUMS
+cat glow-images-<tag>.tar.gz.part-* | gunzip | docker load
+tar xzf glow-<tag>.tar.gz
+```
+
+Each image is loaded under its tag ref (`ghcr.io/<owner>/glow-api:<tag>`) as well as its digest ref; some Docker stores drop the digest name, so use `digests.json` to map tag refs to digests when you need to. `glowctl --bundle <dir>` (a later plan) does this for you, rewriting compose image refs to tag refs if needed.

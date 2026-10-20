@@ -4,9 +4,10 @@ on:
   push:
     tags: ["v*.*.*"]
 
-permissions:
-  contents: write
-  packages: write
+# First release checklist: GHCR packages pushed with GITHUB_TOKEN start private.
+# After the first push set each glow-* package to Public and link it to this
+# repo (package settings); the "Verify anonymous pull" step fails otherwise.
+permissions: {}
 
 env:
   GLOW_VERSION: ${{ github.ref_name }}
@@ -14,6 +15,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: true
       matrix:
@@ -48,8 +52,12 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
     steps:
       - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -83,8 +91,7 @@ jobs:
       - name: Stage and render release archive
         run: |
           set -euo pipefail
-          pip install pyyaml
-          bash scripts/release/stage_release.sh glow-stage "$GLOW_VERSION" "$GLOW_REGISTRY" digests.json
+          uv run --with pyyaml bash scripts/release/stage_release.sh glow-stage "$GLOW_VERSION" "$GLOW_REGISTRY" digests.json
 
       - name: Create archive and offline bundle
         run: |
@@ -93,9 +100,27 @@ jobs:
           tar czf "assets/glow-$GLOW_VERSION.tar.gz" --transform "s,^glow-stage,glow-$GLOW_VERSION," glow-stage
           jq -r '.[]' digests.json | sort -u > pinned.txt
           while read -r ref; do docker pull --platform linux/amd64 "$ref"; done < pinned.txt
-          xargs docker save < pinned.txt | gzip | split -b 1900M -d - "assets/glow-images-$GLOW_VERSION.tar.gz.part-"
+          # Name each image by both its tag ref and digest ref so loading works on
+          # stores that drop digest-only names.
+          jq -r 'to_entries[] | "\(.value) \(.key)"' digests.json | sort -u > pairs.txt
+          while read -r dref tref; do docker tag "$dref" "$tref"; done < pairs.txt
+          { cat pinned.txt; jq -r 'keys[]' digests.json; } | sort -u > saveset.txt
+          xargs docker save < saveset.txt | gzip | split -b 1900M -d - "assets/glow-images-$GLOW_VERSION.tar.gz.part-"
+          cp digests.json assets/digests.json
           cp glow-stage/glow.env.example assets/
           cd assets && sha256sum ./* | sed "s, \./, ," > SHA256SUMS && cat SHA256SUMS && ls -l
+
+      - name: Verify anonymous pull works
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io
+          while read -r ref; do
+            case "$ref" in ghcr.io/"${GITHUB_REPOSITORY_OWNER,,}"/glow-*) ;; *) continue ;; esac
+            docker manifest inspect "$ref" > /dev/null || {
+              echo "::error::$ref is not publicly pullable. Set the glow-* GHCR packages to Public (see header of release.yml)."
+              exit 1
+            }
+          done < pinned.txt
 
       - name: Publish GitHub release
         env:
