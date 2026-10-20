@@ -108,7 +108,8 @@ jobs:
           xargs docker save < saveset.txt | gzip | split -b 1900M -d - "assets/glow-images-$GLOW_VERSION.tar.gz.part-"
           cp digests.json assets/digests.json
           cp glow-stage/glow.env.example assets/
-          cd assets && sha256sum ./* | sed "s, \./, ," > SHA256SUMS && cat SHA256SUMS && ls -l
+          (cd assets && sha256sum ./* | sed "s, \./, ," > ../SHA256SUMS)
+          mv SHA256SUMS assets/SHA256SUMS && cat assets/SHA256SUMS && ls -l assets
 
       - name: Verify anonymous pull works
         run: |
