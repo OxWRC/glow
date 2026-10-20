@@ -7,14 +7,8 @@ import {
   useParams,
 } from "react-router-dom";
 import { useAuth, useIsAdmin, useIsAuthenticated } from "../auth/AuthContext";
-import {
-  checkHealth,
-  me,
-  OIDC_ISSUER,
-  OIDC_CLIENT_ID,
-  DEMO_MODE,
-} from "../lib/api";
-import { getOidcEndpoints } from "../lib/oidc";
+import { checkHealth, me, DEMO_MODE } from "../lib/api";
+import { endProviderSession } from "../lib/signOut";
 import { DemoBanner } from "../lib/components/DemoBanner";
 import { availableLocales, createI18n, type Locale } from "../lib/i18n";
 
@@ -68,29 +62,7 @@ export function Layout() {
 
   async function logout() {
     clearAuth();
-
-    // Demo mode has no real provider session to end. With a real provider,
-    // navigating straight to /login isn't a real sign-out: the provider's SSO
-    // session survives, so the redirect-to-authorize that /login does
-    // immediately re-authenticates the same user without showing a login
-    // screen. Use the provider's end_session_endpoint (when it has one) so
-    // the next login actually prompts.
-    if (!DEMO_MODE && OIDC_ISSUER && OIDC_CLIENT_ID) {
-      try {
-        const { end_session_endpoint } = await getOidcEndpoints(OIDC_ISSUER);
-        if (end_session_endpoint) {
-          const params = new URLSearchParams({
-            client_id: OIDC_CLIENT_ID,
-            post_logout_redirect_uri: `${window.location.origin}/${locale}/login`,
-          });
-          window.location.href = `${end_session_endpoint}?${params.toString()}`;
-          return;
-        }
-      } catch {
-        // Discovery failed: fall through to a local-only sign-out.
-      }
-    }
-    navigate(`/${locale}/login`);
+    if (!(await endProviderSession(locale))) navigate(`/${locale}/login`);
   }
 
   // Any path whose first segment isn't a known locale (e.g. /admin, matched

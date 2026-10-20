@@ -3,6 +3,7 @@
 // the redirect in sessionStorage.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
 import { LoginPage } from "./LoginPage";
@@ -27,6 +28,7 @@ vi.mock("../lib/oidc", () => ({
   getOidcEndpoints: vi.fn().mockResolvedValue({
     authorization_endpoint: "https://idp.example.test/authorize",
     token_endpoint: "https://idp.example.test/token",
+    end_session_endpoint: "https://idp.example.test/logout",
   }),
 }));
 
@@ -122,10 +124,24 @@ describe("OIDC redirect_uri", () => {
     renderAt("/auth/callback?code=c1&state=s1");
 
     expect(await screen.findByText(/not registered for GLOW/i)).toBeTruthy();
-    expect(
-      screen
-        .getByRole("link", { name: "Back to sign in" })
-        .getAttribute("href"),
-    ).toBe("/en/login");
+    expect(screen.queryByRole("link", { name: "Back to sign in" })).toBeNull();
+
+    const assigned = { href: "" };
+    vi.stubGlobal("location", {
+      ...window.location,
+      origin: "https://glow.test",
+      set href(v: string) {
+        assigned.href = v;
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(assigned.href).not.toBe(""));
+    const url = new URL(assigned.href);
+    expect(url.origin + url.pathname).toBe("https://idp.example.test/logout");
+    expect(url.searchParams.get("client_id")).toBe("client-123");
+    expect(url.searchParams.get("post_logout_redirect_uri")).toBe(
+      "https://glow.test/en/login",
+    );
+    vi.unstubAllGlobals();
   });
 });

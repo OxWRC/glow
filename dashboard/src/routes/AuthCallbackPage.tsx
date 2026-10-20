@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { exchangeCodeForToken, me } from "../lib/api";
+import { endProviderSession } from "../lib/signOut";
 import { useAuth } from "../auth/AuthContext";
 import { createI18n, availableLocales, type Locale } from "../lib/i18n";
 
@@ -16,9 +17,10 @@ export function AuthCallbackPage() {
   });
   const i18n = useMemo(() => createI18n(locale), [locale]);
   const [searchParams] = useSearchParams();
-  const { setIdentity } = useAuth();
+  const { setIdentity, logout: clearAuth } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
+  const [noAccess, setNoAccess] = useState(false);
   const ranRef = useRef(false);
 
   useEffect(() => {
@@ -60,6 +62,7 @@ export function AuthCallbackPage() {
         const tokens = await exchangeCodeForToken(code, redirectUri, verifier);
         const identity = await me(tokens.id_token);
         if (identity.kind !== "authenticated") {
+          setNoAccess(identity.kind === "no_access");
           setError(
             i18n.t(
               identity.kind === "no_access"
@@ -88,12 +91,28 @@ export function AuthCallbackPage() {
               <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-4">
                 {error}
               </div>
-              <a
-                href={`/${locale}/login`}
-                className="btn-primary inline-block py-2.5 px-6"
-              >
-                {i18n.t("login.backToLogin")}
-              </a>
+              {noAccess ? (
+                // /login would re-authenticate via the live IdP session and
+                // loop back here, so end that session instead.
+                <button
+                  type="button"
+                  className="btn-primary inline-block py-2.5 px-6"
+                  onClick={async () => {
+                    clearAuth();
+                    if (!(await endProviderSession(locale)))
+                      navigate(`/${locale}/login`);
+                  }}
+                >
+                  {i18n.t("login.signOut")}
+                </button>
+              ) : (
+                <a
+                  href={`/${locale}/login`}
+                  className="btn-primary inline-block py-2.5 px-6"
+                >
+                  {i18n.t("login.backToLogin")}
+                </a>
+              )}
             </>
           ) : (
             <div className="flex items-center justify-center gap-3 py-4">
