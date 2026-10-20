@@ -40,7 +40,7 @@ func TestArgv(t *testing.T) {
 
 func TestErrors(t *testing.T) {
 	for _, in := range []string{"", "bogus", "add", "add notanemail", "add a@b", "disable", "grant a@b.org",
-		"grant a@b.org --admin --no-admin", "list extra", "add a@b.org --nope"} {
+		"grant a@b.org --admin --no-admin", "list extra", "add -a@b.org", "add a@b.org --school -x", "add a@b.org --school A,B", "grant a@b.org --school -x", "add a@b.org --nope"} {
 		r := &rec{}
 		if err := Run(context.Background(), r, strings.Fields(in), io.Discard); err == nil {
 			t.Errorf("%q: want error", in)

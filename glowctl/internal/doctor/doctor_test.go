@@ -2,7 +2,10 @@ package doctor
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/oxwrc/glow/glowctl/internal/config"
@@ -15,9 +18,16 @@ func good() (*config.Config, Env) {
 			LookPath:  func(string) (string, error) { return "/usr/bin/docker", nil },
 			ComposeV2: func() error { return nil },
 			Device:    func(p string) (uint64, error) { return map[string]uint64{"/s": 1, "/b": 2}[p], nil },
-			PortFree:  func(int) bool { return true },
+			PortFree:  func(int) error { return nil },
 			Installed: false,
 		}
+}
+
+func busy443(p int) error {
+	if p == 443 {
+		return syscall.EADDRINUSE
+	}
+	return nil
 }
 
 func has(fs []Finding, lvl Level, sub string) bool {
@@ -89,7 +99,7 @@ func TestTLSOff(t *testing.T) {
 
 func TestPorts(t *testing.T) {
 	cfg, env := good()
-	env.PortFree = func(p int) bool { return p != 443 }
+	env.PortFree = busy443
 	if fs := Run(cfg, nil, env); !has(fs, Warn, "443") || has(fs, Warn, "port 80 ") {
 		t.Fatalf("%+v", fs)
 	}
@@ -100,7 +110,7 @@ func TestPorts(t *testing.T) {
 	cfg.TLSMode = "off"
 	env.Installed = false
 	env.SelfGet = func(string) error { return nil }
-	env.PortFree = func(p int) bool { return p != 443 }
+	env.PortFree = busy443
 	if fs := Run(cfg, nil, env); has(fs, Warn, "443") {
 		t.Fatalf("off mode does not bind https: %+v", fs)
 	}
@@ -111,5 +121,29 @@ func TestSMTP(t *testing.T) {
 	cfg.SMTP.Host = ""
 	if fs := Run(cfg, nil, env); !has(fs, Warn, "SMTP") {
 		t.Fatalf("%+v", fs)
+	}
+}
+
+func TestPortUncheckable(t *testing.T) {
+	cfg, env := good()
+	env.PortFree = func(int) error { return syscall.EACCES }
+	fs := Run(cfg, nil, env)
+	if has(fs, Warn, "already in use") || !has(fs, Warn, "cannot check") {
+		t.Fatalf("%+v", fs)
+	}
+}
+
+func TestDeviceWalksToExistingAncestor(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "a", "b")
+	d, err := HostEnv(false).Device(missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := os.Stat(filepath.Dir(filepath.Dir(missing)))
+	if st == nil {
+		t.Fatal("setup")
+	}
+	if d2, _ := HostEnv(false).Device(filepath.Dir(filepath.Dir(missing))); d != d2 {
+		t.Fatal("device mismatch")
 	}
 }

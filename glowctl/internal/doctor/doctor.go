@@ -2,10 +2,12 @@
 package doctor
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -30,7 +32,8 @@ type Env struct {
 	LookPath  func(string) (string, error)
 	ComposeV2 func() error
 	Device    func(path string) (uint64, error)
-	PortFree  func(port int) bool
+	// PortFree returns nil if free, EADDRINUSE if taken, another error if it cannot tell.
+	PortFree func(port int) error
 	// SelfGet fetches a URL (off mode: can the server reach its own ODK host?).
 	SelfGet func(url string) error
 	// Installed is true once runtime.env exists; our own stack then holds the ports.
@@ -45,19 +48,26 @@ func HostEnv(installed bool) Env {
 			return exec.Command("docker", "compose", "version").Run()
 		},
 		Device: func(p string) (uint64, error) {
-			var st syscall.Stat_t
-			if err := syscall.Stat(p, &st); err != nil {
-				return 0, err
+			// Paths that do not exist yet (pre-install) take their nearest ancestor's device.
+			for {
+				var st syscall.Stat_t
+				err := syscall.Stat(p, &st)
+				if err == nil {
+					return uint64(st.Dev), nil //nolint:unconvert // Dev width differs per arch
+				}
+				parent := filepath.Dir(p)
+				if !errors.Is(err, syscall.ENOENT) || parent == p {
+					return 0, err
+				}
+				p = parent
 			}
-			return uint64(st.Dev), nil //nolint:unconvert // Dev width differs per arch
 		},
-		PortFree: func(port int) bool {
+		PortFree: func(port int) error {
 			l, err := net.Listen("tcp", net.JoinHostPort("", strconv.Itoa(port)))
 			if err != nil {
-				return false
+				return err
 			}
-			l.Close()
-			return true
+			return l.Close()
 		},
 		SelfGet: func(u string) error {
 			resp, err := (&http.Client{Timeout: 5 * time.Second}).Get(u)
@@ -110,8 +120,12 @@ func Run(cfg *config.Config, cfgErrs []error, env Env) []Finding {
 			ports = append(ports, cfg.HTTPSPort)
 		}
 		for _, p := range ports {
-			if !env.PortFree(p) {
+			switch err := env.PortFree(p); {
+			case err == nil:
+			case errors.Is(err, syscall.EADDRINUSE):
 				add(Warn, "port %d is already in use by another process", p)
+			default:
+				add(Warn, "cannot check whether port %d is free (%v; binding low ports may need root)", p, err)
 			}
 		}
 	}

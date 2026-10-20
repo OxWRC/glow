@@ -100,8 +100,12 @@ func Run(ctx context.Context, o Options) ([]Check, error) {
 	if get == nil {
 		get = install.ProxyGet
 	}
+	scheme := "https://"
+	if o.Cfg.TLSMode == "off" {
+		scheme = "http://"
+	}
 	for _, t := range install.Targets(o.Cfg) {
-		c := Check{Name: "https://" + t[0] + t[1]}
+		c := Check{Name: scheme + t[0] + t[1]}
 		code, err := get(ctx, o.Cfg, t[0], t[1])
 		switch {
 		case err != nil:

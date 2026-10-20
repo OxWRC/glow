@@ -54,11 +54,16 @@ func Run(ctx context.Context, r compose.Runner, args []string, out io.Writer) er
 	} else if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
 	}
+	for _, sc := range schools {
+		if strings.HasPrefix(sc, "-") || strings.Contains(sc, ",") || strings.TrimSpace(sc) == "" {
+			return fmt.Errorf("invalid school name %q (must not be empty, start with '-' or contain ',')", sc)
+		}
+	}
 	if sub == "list" {
 		if email != "" {
 			return fmt.Errorf("users list takes no arguments")
 		}
-	} else if !emailRe.MatchString(email) {
+	} else if strings.HasPrefix(email, "-") || !emailRe.MatchString(email) {
 		return fmt.Errorf("%q is not a valid email address", email)
 	}
 

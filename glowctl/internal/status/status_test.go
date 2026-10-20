@@ -75,3 +75,10 @@ func TestRunProxyDownAndComposeError(t *testing.T) {
 		t.Fatal("no services must not be OK")
 	}
 }
+
+func TestOffModeUsesHTTP(t *testing.T) {
+	cs, _ := Run(context.Background(), Options{Cfg: &config.Config{Domain: "d.org", TLSMode: "off"}, Runner: fake{out: nd}, Get: get(200, nil)})
+	if find(cs, "http://d.org/en/login") == nil || find(cs, "https://d.org/en/login") != nil {
+		t.Fatalf("%+v", cs)
+	}
+}
