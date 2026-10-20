@@ -80,4 +80,11 @@ dc exec -T backup sh -c 'touch /state/x 2>/dev/null' && fail "/state is writable
 dc exec -T backup sh -c 'test ! -e /tmp/glow-dumps && grep -q " /tmp tmpfs" /proc/mounts' || fail "/tmp not tmpfs or dumps left behind"
 # I4: prune is reported separately and a backup records it.
 status | jq -e 'has("last_prune_ok")' >/dev/null || fail "no prune status"
+# Status write failure must fail the run loudly, not log ok.
+if GLOW_TEST_RO_DIR=$GLOW_STATE_DIR/backup-status dc -f backup/test/ro-status.yml run --rm --no-deps -T backup glow-backup.sh backup 2>"$T/err"; then
+  fail "backup exited 0 though the status file was unwritable"
+fi
+grep -q "status file" "$T/err" || fail "status write failure not logged: $(cat "$T/err")"
+# Bounded tmpfs, restic cache off tmpfs.
+dc exec -T backup sh -c 'grep " /tmp tmpfs" /proc/mounts | grep -q size=2097152k && ! echo "$RESTIC_CACHE_DIR" | grep -q ^/tmp' || fail "/tmp tmpfs unbounded or cache on tmpfs"
 echo "backup/test: OK"

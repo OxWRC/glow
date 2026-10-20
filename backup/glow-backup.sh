@@ -22,7 +22,8 @@ STATUS=$STATUS_DIR/backup-status.json
 DUMPS=/tmp/glow-dumps
 VERIFY=/tmp/glow-verify
 export RESTIC_REPOSITORY=${RESTIC_REPOSITORY:-/backup}
-export RESTIC_CACHE_DIR=/tmp/restic-cache
+# Encrypted repo metadata only, so it may live on disk (a volume), not tmpfs.
+export RESTIC_CACHE_DIR=${RESTIC_CACHE_DIR:-/cache}
 
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 cleanup() { rm -rf "$DUMPS" "$VERIFY"; }
@@ -36,14 +37,13 @@ write_status() {
 	if [ -s "$STATUS" ] && jq -e 'type == "object"' "$STATUS" >/dev/null 2>&1; then
 		cur=$(cat "$STATUS")
 	fi
-	tmp=$(mktemp "$STATUS_DIR/.backup-status.XXXXXX")
+	tmp=$(mktemp "$STATUS_DIR/.backup-status.XXXXXX") || return 1
 	echo "$cur" | jq -S '{last_backup_at:"",last_backup_ok:false,last_backup_error:"",
 		last_verify_at:"",last_verify_ok:false,last_verify_error:"",
 		last_prune_at:"",last_prune_ok:false,last_prune_error:""} + .
 		| . + ($ARGS.named | with_entries(.value |= (if . == "true" then true elif . == "false" then false else . end)))' \
 		"$@" >"$tmp" || { rm -f "$tmp"; return 1; }
-	chmod 0644 "$tmp"
-	mv "$tmp" "$STATUS"
+	chmod 0644 "$tmp" && mv "$tmp" "$STATUS" || { rm -f "$tmp"; return 1; }
 }
 
 record() { # record backup|verify|prune ok|fail [error]
@@ -101,12 +101,18 @@ run_step() {
 		set -e
 		cleanup
 		if [ "$rc" -eq 0 ]; then
-			record "$kind" ok
-			echo "$(now) $kind ok"
+			# run_step runs in an || context (set -e off): check explicitly.
+			if record "$kind" ok; then
+				echo "$(now) $kind ok"
+			else
+				echo "$(now) $kind succeeded but the status file could not be written" >&2
+				rc=1
+			fi
 		else
 			err=$(tail -n 5 "$log" | tr '\n' ' ' | cut -c1-500)
 			cat "$log" >&2
-			record "$kind" fail "${err:-$kind failed (exit $rc)}" || true
+			record "$kind" fail "${err:-$kind failed (exit $rc)}" ||
+				echo "$(now) could not record the $kind failure in the status file" >&2
 			echo "$(now) $kind FAILED" >&2
 		fi
 		rm -f "$log"

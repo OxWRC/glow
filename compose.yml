@@ -108,12 +108,16 @@ services:
       context: ./backup
       dockerfile: Dockerfile
     init: true
+    # tmpfs counts against memory: it is bounded so an oversized dump fails as a
+    # recorded backup error, not an OOM kill. Raise it with GLOW_BACKUP_TMPFS_SIZE
+    # (a compose-level override only; not a glow.env key).
     tmpfs:
-      - /tmp
+      - /tmp:size=${GLOW_BACKUP_TMPFS_SIZE:-2g},mode=1777
     environment:
       GLOW_BACKUP_FIRST_DELAY: ${GLOW_BACKUP_FIRST_DELAY:-300}
       GLOW_BACKUP_INTERVAL: ${GLOW_BACKUP_INTERVAL:-3600}
       RESTIC_REPOSITORY: /backup
+      RESTIC_CACHE_DIR: /cache
       RESTIC_PASSWORD: ${GLOW_BACKUP_KEY:-}
       POSTGRES_HOST: api-db
       POSTGRES_DB: ${POSTGRES_DB:-glow}
@@ -124,6 +128,7 @@ services:
       ODK_POSTGRES_USER: ${ODK_POSTGRES_USER:-odk}
       ODK_POSTGRES_PASSWORD: ${ODK_POSTGRES_PASSWORD:-odk}
     volumes:
+      - backup_cache:/cache
       - ${GLOW_BACKUP_PATH:-${GLOW_STATE_DIR:-./docker-mount-data}/backups}:/backup
       - ${GLOW_STATE_DIR:-./docker-mount-data}:/state:ro
       - ${GLOW_STATE_DIR:-./docker-mount-data}/backup-status:/state/backup-status
@@ -411,6 +416,9 @@ services:
       start_period: 300s
       start_interval: 5s
     restart: unless-stopped
+
+volumes:
+  backup_cache:
 
 networks:
   public:

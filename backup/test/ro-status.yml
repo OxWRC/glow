@@ -1,0 +1,8 @@
+# Test overlay: status dir mounted read-only (status file cannot be written).
+services:
+  backup:
+    volumes:
+      - type: bind
+        source: ${GLOW_TEST_RO_DIR}
+        target: /state/backup-status
+        read_only: true
