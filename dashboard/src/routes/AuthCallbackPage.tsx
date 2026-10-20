@@ -5,7 +5,7 @@ import { useAuth } from "../auth/AuthContext";
 import { createI18n, availableLocales, type Locale } from "../lib/i18n";
 
 export function AuthCallbackPage() {
-  // Outside /:locale (Cognito needs one fixed callback URL); LoginPage
+  // Outside /:locale (the provider needs one fixed callback URL); LoginPage
   // stashes the locale in sessionStorage before redirecting.
   const [locale] = useState<Locale>(() => {
     const stored = sessionStorage.getItem("oauth_locale");
@@ -31,7 +31,7 @@ export function AuthCallbackPage() {
 
     async function run() {
       // Verify state before anything else, including the error branch below -
-      // Cognito echoes state back on both success and error redirects.
+      // The provider echoes state back on both success and error redirects.
       const returnedState = searchParams.get("state");
       const expectedState = sessionStorage.getItem("oauth_state");
       sessionStorage.removeItem("oauth_state");
@@ -60,7 +60,13 @@ export function AuthCallbackPage() {
         const tokens = await exchangeCodeForToken(code, redirectUri, verifier);
         const identity = await me(tokens.id_token);
         if (identity.kind !== "authenticated") {
-          setError(i18n.t("login.loginFailed"));
+          setError(
+            i18n.t(
+              identity.kind === "no_access"
+                ? "login.noAccess"
+                : "login.loginFailed",
+            ),
+          );
           return;
         }
         setIdentity(identity, tokens.id_token);

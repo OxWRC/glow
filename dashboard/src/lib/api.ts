@@ -1,19 +1,18 @@
-// API base and Cognito config now come from runtime env (see runtimeConfig.ts),
+// API base and OIDC config come from runtime env (see runtimeConfig.ts),
 // injected via window.__ENV__ or Vite's import.meta.env fallback.
 import { getRuntimeConfig } from "../runtimeConfig";
+import { getOidcEndpoints } from "./oidc";
 
 const config = getRuntimeConfig();
 const API_BASE = config.apiBase;
 
-// Cognito hosted-UI config (see compose.yml's dashboard.environment).
-// COGNITO_DOMAIN is a bare host (no scheme), e.g.
-// "<prefix>.auth.<region>.amazoncognito.com" - see
-// deploy/aws/terraform/outputs.tf's cognito_hosted_ui_domain.
-export const COGNITO_DOMAIN = config.cognitoDomain;
-export const COGNITO_CLIENT_ID = config.cognitoClientId;
+// OIDC provider config (see compose.yml's dashboard.environment). Endpoints
+// are discovered from the issuer; see oidc.ts.
+export const OIDC_ISSUER = config.oidcIssuer;
+export const OIDC_CLIENT_ID = config.oidcClientId;
 
 // Demo mode (local dev and demo deployments): shows the role-picker login
-// instead of redirecting to Cognito's hosted UI. Mirrors the api service's
+// instead of redirecting to the OIDC provider. Mirrors the api service's
 // GLOW_DEMO_MODE.
 export const DEMO_MODE = config.demoMode;
 
@@ -225,7 +224,7 @@ export interface UserUpdate {
 
 /**
  * Demo-mode login (only reachable when the API has GLOW_DEMO_MODE on).
- * Mints a local HS256 token for the given role without a real Cognito pool.
+ * Mints a local HS256 token for the given role without a real OIDC provider.
  */
 export async function demoLogin(
   role: "admin" | "school",
@@ -260,14 +259,12 @@ export async function demoReset(): Promise<void> {
 }
 
 /**
- * Token response from Cognito's own /oauth2/token endpoint (not our API -
- * apiFetch/API_BASE don't apply here). Note the API's Cognito token
- * verifier (glow_api.auth._CognitoVerifier) checks the `aud` claim and reads
- * `cognito:username`/`email` - all ID-token claims, absent from an access
- * token - so callers must send `id_token` as the bearer token to our API,
- * not `access_token`.
+ * Token response from the OIDC provider's token_endpoint (not our API -
+ * apiFetch/API_BASE don't apply here). The API verifies the ID token (`aud`,
+ * `email` and friends are ID-token claims), so callers must send `id_token`
+ * as the bearer token to our API, not `access_token`.
  */
-export interface CognitoTokens {
+export interface OidcTokens {
   id_token: string;
   access_token: string;
   token_type: string;
@@ -278,15 +275,16 @@ export async function exchangeCodeForToken(
   code: string,
   redirectUri: string,
   codeVerifier: string,
-): Promise<CognitoTokens> {
+): Promise<OidcTokens> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: COGNITO_CLIENT_ID,
+    client_id: OIDC_CLIENT_ID,
     code,
     redirect_uri: redirectUri,
     code_verifier: codeVerifier,
   });
-  const res = await fetch(`https://${COGNITO_DOMAIN}/oauth2/token`, {
+  const { token_endpoint } = await getOidcEndpoints(OIDC_ISSUER);
+  const res = await fetch(token_endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
@@ -308,7 +306,7 @@ export async function exchangeCodeForToken(
       detail,
     );
   }
-  return res.json() as Promise<CognitoTokens>;
+  return res.json() as Promise<OidcTokens>;
 }
 
 export async function getMe(token: string): Promise<User> {
@@ -334,7 +332,12 @@ export interface MeAuthenticated {
   schools: SchoolSummary[];
 }
 
-export type MeResponse = MeAnonymous | MeAuthenticated;
+/** Valid token, but the person is not a pre-registered GLOW user. */
+export interface MeNoAccess {
+  kind: "no_access";
+}
+
+export type MeResponse = MeAnonymous | MeAuthenticated | MeNoAccess;
 
 /**
  * Get current user identity (works for both anonymous and authenticated users).
@@ -345,6 +348,13 @@ export async function me(token?: string): Promise<MeResponse> {
   try {
     return await apiFetch<MeResponse>("/me", options);
   } catch (error) {
+    if (
+      error instanceof ApiError &&
+      error.status === 403 &&
+      error.detail === "no_access"
+    ) {
+      return { kind: "no_access" };
+    }
     // If authentication fails, return anonymous
     if (
       error instanceof ApiError &&

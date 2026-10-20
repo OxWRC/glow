@@ -544,6 +544,8 @@ export const en = {
     schoolIdLabel: "School ID (optional)",
     schoolIdPlaceholder: "Leave blank for the first school",
     backToLogin: "Back to sign in",
+    noAccess:
+      "Your account is not registered for GLOW. Contact an administrator to request access.",
   },
   demo: {
     label: "Demo deployment",

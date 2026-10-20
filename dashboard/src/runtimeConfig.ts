@@ -2,8 +2,8 @@
 
 export interface RuntimeConfig {
   apiBase: string;
-  cognitoDomain: string;
-  cognitoClientId: string;
+  oidcIssuer: string;
+  oidcClientId: string;
   demoMode: boolean;
 }
 
@@ -41,13 +41,13 @@ export function getRuntimeConfig(): RuntimeConfig {
       injected.PUBLIC_API_BASE ??
       import.meta.env.VITE_PUBLIC_API_BASE ??
       "/api",
-    cognitoDomain:
-      injected.PUBLIC_COGNITO_DOMAIN ??
-      import.meta.env.VITE_PUBLIC_COGNITO_DOMAIN ??
+    oidcIssuer:
+      injected.PUBLIC_OIDC_ISSUER ??
+      import.meta.env.VITE_PUBLIC_OIDC_ISSUER ??
       "",
-    cognitoClientId:
-      injected.PUBLIC_COGNITO_CLIENT_ID ??
-      import.meta.env.VITE_PUBLIC_COGNITO_CLIENT_ID ??
+    oidcClientId:
+      injected.PUBLIC_OIDC_CLIENT_ID ??
+      import.meta.env.VITE_PUBLIC_OIDC_CLIENT_ID ??
       "",
     demoMode:
       (injected.PUBLIC_DEMO_MODE ??

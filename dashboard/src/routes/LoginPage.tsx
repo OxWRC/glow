@@ -5,9 +5,10 @@ import {
   me,
   ApiError,
   DEMO_MODE,
-  COGNITO_DOMAIN,
-  COGNITO_CLIENT_ID,
+  OIDC_ISSUER,
+  OIDC_CLIENT_ID,
 } from "../lib/api";
+import { getOidcEndpoints } from "../lib/oidc";
 import { useAuth } from "../auth/AuthContext";
 import { createI18n, availableLocales, type Locale } from "../lib/i18n";
 
@@ -53,22 +54,23 @@ export function LoginPage() {
     if (ranRef.current) return;
     ranRef.current = true;
 
-    async function redirectToCognito() {
-      if (!COGNITO_DOMAIN || !COGNITO_CLIENT_ID) {
+    async function redirectToProvider() {
+      if (!OIDC_ISSUER || !OIDC_CLIENT_ID) {
         setError(i18n.t("login.configError"));
         return;
       }
+      const { authorization_endpoint } = await getOidcEndpoints(OIDC_ISSUER);
       const verifier = randomToken();
       sessionStorage.setItem("pkce_code_verifier", verifier);
       const state = randomToken();
       sessionStorage.setItem("oauth_state", state);
-      // Cognito matches redirect_uri exactly, so the callback URL is
+      // The provider matches redirect_uri exactly, so the callback URL is
       // locale-free and the locale rides across the redirect here instead.
       sessionStorage.setItem("oauth_locale", locale);
       const challenge = await generateCodeChallenge(verifier);
       const redirectUri = `${window.location.origin}/auth/callback`;
       const params = new URLSearchParams({
-        client_id: COGNITO_CLIENT_ID,
+        client_id: OIDC_CLIENT_ID,
         response_type: "code",
         scope: "openid email profile",
         redirect_uri: redirectUri,
@@ -76,11 +78,11 @@ export function LoginPage() {
         code_challenge_method: "S256",
         state,
       });
-      window.location.href = `https://${COGNITO_DOMAIN}/oauth2/authorize?${params.toString()}`;
+      window.location.href = `${authorization_endpoint}?${params.toString()}`;
     }
 
     if (!DEMO_MODE) {
-      redirectToCognito().catch((e: unknown) => {
+      redirectToProvider().catch((e: unknown) => {
         setError(e instanceof Error ? e.message : i18n.t("login.loginFailed"));
       });
     }

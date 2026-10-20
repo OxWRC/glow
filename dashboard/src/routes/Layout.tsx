@@ -10,10 +10,11 @@ import { useAuth, useIsAdmin, useIsAuthenticated } from "../auth/AuthContext";
 import {
   checkHealth,
   me,
-  COGNITO_DOMAIN,
-  COGNITO_CLIENT_ID,
+  OIDC_ISSUER,
+  OIDC_CLIENT_ID,
   DEMO_MODE,
 } from "../lib/api";
+import { getOidcEndpoints } from "../lib/oidc";
 import { DemoBanner } from "../lib/components/DemoBanner";
 import { availableLocales, createI18n, type Locale } from "../lib/i18n";
 
@@ -65,26 +66,31 @@ export function Layout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function logout() {
+  async function logout() {
     clearAuth();
 
-    // Demo mode has no real Cognito session to end. With a real pool,
-    // navigating straight to /login isn't a real sign-out: Cognito's own
-    // hosted-UI SSO cookie survives, so the redirect-to-authorize that
-    // /login's onMount does immediately re-authenticates the same user
-    // without ever showing a login screen. Hit Cognito's hosted /logout
-    // first (its logout_urls already allow /{locale}/login - see
-    // deploy/aws/terraform/cognito.tf) so the next login actually prompts.
-    if (DEMO_MODE || !COGNITO_DOMAIN || !COGNITO_CLIENT_ID) {
-      navigate(`/${locale}/login`);
-      return;
+    // Demo mode has no real provider session to end. With a real provider,
+    // navigating straight to /login isn't a real sign-out: the provider's SSO
+    // session survives, so the redirect-to-authorize that /login does
+    // immediately re-authenticates the same user without showing a login
+    // screen. Use the provider's end_session_endpoint (when it has one) so
+    // the next login actually prompts.
+    if (!DEMO_MODE && OIDC_ISSUER && OIDC_CLIENT_ID) {
+      try {
+        const { end_session_endpoint } = await getOidcEndpoints(OIDC_ISSUER);
+        if (end_session_endpoint) {
+          const params = new URLSearchParams({
+            client_id: OIDC_CLIENT_ID,
+            post_logout_redirect_uri: `${window.location.origin}/${locale}/login`,
+          });
+          window.location.href = `${end_session_endpoint}?${params.toString()}`;
+          return;
+        }
+      } catch {
+        // Discovery failed: fall through to a local-only sign-out.
+      }
     }
-    const logoutUri = `${window.location.origin}/${locale}/login`;
-    const params = new URLSearchParams({
-      client_id: COGNITO_CLIENT_ID,
-      logout_uri: logoutUri,
-    });
-    window.location.href = `https://${COGNITO_DOMAIN}/logout?${params.toString()}`;
+    navigate(`/${locale}/login`);
   }
 
   // Any path whose first segment isn't a known locale (e.g. /admin, matched

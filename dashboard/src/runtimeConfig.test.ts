@@ -11,14 +11,14 @@ describe("getRuntimeConfig", () => {
   it("reads values from window.__ENV__ when present", () => {
     window.__ENV__ = {
       PUBLIC_API_BASE: "https://api.example.com",
-      PUBLIC_COGNITO_DOMAIN: "example.auth.us-east-1.amazoncognito.com",
-      PUBLIC_COGNITO_CLIENT_ID: "client123",
+      PUBLIC_OIDC_ISSUER: "https://idp.example.com",
+      PUBLIC_OIDC_CLIENT_ID: "client123",
       PUBLIC_DEMO_MODE: "false",
     };
     expect(getRuntimeConfig()).toEqual({
       apiBase: "https://api.example.com",
-      cognitoDomain: "example.auth.us-east-1.amazoncognito.com",
-      cognitoClientId: "client123",
+      oidcIssuer: "https://idp.example.com",
+      oidcClientId: "client123",
       demoMode: false,
     });
   });

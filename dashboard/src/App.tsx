@@ -13,7 +13,7 @@ import { AdminPage } from "./routes/AdminPage";
 
 const router = createBrowserRouter([
   { path: "/", element: <Navigate to="/en" replace /> },
-  // Locale-free: must match cognito.tf's single callback URL exactly.
+  // Locale-free: the OIDC provider needs one fixed callback URL.
   { path: "/auth/callback", element: <AuthCallbackPage /> },
   {
     path: "/:locale",

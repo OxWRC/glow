@@ -1,8 +1,8 @@
-// Cognito matches redirect_uri exactly, so login and callback must both use
-// the one locale-free /auth/callback URL registered in cognito.tf, with the
-// locale carried across the redirect in sessionStorage.
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+// OIDC providers match redirect_uri exactly, so login and callback must both
+// use the one locale-free /auth/callback URL, with the locale carried across
+// the redirect in sessionStorage.
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
 import { LoginPage } from "./LoginPage";
@@ -14,13 +14,20 @@ const { exchangeCodeForToken, me } = vi.hoisted(() => ({
 }));
 
 vi.mock("../lib/api", () => ({
-  COGNITO_DOMAIN: "auth.example.test",
-  COGNITO_CLIENT_ID: "client-123",
+  OIDC_ISSUER: "https://idp.example.test",
+  OIDC_CLIENT_ID: "client-123",
   DEMO_MODE: false,
   ApiError: class extends Error {},
   demoLogin: vi.fn(),
   exchangeCodeForToken,
   me,
+}));
+
+vi.mock("../lib/oidc", () => ({
+  getOidcEndpoints: vi.fn().mockResolvedValue({
+    authorization_endpoint: "https://idp.example.test/authorize",
+    token_endpoint: "https://idp.example.test/token",
+  }),
 }));
 
 function renderAt(path: string) {
@@ -39,7 +46,9 @@ function renderAt(path: string) {
   );
 }
 
-describe("Cognito redirect_uri", () => {
+afterEach(cleanup);
+
+describe("OIDC redirect_uri", () => {
   beforeEach(() => {
     sessionStorage.clear();
     localStorage.clear();
@@ -59,6 +68,10 @@ describe("Cognito redirect_uri", () => {
 
     await waitFor(() => expect(assigned.href).not.toBe(""));
     const url = new URL(assigned.href);
+    expect(url.origin + url.pathname).toBe(
+      "https://idp.example.test/authorize",
+    );
+    expect(url.searchParams.get("scope")).toBe("openid email profile");
     expect(url.searchParams.get("redirect_uri")).toBe(
       "https://glow.test/auth/callback",
     );
@@ -98,5 +111,21 @@ describe("Cognito redirect_uri", () => {
 
     const back = await screen.findByRole("link", { name: "Back to sign in" });
     expect(back.getAttribute("href")).toBe("/en/login");
+  });
+
+  it("shows the no-access message when the person is not registered", async () => {
+    sessionStorage.setItem("oauth_state", "s1");
+    sessionStorage.setItem("pkce_code_verifier", "v1");
+    exchangeCodeForToken.mockResolvedValue({ id_token: "tok" });
+    me.mockResolvedValue({ kind: "no_access" });
+
+    renderAt("/auth/callback?code=c1&state=s1");
+
+    expect(await screen.findByText(/not registered for GLOW/i)).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Back to sign in" })
+        .getAttribute("href"),
+    ).toBe("/en/login");
   });
 });

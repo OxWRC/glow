@@ -99,11 +99,10 @@ services:
       PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
       # Passthrough only - no `:-` default, same reasoning as the api
       # service's GLOW_OIDC_* vars above: there is no working default
-      # client/domain, so an empty-string default would just
+      # client/issuer, so an empty-string default would just
       # silently swallow Compose's own "variable is not set" warning.
-      PUBLIC_COGNITO_CLIENT_ID: ${PUBLIC_COGNITO_CLIENT_ID}
-      PUBLIC_COGNITO_DOMAIN: ${PUBLIC_COGNITO_DOMAIN}
-      PUBLIC_COGNITO_REGION: ${PUBLIC_COGNITO_REGION}
+      PUBLIC_OIDC_ISSUER: ${GLOW_OIDC_ISSUER}
+      PUBLIC_OIDC_CLIENT_ID: ${GLOW_OIDC_CLIENT_ID}
     depends_on:
       api:
         condition: service_healthy
