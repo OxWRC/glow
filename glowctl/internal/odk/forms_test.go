@@ -45,6 +45,7 @@ func (f *formODK) server() *httptest.Server {
 			id := between(body, `<data id="`)
 			if id == f.failID {
 				w.WriteHeader(500)
+				fmt.Fprint(w, `{"message":"boom from odk"}`)
 				return
 			}
 			if _, ok := f.published[id]; ok {
@@ -69,6 +70,7 @@ func (f *formODK) server() *httptest.Server {
 			}
 			id := strings.TrimSuffix(strings.TrimPrefix(p, "/v1/projects/1/forms/"), "/draft/publish")
 			f.published[id] = between(f.bodies["/v1/projects/1/forms/"+id+"/draft"], `" version="`)
+		case r.Method == "DELETE" && strings.HasSuffix(p, "/draft"):
 		default:
 			w.WriteHeader(404)
 		}
@@ -176,13 +178,16 @@ func TestSyncFormsPublish409IsUnchanged(t *testing.T) {
 	if _, err := SyncForms(context.Background(), c, "TOK", 1, dir, st); err != nil {
 		t.Fatal(err)
 	}
+	if got := f.reqs[len(f.reqs)-1]; got != "DELETE /v1/projects/1/forms/a/draft?" {
+		t.Fatalf("orphan draft not deleted: %v", f.reqs)
+	}
 	if b, _ := os.ReadFile(st); !strings.Contains(string(b), `"a"`) {
 		t.Fatalf("state=%s", b)
 	}
 }
 
-func TestSyncFormsSameIDLaterWinsAndPartialState(t *testing.T) {
-	f := &formODK{published: map[string]string{}, failID: "z"}
+func TestSyncFormsSameIDDedupedAndIdempotent(t *testing.T) {
+	f := &formODK{published: map[string]string{}}
 	srv := f.server()
 	defer srv.Close()
 	c := NewClientForBase(srv.URL, "odk.x")
@@ -190,16 +195,49 @@ func TestSyncFormsSameIDLaterWinsAndPartialState(t *testing.T) {
 		"b_v1.xml": formXML("b", "1"), "b_v2.xml": formXML("b", "2"), "z.xml": formXML("z", "1"),
 	})
 	up, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
-	if err == nil {
-		t.Fatal("want error for z")
+	if err != nil || !reflect.DeepEqual(up, []string{"b", "z"}) {
+		t.Fatalf("up=%v err=%v", up, err)
 	}
-	if !reflect.DeepEqual(up, []string{"b", "b"}) || f.published["b"] != "2" {
-		t.Fatalf("up=%v pub=%v", up, f.published)
+	if f.published["b"] != "2" {
+		t.Fatalf("pub=%v", f.published)
 	}
 	b, _ := os.ReadFile(st)
 	want := fmt.Sprintf(`"hash": "%s"`, hashForm([]byte(formXML("b", "2"))))
-	if !strings.Contains(string(b), want) || strings.Contains(string(b), `"z"`) {
+	if !strings.Contains(string(b), want) {
 		t.Fatalf("state=%s", b)
+	}
+	f.reqs = nil
+	up, err = SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	if err != nil || len(up) != 0 || len(f.reqs) != 0 {
+		t.Fatalf("rerun up=%v err=%v reqs=%v", up, err, f.reqs)
+	}
+}
+
+func TestSyncFormsPartialStateAndErrorBody(t *testing.T) {
+	f := &formODK{published: map[string]string{}, failID: "z"}
+	srv := f.server()
+	defer srv.Close()
+	c := NewClientForBase(srv.URL, "odk.x")
+	dir, st := writeForms(t, map[string]string{"a.xml": formXML("a", "1"), "z.xml": formXML("z", "1")})
+	_, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	if err == nil || !strings.Contains(err.Error(), "boom from odk") || strings.Contains(err.Error(), "TOK") {
+		t.Fatalf("err=%v", err)
+	}
+	b, _ := os.ReadFile(st)
+	if !strings.Contains(string(b), `"a"`) || strings.Contains(string(b), `"z"`) {
+		t.Fatalf("state=%s", b)
+	}
+}
+
+func TestSyncFormsMissingVersion(t *testing.T) {
+	f := &formODK{published: map[string]string{}}
+	srv := f.server()
+	defer srv.Close()
+	c := NewClientForBase(srv.URL, "odk.x")
+	dir, st := writeForms(t, map[string]string{"n.xml": strings.Replace(formXML("n", "1"), ` version="1"`, "", 1)})
+	_, err := SyncForms(context.Background(), c, "TOK", 1, dir, st)
+	if err == nil || !strings.Contains(err.Error(), "n.xml") || !strings.Contains(err.Error(), "no version attribute") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
