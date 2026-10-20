@@ -1,6 +1,6 @@
 # Production-like core stack.
-# Glow services always run. ODK Central is available behind the `odk` profile so
-# local development and CI can opt in without paying its startup cost by default.
+# Glow and ODK Central services all run by default; Caddy `proxy` is the only
+# published service in production.
 
 x-logging: &default-logging
   driver: json-file
@@ -180,6 +180,7 @@ services:
   secrets:
     logging: *default-logging
     image: busybox:1.36
+    network_mode: none
     command:
       - /bin/sh
       - -ceu

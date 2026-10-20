@@ -1,6 +1,6 @@
 # Demo-deployment overlay for compose.yml, applied by
 # the deployment tooling when GLOW_DEMO_MODE=true:
-#   docker compose --profile odk -f compose.yml -f compose.demo.yml ...
+#   docker compose -f compose.yml -f compose.demo.yml ...
 # Production-shaped otherwise: no bind mounts, no dev build targets except the
 # pre-seeded ODK Postgres. Fictional data only.
 

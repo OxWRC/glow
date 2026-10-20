@@ -8,7 +8,9 @@ x-logging: &default-logging
 
 services:
   # Dev publishes service ports directly and skips the proxy; run it with
-  # `docker compose --profile proxy up` to try the production routing.
+  # `docker compose --profile proxy up` to put Caddy in front of dashboard/api
+  # only; ODK stays direct because dev nginx uses SSL_TYPE=selfsign, so routing
+  # odk.* through Caddy would loop.
   proxy:
     profiles: [proxy]
 

@@ -1,6 +1,6 @@
 # ODK Central In This Repo
 
-This directory contains the local support files for the optional `odk` Docker Compose profile.
+This directory contains the local support files for the ODK Central services in the Docker Compose stack.
 
 We run ODK Central to handle the raw data collection and storage in a secure and interoperable way.
 The ODK Central data is then syndicated through GLOW's API.
@@ -9,7 +9,7 @@ The ODK Central data is then syndicated through GLOW's API.
 
 ODK Central is a multi-service application upstream, not a single image.
 
-In `compose.yml`, the `odk` profile includes:
+In `compose.yml`, ODK Central includes:
 
 - `nginx`
   - public entrypoint for Central
@@ -189,5 +189,7 @@ Upstream Central ships with a default Sentry project and sends backend error rep
 - `scripts/smoke_compose.sh` asserts both, so an upstream template bump that reintroduces the DSN fails CI.
 
 - Central's analytics report and mailing-list opt-in (both POST to `data.getodk.cloud`; analytics runs from a daily cron once an admin enables it in the UI) are disabled by `odk-central/local-glow.json`. `NODE_CONFIG_ENV=glow` makes node-config merge it over `default.json` after the generated `local.json` (which `start-odk.sh` rewrites on every boot, so it cannot be mounted over). Blank URL/formId/version make Central use its "not configured" no-op reporter, so a submit is rejected rather than sent.
+
+Note: ODK's frontend embeds a news iframe from `https://getodk.github.io/central/` in the admin's browser. The server sends no deployment data there; this is left as-is.
 
 Operators who really want error reporting can set `ODK_SENTRY_*` in their environment.
