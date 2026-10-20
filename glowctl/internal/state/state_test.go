@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oxwrc/glow/glowctl/internal/config"
 )
@@ -34,9 +35,12 @@ func mode(t *testing.T, p string) os.FileMode {
 
 func TestSecretsCreatedOnceHex0600(t *testing.T) {
 	dir := t.TempDir()
-	s1, err := EnsureSecrets(dir)
+	s1, created, err := EnsureSecrets(dir)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(created) != 6 {
+		t.Fatalf("created %v", created)
 	}
 	p := filepath.Join(dir, "secrets.env")
 	if mode(t, p) != 0o600 {
@@ -44,7 +48,7 @@ func TestSecretsCreatedOnceHex0600(t *testing.T) {
 	}
 	hex64 := regexp.MustCompile(`^[0-9a-f]{64}$`)
 	m := parseEnv(t, p)
-	if len(m) != 5 {
+	if len(m) != 6 {
 		t.Fatalf("keys: %d", len(m))
 	}
 	seen := map[string]bool{}
@@ -54,8 +58,8 @@ func TestSecretsCreatedOnceHex0600(t *testing.T) {
 		}
 		seen[v] = true
 	}
-	s2, err := EnsureSecrets(dir)
-	if err != nil || s1 != s2 {
+	s2, created, err := EnsureSecrets(dir)
+	if err != nil || s1 != s2 || len(created) != 0 {
 		t.Fatalf("rotated or failed: %v", err)
 	}
 }
@@ -63,8 +67,70 @@ func TestSecretsCreatedOnceHex0600(t *testing.T) {
 func TestSecretsMissingKeyErrors(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "secrets.env"), []byte("GLOW_SECRET_KEY=abc\n"), 0o600)
-	if _, err := EnsureSecrets(dir); err == nil || strings.Contains(err.Error(), "abc") {
+	if _, _, err := EnsureSecrets(dir); err == nil || strings.Contains(err.Error(), "abc") {
 		t.Fatalf("want error without secret: %v", err)
+	}
+}
+
+// A secrets.env from before GLOW_BACKUP_KEY existed gains the key once,
+// keeping every existing line byte-for-byte.
+func TestSecretsLaterAdditionAppendedOnce(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "secrets.env")
+	old := "GLOW_SECRET_KEY=a\nPOSTGRES_PASSWORD=b\nODK_POSTGRES_PASSWORD=c\nODK_ADMIN_PASSWORD=d\nODK_API_PASSWORD=e\n"
+	os.WriteFile(p, []byte(old), 0o600)
+	s, created, err := EnsureSecrets(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created) != 1 || created[0] != "GLOW_BACKUP_KEY" || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(s.BackupKey) {
+		t.Fatalf("created=%v key=%q", created, s.BackupKey)
+	}
+	b, _ := os.ReadFile(p)
+	if string(b) != old+"GLOW_BACKUP_KEY="+s.BackupKey+"\n" || mode(t, p) != 0o600 {
+		t.Fatalf("file %q mode %v", b, mode(t, p))
+	}
+	if s.SecretKey != "a" || s.ODKAPIPassword != "e" {
+		t.Fatalf("%+v", s)
+	}
+	s2, created, err := EnsureSecrets(dir)
+	if err != nil || len(created) != 0 || s2 != s {
+		t.Fatalf("regenerated: %v %v", created, err)
+	}
+	// A file without a trailing newline still gets a well-formed line.
+	os.WriteFile(p, []byte(strings.TrimSuffix(old, "\n")), 0o600)
+	s3, _, err := EnsureSecrets(dir)
+	if err != nil || s3.ODKAPIPassword != "e" {
+		t.Fatalf("%v %+v", err, s3)
+	}
+	if m := parseEnv(t, p); m["ODK_API_PASSWORD"] != "e" || m["GLOW_BACKUP_KEY"] != s3.BackupKey {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestDeployment(t *testing.T) {
+	st, rel := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(rel, "VERSION"), []byte("v0.9.0\n"), 0o644)
+	if _, err := ReadDeployment(st); err == nil {
+		t.Fatal("want error when absent")
+	}
+	if v := RunningVersion(st, rel); v != "v0.9.0" {
+		t.Fatalf("fallback %q", v)
+	}
+	at := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	if err := WriteDeployment(st, Deployment{Version: "v1.0.0", DeployedAt: at, Demo: true}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(st, "deployment.json"))
+	if strings.TrimSpace(string(b)) != `{"version":"v1.0.0","deployed_at":"2026-10-20T09:00:00Z","demo":true}` {
+		t.Fatalf("%s", b)
+	}
+	d, err := ReadDeployment(st)
+	if err != nil || d.Version != "v1.0.0" || !d.DeployedAt.Equal(at) || !d.Demo {
+		t.Fatalf("%+v %v", d, err)
+	}
+	if v := RunningVersion(st, rel); v != "v1.0.0" {
+		t.Fatalf("running %q", v)
 	}
 }
 
@@ -101,7 +167,7 @@ func TestWriteFileAtomic(t *testing.T) {
 func sample() *config.Config {
 	return &config.Config{
 		Domain: "glow.example.org", OIDCIssuer: "https://idp.example.org", OIDCClientID: "cid",
-		TLSMode: "acme", HTTPPort: 80, HTTPSPort: 8443, StateDir: "/var/lib/glow",
+		TLSMode: "acme", HTTPPort: 80, HTTPSPort: 8443, StateDir: "/var/lib/glow", BackupPath: "/srv/glow-backups",
 		PeriodTimezone: "Europe/London", ACMEEmail: "ops@example.org",
 		SMTP: config.SMTPConfig{Host: "smtp", Port: 587, Password: "p w#1"},
 	}
@@ -111,7 +177,7 @@ func TestRuntimeEnv(t *testing.T) {
 	dir := t.TempDir()
 	rel := t.TempDir()
 	os.WriteFile(filepath.Join(rel, "VERSION"), []byte("v1.2.3\n"), 0o644)
-	s := Secrets{"sk", "pg", "opg", "oadm", "oapi"}
+	s := Secrets{"sk", "pg", "opg", "oadm", "oapi", "bk"}
 	p := filepath.Join(dir, "runtime.env")
 	if err := WriteRuntimeEnv(sample(), s, rel, p); err != nil {
 		t.Fatal(err)
@@ -131,6 +197,7 @@ func TestRuntimeEnv(t *testing.T) {
 		"GLOW_ACME_EMAIL": "ops@example.org", "GLOW_PERIOD_TIMEZONE": "Europe/London",
 		"GLOW_OIDC_ISSUER": "https://idp.example.org", "GLOW_VINTAGES_DIR": "/var/lib/glow-vintages",
 		"GLOW_SMTP_PASSWORD": "'p w#1'", "GLOW_DEMO_MODE": "false",
+		"GLOW_BACKUP_KEY": "bk", "GLOW_BACKUP_PATH": "/srv/glow-backups",
 	}
 	for k, v := range want {
 		if m[k] != v {

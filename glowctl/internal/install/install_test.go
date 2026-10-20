@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/oxwrc/glow/glowctl/internal/config"
+	"github.com/oxwrc/glow/glowctl/internal/lock"
 	"github.com/oxwrc/glow/glowctl/internal/odk"
 )
 
@@ -223,6 +224,7 @@ func TestProductionHappyPathOrder(t *testing.T) {
 		cli + "glow-admin@example.org user-promote",
 		"exec -T api glow-api users list",
 		"exec -T api glow-api users create boss@example.org --admin",
+		"exec -T backup glow-backup.sh backup",
 	}
 	if strings.Join(e.run.calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("compose calls:\n%s\nwant:\n%s", strings.Join(e.run.calls, "\n"), strings.Join(want, "\n"))
@@ -238,7 +240,7 @@ func TestProductionHappyPathOrder(t *testing.T) {
 		t.Fatalf("verify gets %q", g)
 	}
 	for _, d := range []string{"glow-postgres", "odk-postgres", "odk-secrets", "odk-transfer",
-		"odk-enketo-redis-main", "odk-enketo-redis-cache", "api-audit-logs", "vintages", "caddy-data", "certs"} {
+		"odk-enketo-redis-main", "odk-enketo-redis-cache", "api-audit-logs", "vintages", "caddy-data", "certs", "backup-status"} {
 		if fi, err := os.Stat(filepath.Join(e.st, d)); err != nil || !fi.IsDir() {
 			t.Errorf("state dir %s missing", d)
 		}
@@ -299,7 +301,7 @@ func TestAdminEmailPromptOnTTY(t *testing.T) {
 	o := e.opts(io.Discard)
 	o.AdminEmail, o.IsTTY, o.Stdin = "", true, strings.NewReader("tty@example.org\n")
 	must(t, Run(context.Background(), o))
-	if last := e.run.calls[len(e.run.calls)-1]; last != "exec -T api glow-api users create tty@example.org --admin" {
+	if last := e.run.calls[len(e.run.calls)-2]; last != "exec -T api glow-api users create tty@example.org --admin" {
 		t.Fatalf("last call %q", last)
 	}
 }
@@ -483,5 +485,105 @@ func TestNoAcmeHintInOffMode(t *testing.T) {
 	err := Run(context.Background(), o)
 	if err == nil || strings.Contains(err.Error(), "DNS") {
 		t.Fatalf("want error without hint, got %v", err)
+	}
+}
+
+func secret(t *testing.T, st, key string) string {
+	b, err := os.ReadFile(filepath.Join(st, "secrets.env"))
+	must(t, err)
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, key+"="); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+const keyMsg = "Store this backup key somewhere other than this server. Without it, backups cannot be restored."
+
+func TestBackupKeyPrintedExactlyOnce(t *testing.T) {
+	e := setup(t, false)
+	var out1, out2 strings.Builder
+	must(t, Run(context.Background(), e.opts(&out1)))
+	must(t, Run(context.Background(), e.opts(&out2)))
+	key := secret(t, e.st, "GLOW_BACKUP_KEY")
+	if len(key) != 64 {
+		t.Fatalf("key %q", key)
+	}
+	all := out1.String() + out2.String()
+	if strings.Count(all, key) != 1 || strings.Count(all, keyMsg) != 1 || !strings.Contains(out1.String(), key) {
+		t.Fatalf("key must be printed once, in the first run:\n--1--\n%s\n--2--\n%s", out1.String(), out2.String())
+	}
+	for _, k := range []string{"GLOW_SECRET_KEY", "POSTGRES_PASSWORD", "ODK_POSTGRES_PASSWORD", "ODK_API_PASSWORD", "ODK_ADMIN_PASSWORD"} {
+		if strings.Contains(all, secret(t, e.st, k)) {
+			t.Errorf("%s leaked", k)
+		}
+	}
+}
+
+// An install from before backups existed gains a key on its next install,
+// printed then and never again; existing secrets are untouched.
+func TestExistingInstallGainsBackupKey(t *testing.T) {
+	e := setup(t, false)
+	old := "GLOW_SECRET_KEY=a\nPOSTGRES_PASSWORD=b\nODK_POSTGRES_PASSWORD=c\nODK_ADMIN_PASSWORD=d\nODK_API_PASSWORD=e\n"
+	must(t, os.WriteFile(filepath.Join(e.st, "secrets.env"), []byte(old), 0o600))
+	var out strings.Builder
+	must(t, Run(context.Background(), e.opts(&out)))
+	key := secret(t, e.st, "GLOW_BACKUP_KEY")
+	if key == "" || !strings.Contains(out.String(), key) || secret(t, e.st, "POSTGRES_PASSWORD") != "b" {
+		t.Fatalf("key=%q\n%s", key, out.String())
+	}
+	var out2 strings.Builder
+	must(t, Run(context.Background(), e.opts(&out2)))
+	if strings.Contains(out2.String(), key) || secret(t, e.st, "GLOW_BACKUP_KEY") != key {
+		t.Fatal("key reprinted or regenerated")
+	}
+}
+
+func TestRuntimeEnvHasBackupKeyAndPath(t *testing.T) {
+	e := setup(t, false)
+	must(t, Run(context.Background(), e.opts(io.Discard)))
+	b, _ := os.ReadFile(filepath.Join(e.st, "runtime.env"))
+	if !strings.Contains(string(b), "GLOW_BACKUP_KEY="+secret(t, e.st, "GLOW_BACKUP_KEY")+"\n") ||
+		!strings.Contains(string(b), "GLOW_BACKUP_PATH=/") {
+		t.Fatalf("%s", b)
+	}
+}
+
+func TestDemoRunsNoBackup(t *testing.T) {
+	e := setup(t, true)
+	must(t, Run(context.Background(), e.opts(io.Discard)))
+	for _, c := range e.run.calls {
+		if strings.Contains(c, "backup") {
+			t.Fatalf("demo ran %q", c)
+		}
+	}
+}
+
+func TestFirstBackupFailureFailsInstallAfterDeployment(t *testing.T) {
+	e := setup(t, false)
+	e.run.fail = func(s string) error {
+		if strings.Contains(s, "glow-backup.sh") {
+			return errors.New("restic: repository not writable")
+		}
+		return nil
+	}
+	err := Run(context.Background(), e.opts(io.Discard))
+	if err == nil || !strings.Contains(err.Error(), "first backup") || !strings.Contains(err.Error(), "not writable") {
+		t.Fatalf("got %v", err)
+	}
+	if _, serr := os.Stat(filepath.Join(e.st, "deployment.json")); serr != nil {
+		t.Fatal("deployment.json must be written before the first backup")
+	}
+}
+
+func TestInstallRefusesWhileLocked(t *testing.T) {
+	e := setup(t, false)
+	release, err := lock.Acquire(e.st)
+	must(t, err)
+	defer release()
+	err = Run(context.Background(), e.opts(io.Discard))
+	if err == nil || !strings.Contains(err.Error(), "another glowctl command is running") || len(e.run.calls) != 0 {
+		t.Fatalf("got %v, calls %v", err, e.run.calls)
 	}
 }

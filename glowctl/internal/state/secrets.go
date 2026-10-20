@@ -16,6 +16,7 @@ type Secrets struct {
 	ODKPostgresPass  string
 	ODKAdminPassword string
 	ODKAPIPassword   string
+	BackupKey        string
 }
 
 func (s *Secrets) fields() map[string]*string {
@@ -25,10 +26,17 @@ func (s *Secrets) fields() map[string]*string {
 		"ODK_POSTGRES_PASSWORD": &s.ODKPostgresPass,
 		"ODK_ADMIN_PASSWORD":    &s.ODKAdminPassword,
 		"ODK_API_PASSWORD":      &s.ODKAPIPassword,
+		"GLOW_BACKUP_KEY":       &s.BackupKey,
 	}
 }
 
-var secretKeys = []string{"GLOW_SECRET_KEY", "POSTGRES_PASSWORD", "ODK_POSTGRES_PASSWORD", "ODK_ADMIN_PASSWORD", "ODK_API_PASSWORD"}
+// requiredKeys existed from the first release: a secrets.env missing one is
+// damaged, and regenerating it would lock the stack out of its own data.
+var requiredKeys = []string{"GLOW_SECRET_KEY", "POSTGRES_PASSWORD", "ODK_POSTGRES_PASSWORD", "ODK_ADMIN_PASSWORD", "ODK_API_PASSWORD"}
+
+// laterKeys were added in later releases: generated when missing so older
+// installs gain them, but an existing value is never replaced.
+var laterKeys = []string{"GLOW_BACKUP_KEY"}
 
 func randomHex() (string, error) {
 	b := make([]byte, 32)
@@ -39,40 +47,57 @@ func randomHex() (string, error) {
 }
 
 // EnsureSecrets returns <stateDir>/secrets.env, creating it (0600, atomic)
-// when absent. An existing file missing a key is an error, never regenerated.
-func EnsureSecrets(stateDir string) (Secrets, error) {
+// when absent, and the keys it generated in this call. A missing required key
+// is an error; missing later additions are generated and appended (atomic
+// rewrite keeping the existing lines). No existing secret is ever regenerated.
+func EnsureSecrets(stateDir string) (Secrets, []string, error) {
 	var s Secrets
 	path := filepath.Join(stateDir, "secrets.env")
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		if err := os.MkdirAll(stateDir, 0o755); err != nil {
-			return s, err
+			return s, nil, err
 		}
-		var sb strings.Builder
-		for _, k := range secretKeys {
-			v, err := randomHex()
-			if err != nil {
-				return s, err
+		data, err = nil, nil
+	} else if err != nil {
+		return s, nil, err
+	} else {
+		f := s.fields()
+		for _, line := range strings.Split(string(data), "\n") {
+			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+			if dst, known := f[k]; ok && known {
+				*dst = v
 			}
-			*s.fields()[k] = v
-			sb.WriteString(k + "=" + v + "\n")
 		}
-		return s, WriteFileAtomic(path, []byte(sb.String()), 0o600)
+		for _, k := range requiredKeys {
+			if *f[k] == "" {
+				return Secrets{}, nil, fmt.Errorf("%s is missing %s; restore it from backup (secrets are never regenerated)", path, k)
+			}
+		}
 	}
-	if err != nil {
-		return s, err
+	var created []string
+	add := string(data)
+	if add != "" && !strings.HasSuffix(add, "\n") {
+		add += "\n"
 	}
 	f := s.fields()
-	for _, line := range strings.Split(string(data), "\n") {
-		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
-		if dst, known := f[k]; ok && known {
-			*dst = v
+	for _, k := range append(append([]string{}, requiredKeys...), laterKeys...) {
+		if *f[k] != "" {
+			continue
 		}
-	}
-	for _, k := range secretKeys {
-		if *f[k] == "" {
-			return Secrets{}, fmt.Errorf("%s is missing %s; restore it from backup (secrets are never regenerated)", path, k)
+		v, err := randomHex()
+		if err != nil {
+			return Secrets{}, nil, err
 		}
+		*f[k] = v
+		add += k + "=" + v + "\n"
+		created = append(created, k)
 	}
-	return s, nil
+	if len(created) == 0 {
+		return s, nil, nil
+	}
+	if err := WriteFileAtomic(path, []byte(add), 0o600); err != nil {
+		return Secrets{}, nil, err
+	}
+	return s, created, nil
 }

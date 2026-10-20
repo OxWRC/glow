@@ -4,23 +4,22 @@ package install
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/oxwrc/glow/glowctl/internal/backup"
 	"github.com/oxwrc/glow/glowctl/internal/bundle"
 	"github.com/oxwrc/glow/glowctl/internal/compose"
 	"github.com/oxwrc/glow/glowctl/internal/config"
+	"github.com/oxwrc/glow/glowctl/internal/lock"
 	"github.com/oxwrc/glow/glowctl/internal/odk"
+	"github.com/oxwrc/glow/glowctl/internal/proxy"
 	"github.com/oxwrc/glow/glowctl/internal/state"
 )
 
@@ -43,7 +42,10 @@ type Options struct {
 // StateDirs are created under GLOW_STATE_DIR before compose so Docker never
 // creates them root-owned. Names match the compose bind mounts.
 var StateDirs = []string{"glow-postgres", "odk-postgres", "odk-secrets", "odk-transfer",
-	"odk-enketo-redis-main", "odk-enketo-redis-cache", "api-audit-logs", "vintages", "caddy-data"}
+	"odk-enketo-redis-main", "odk-enketo-redis-cache", "api-audit-logs", "vintages", "caddy-data", "backup-status"}
+
+// BackupKeyMessage precedes the backup key, printed once when it is generated.
+const BackupKeyMessage = "Store this backup key somewhere other than this server. Without it, backups cannot be restored."
 
 const cliJS = "/usr/odk/lib/bin/cli.js"
 
@@ -79,6 +81,12 @@ func Run(ctx context.Context, o Options) error {
 		}
 	}
 
+	release, err := lock.Acquire(cfg.StateDir)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	step("creating state directories in " + cfg.StateDir)
 	dirs := append(append([]string{}, StateDirs...), "")
 	if cfg.TLSMode != "files" {
@@ -91,9 +99,14 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	step("ensuring generated secrets")
-	sec, err := state.EnsureSecrets(cfg.StateDir)
+	sec, created, err := state.EnsureSecrets(cfg.StateDir)
 	if err != nil {
 		return err
+	}
+	for _, k := range created {
+		if k == "GLOW_BACKUP_KEY" { // the only secret ever printed, and only now
+			fmt.Fprintf(o.Out, "[glowctl] %s\n[glowctl] backup key: %s\n", BackupKeyMessage, sec.BackupKey)
+		}
 	}
 	step("writing runtime.env")
 	if err := state.WriteRuntimeEnv(cfg, sec, o.ReleaseDir, filepath.Join(cfg.StateDir, "runtime.env")); err != nil {
@@ -124,7 +137,7 @@ func Run(ctx context.Context, o Options) error {
 		if o.Get != nil {
 			return o.Get(ctx, cfg, host, path)
 		}
-		return ProxyGet(ctx, cfg, host, path)
+		return proxy.Get(ctx, cfg, host, path)
 	}
 
 	r := o.Runner
@@ -171,7 +184,7 @@ func Run(ctx context.Context, o Options) error {
 			return err
 		}
 		step("waiting for the API (migrations)")
-		if err := verify(ctx, get, Targets(cfg)[1:2], 60, wait(5*time.Second), o.Out, every, "the API (migrations)"); err != nil {
+		if err := verify(ctx, get, proxy.Targets(cfg)[1:2], 60, wait(5*time.Second), o.Out, every, "the API (migrations)"); err != nil {
 			return withHint(cfg, err)
 		}
 		step("ensuring GLOW admin " + adminEmail)
@@ -211,21 +224,19 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	step("verifying through the proxy")
-	if err := verify(ctx, get, Targets(cfg), 30, wait(5*time.Second), o.Out, every, "the stack through the proxy"); err != nil {
+	if err := verify(ctx, get, proxy.Targets(cfg), 30, wait(5*time.Second), o.Out, every, "the stack through the proxy"); err != nil {
 		return withHint(cfg, err)
 	}
 
 	step("writing deployment.json")
-	dep, err := json.Marshal(struct {
-		Version    string `json:"version"`
-		DeployedAt string `json:"deployed_at"`
-		Demo       bool   `json:"demo"`
-	}{version, time.Now().UTC().Format(time.RFC3339), cfg.Demo})
-	if err != nil {
+	if err := state.WriteDeployment(cfg.StateDir, state.Deployment{Version: version, DeployedAt: time.Now(), Demo: cfg.Demo}); err != nil {
 		return err
 	}
-	if err := state.WriteFileAtomic(filepath.Join(cfg.StateDir, "deployment.json"), append(dep, '\n'), 0o644); err != nil {
-		return err
+	if !cfg.Demo {
+		step("taking the first backup")
+		if err := backup.Now(ctx, r, o.Out); err != nil {
+			return fmt.Errorf("first backup failed (the stack is running; fix the cause, then run glowctl backup): %w", err)
+		}
 	}
 	step("install complete: https://" + cfg.Domain)
 	if !cfg.Demo {
@@ -318,11 +329,6 @@ func ensureGlowAdmin(run runFn, email string) error {
 	return nil
 }
 
-// Targets are the proxy checks: dashboard, api (index 1) and ODK.
-func Targets(cfg *config.Config) [][2]string {
-	return [][2]string{{cfg.Domain, "/en/login"}, {"api." + cfg.Domain, "/health"}, {"odk." + cfg.Domain, "/"}}
-}
-
 // verify polls the targets via the proxy until all answer 200.
 func verify(ctx context.Context, get func(context.Context, string, string) (int, error), targets [][2]string, attempts int, interval time.Duration, out io.Writer, every time.Duration, what string) error {
 	var last error
@@ -366,30 +372,4 @@ func withHint(cfg *config.Config, err error) error {
 	d := cfg.Domain
 	return fmt.Errorf("%w\nhint: certificate issuance needs DNS A/AAAA records for %s, api.%s and odk.%s pointing at this server, "+
 		"and ports 80/443 reachable from the internet; check `docker compose logs proxy`", err, d, d, d)
-}
-
-// ProxyGet dials the local proxy on loopback with SNI/Host = host (plain
-// HTTP in off mode). Certificates are not checked: ACME may not have issued.
-func ProxyGet(ctx context.Context, cfg *config.Config, host, path string) (int, error) {
-	scheme, port := "https", cfg.HTTPSPort
-	if cfg.TLSMode == "off" {
-		scheme, port = "http", cfg.HTTPPort
-	}
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	d := &net.Dialer{Timeout: 10 * time.Second}
-	tr := &http.Transport{
-		DialContext:     func(ctx context.Context, n, _ string) (net.Conn, error) { return d.DialContext(ctx, n, addr) },
-		TLSClientConfig: &tls.Config{ServerName: host, InsecureSkipVerify: true},
-	}
-	defer tr.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, "GET", scheme+"://"+host+path, nil)
-	if err != nil {
-		return 0, err
-	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second, Transport: tr}).Do(req)
-	if err != nil {
-		return 0, err
-	}
-	resp.Body.Close()
-	return resp.StatusCode, nil
 }

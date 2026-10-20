@@ -4,18 +4,16 @@ package odk
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/oxwrc/glow/glowctl/internal/config"
+	"github.com/oxwrc/glow/glowctl/internal/proxy"
 )
 
 // Client is a minimal ODK Central API client. Requests carry Host header host.
@@ -29,20 +27,7 @@ type Client struct {
 // or plain HTTP to the proxy's HTTP port in off mode.
 func NewClient(cfg *config.Config) *Client {
 	host := "odk." + cfg.Domain
-	d := &net.Dialer{Timeout: 10 * time.Second}
-	tr := &http.Transport{}
-	var base string
-	if cfg.TLSMode == "off" {
-		base = "http://" + host
-		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.HTTPPort))
-		tr.DialContext = func(ctx context.Context, n, _ string) (net.Conn, error) { return d.DialContext(ctx, n, addr) }
-	} else {
-		base = "https://" + host
-		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.HTTPSPort))
-		tr.DialContext = func(ctx context.Context, n, _ string) (net.Conn, error) { return d.DialContext(ctx, n, addr) }
-		// Loopback to our own proxy; ACME may not have issued a cert yet.
-		tr.TLSClientConfig = &tls.Config{ServerName: host, InsecureSkipVerify: true}
-	}
+	tr, base := proxy.Transport(cfg, host)
 	return &Client{base: base, host: host, hc: &http.Client{Timeout: 30 * time.Second, Transport: tr}}
 }
 

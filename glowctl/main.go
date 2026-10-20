@@ -6,16 +6,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
 
+	"github.com/oxwrc/glow/glowctl/internal/backup"
 	"github.com/oxwrc/glow/glowctl/internal/compose"
 	"github.com/oxwrc/glow/glowctl/internal/config"
 	"github.com/oxwrc/glow/glowctl/internal/doctor"
 	"github.com/oxwrc/glow/glowctl/internal/install"
+	"github.com/oxwrc/glow/glowctl/internal/lock"
 	"github.com/oxwrc/glow/glowctl/internal/state"
 	"github.com/oxwrc/glow/glowctl/internal/status"
 	"github.com/oxwrc/glow/glowctl/internal/users"
@@ -24,11 +27,12 @@ import (
 // version is set at release time with -ldflags "-X main.version=<tag>".
 var version = "dev"
 
-const usage = "usage: glowctl <install|status|doctor|users|version> [--dir DIR] [args...]"
+const usage = "usage: glowctl <install|status|backup|doctor|users|version> [--dir DIR] [args...]"
 
 var commands = map[string]func(args []string) int{
 	"install": installCmd,
 	"status":  statusCmd,
+	"backup":  backupCmd,
 	"doctor":  doctorCmd,
 	"users":   usersCmd,
 	"version": func([]string) int { fmt.Println("glowctl " + version); return 0 },
@@ -96,7 +100,7 @@ func statusCmd(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	cs, err := status.Run(ctx, status.Options{
-		Cfg: cfg, Version: state.ReleaseVersion(dir),
+		Cfg: cfg, Version: state.RunningVersion(cfg.StateDir, dir),
 		Runner: compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)},
 	})
 	if err != nil {
@@ -104,8 +108,11 @@ func statusCmd(args []string) int {
 	}
 	for _, c := range cs {
 		mark := "ok  "
-		if !c.OK {
+		switch {
+		case !c.OK:
 			mark = "FAIL"
+		case c.Warn:
+			mark = "warn"
 		}
 		fmt.Printf("[glowctl] %s %-40s %s\n", mark, c.Name, c.Detail)
 	}
@@ -113,6 +120,53 @@ func statusCmd(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func backupCmd(args []string) int {
+	const u = "usage: glowctl backup [--dir DIR] [--verify]"
+	dir, rest, err := splitDir(args)
+	verify := false
+	for _, a := range rest {
+		if a != "--verify" && a != "-verify" {
+			fmt.Fprintf(os.Stderr, "[glowctl] backup: unexpected argument %q\n%s\n", a, u)
+			return 2
+		}
+		verify = true
+	}
+	if err != nil {
+		return fail("backup", err)
+	}
+	cfg, err := loadValid(dir)
+	if err == nil {
+		err = requireInstalled(cfg)
+	}
+	if err == nil && cfg.Demo {
+		err = errors.New("backups are disabled in demo mode")
+	}
+	if err != nil {
+		return fail("backup", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	r := compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)}
+	if err := runBackup(ctx, cfg.StateDir, r, verify, os.Stdout); err != nil {
+		return fail("backup", err)
+	}
+	return 0
+}
+
+// runBackup holds the glowctl lock while the backup service runs one backup
+// (then prune) or restore test; the outcome lands in backup-status.json.
+func runBackup(ctx context.Context, stateDir string, r compose.Runner, verify bool, out io.Writer) error {
+	release, err := lock.Acquire(stateDir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if verify {
+		return backup.Verify(ctx, r, out)
+	}
+	return backup.Now(ctx, r, out)
 }
 
 func doctorCmd(args []string) int {

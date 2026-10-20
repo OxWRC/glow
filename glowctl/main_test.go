@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/oxwrc/glow/glowctl/internal/lock"
 )
 
 func TestRunDispatch(t *testing.T) {
@@ -73,5 +77,44 @@ func TestLoadValidIndentsEveryError(t *testing.T) {
 		if !strings.HasPrefix(l, "  ") {
 			t.Errorf("line not indented: %q", l)
 		}
+	}
+}
+
+func TestBackupCmd(t *testing.T) {
+	dir, st := demoDir(t)
+	if got := run([]string{"backup", "--dir", dir, "extra"}); got != 2 {
+		t.Errorf("positional: exit %d want 2", got)
+	}
+	if got := run([]string{"backup", "--dir", dir}); got != 1 {
+		t.Errorf("before install: exit %d want 1", got)
+	}
+	os.WriteFile(filepath.Join(st, "runtime.env"), nil, 0o600)
+	if got := run([]string{"backup", "--dir", dir, "--verify"}); got != 1 {
+		t.Errorf("demo: exit %d want 1 (no backups in demo)", got)
+	}
+}
+
+type recRunner struct{ calls []string }
+
+func (r *recRunner) Run(_ context.Context, args []string, _ io.Reader) (string, error) {
+	r.calls = append(r.calls, strings.Join(args, " "))
+	return "", nil
+}
+
+func TestRunBackupLocksAndMapsArgv(t *testing.T) {
+	st := t.TempDir()
+	r := &recRunner{}
+	if err := runBackup(context.Background(), st, r, true, io.Discard); err != nil || len(r.calls) != 1 ||
+		r.calls[0] != "exec -T backup glow-backup.sh verify" {
+		t.Fatalf("%v %v", err, r.calls)
+	}
+	release, err := lock.Acquire(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	err = runBackup(context.Background(), st, r, false, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "another glowctl command is running") || len(r.calls) != 1 {
+		t.Fatalf("%v %v", err, r.calls)
 	}
 }
