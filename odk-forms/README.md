@@ -11,7 +11,7 @@ Place form files in this directory:
 
 ## Deployment Behavior
 
-When `deploy/aws/runtime/activate-stack.sh` runs on a deployed runner:
+When the deployment tooling runs on a deployed runner:
 
 1. Scans this directory for form files
 2. Converts XLSForms to XML using the pyxform service

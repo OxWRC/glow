@@ -33,70 +33,6 @@ npx tsc
 npm run build
 ```
 
-### Terraform Changes
-
-Before submitting a PR with Terraform changes:
-
-- [ ] Run `terraform fmt -recursive` to format code
-- [ ] Run `terraform validate` to check syntax
-- [ ] Install and run `tflint` (see below)
-- [ ] Verify your changes don't break the plan (if possible)
-
-**Formatting:**
-```bash
-cd deploy/aws/terraform
-terraform fmt -recursive
-```
-
-**Validation:**
-```bash
-terraform -chdir=deploy/aws/terraform init -backend=false
-terraform -chdir=deploy/aws/terraform validate
-```
-
-**Linting:**
-```bash
-tflint --init --chdir=deploy/aws/terraform
-tflint --chdir=deploy/aws/terraform
-```
-
-**Plan (requires AWS credentials):**
-```bash
-uv run --project deploy/aws glow-deploy --domain eu.glow-project.org --dry-run
-```
-
-#### Installing TFLint
-
-**macOS:**
-```bash
-brew install tflint
-```
-
-**Linux:**
-```bash
-curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
-```
-
-**Windows:**
-```bash
-choco install tflint
-```
-
-### Common Terraform Pitfalls
-
-1. **for_each with computed values**: Map keys in `for_each` must be known at plan time
-   - ✅ Good: `for_each = { for dvo in cert.domain_validation_options : dvo.domain_name => {...} }`
-   - ❌ Bad: `for_each = { for dvo in cert.domain_validation_options : dvo.resource_record_name => {...} }`
-   - Why: `domain_name` is from config (known), `resource_record_name` is computed by AWS (unknown)
-
-2. **count vs for_each**: Prefer `for_each` for resources that might change
-   - Use `count` for simple enable/disable (0 or 1)
-   - Use `for_each` when you need to manage multiple instances by key
-
-3. **Resource dependencies**: Use `depends_on` sparingly
-   - Terraform usually infers dependencies from references
-   - Explicit `depends_on` can cause unnecessary rebuilds
-
 ## Commit Guidelines
 
 We use semantic commit messages:
@@ -113,7 +49,7 @@ We use semantic commit messages:
 ```
 feat(api): add endpoint for data export
 fix(dashboard): correct chart rendering issue
-docs(terraform): update deployment instructions
+docs: update deployment instructions
 refactor(api): simplify database query logic
 ```
 
@@ -127,16 +63,14 @@ For important changes, include:
 
 **Example:**
 ```
-fix(terraform): use domain_name instead of resource_record_name in for_each
+fix(api): use stable key when merging export columns
 
-The ACM certificate validation records were using resource_record_name
-as the map key in for_each, which is a computed value not known at
-plan time. This caused "Invalid for_each argument" errors.
+The merge used a computed value as the key, which is not known until
+runtime and caused spurious KeyErrors.
 
-Changed to use domain_name as the key since it's deterministic and
-comes from our configuration, making it available during planning.
+Switched to the configured column name, which is deterministic.
 
-Fixes: Terraform plan error on fresh deployments
+Fixes: export failure on fresh datasets
 Related: #123
 ```
 
@@ -155,14 +89,6 @@ Related: #123
 - Use TypeScript strict mode
 - Prefer functional components
 - Accessible selectors in tests
-
-### Terraform
-
-- Use `terraform fmt` for formatting
-- Variables should have descriptions
-- Outputs should have descriptions
-- Use local tags consistently
-- Comment complex expressions
 
 ## Pull Request Process
 

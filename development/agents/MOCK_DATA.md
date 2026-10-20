@@ -302,7 +302,6 @@ Update bootstrap flows so they can:
 Likely files:
 
 - `dev-init.sh`
-- maybe `deploy/aws/runtime/activate-stack.sh` if demo deployment should also support this flow
 
 ## Dashboard implications
 

@@ -1,233 +1,167 @@
-# Glow Deployment Quick Start
+# Glow Deployment
 
-## Prerequisites
+> **Note:** this document will be rewritten for `glowctl`, and the AWS tooling has moved to the sibling repo `glow-deploy-aws`.
 
-### Option 1: Docker Compose (Easiest)
+## Self-Hosted Deployment (Manual)
 
-1. Docker with Compose plugin
-2. AWS credentials (via SSO, profile, or environment variables)
+The repository does not provide a deployment orchestrator.
 
-### Option 2: Docker (Recommended)
+For a manual VM/server deployment, use the checked-in `compose.yml` stack, persistent storage for `docker-mount-data/`, and your own reverse proxy or load balancer.
 
-1. Docker
-2. AWS credentials (via SSO, profile, or environment variables)
+### Prerequisites
+- Ubuntu 22.04+ or Debian 11+ server
+- Root or sudo access
+- Domain name pointing to your server
+- Ports 80/443 open for web traffic
 
-### Option 3: Direct Python
+### Deployment Steps
 
-1. `uv`
-2. `terraform`
-3. `packer`
-4. AWS credentials for EC2, ALB, ACM, S3, IAM, SSM, and CloudWatch
-5. Network access to `api.github.com` (used to resolve git tags/branches to commits — no local `git` needed)
-
-## Initial Provision
-
-### Using Docker Compose with AWS SSO (Easiest for Individual Users)
-
+1. **Clone the repository:**
 ```bash
-# Authenticate on your host machine first
-aws sso login --profile my-profile
-
-# Navigate to deploy directory and run with SSO profile
-cd deploy/aws
-AWS_PROFILE=my-profile docker compose --profile sso run --rm deploy \
-  --domain eu.glow-project.org \
-  --certificate-arn arn:aws:acm:eu-west-2:123456789012:certificate/abc123
+git clone https://github.com/OxWRC/glow.git
+cd glow
+git checkout v1.2.3  # Use latest release tag
 ```
 
-### Using Docker Compose with Environment Credentials (CI/CD)
-
+2. **Prepare persistent storage:**
 ```bash
-cd deploy/aws
-docker compose --profile env run --rm deploy-env \
-  --domain eu.glow-project.org \
-  --certificate-arn arn:aws:acm:eu-west-2:123456789012:certificate/abc123
+mkdir -p docker-mount-data
 ```
 
-### Using Docker Run with AWS SSO
+3. **Install Docker Engine and Docker Compose plugin.**
 
-```bash
-# Authenticate on your host machine first
-aws sso login --profile my-profile
+4. **Create the runtime environment and start the stack manually.**
 
-# Build and run deployment
-docker build -t glow-launcher -f deploy/aws/Dockerfile .
-docker run --rm -it \
-  -e AWS_PROFILE=my-profile \
-  -e AWS_REGION=eu-west-2 \
-  -v "$HOME/.aws:/aws-host:ro" \
-  glow-launcher \
-  --domain eu.glow-project.org \
-  --certificate-arn arn:aws:acm:eu-west-2:123456789012:certificate/abc123
+This repository does not ship a host activation script for that workflow, so any manual deployment should be treated as an operator-managed compose installation rather than a supported automated path.
+
+5. **Access services:**
+- Dashboard: `http://glow.example.com` 
+- API: `http://glow.example.com:8000`
+- ODK Central: `http://glow.example.com:8080`
+
+6. **Set up reverse proxy for HTTPS:**
+
+You'll need to configure a reverse proxy (nginx, Apache, Caddy, etc.) to:
+- Terminate HTTPS with your SSL certificate
+- Forward requests to the appropriate ports
+
+Example nginx configuration:
+```nginx
+server {
+    listen 80;
+    server_name glow.example.com;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name glow.example.com;
+    
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name api.glow.example.com;
+    
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name odk.glow.example.com;
+    
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
 ```
 
-### Using Docker Run with Environment Credentials
+### Data Persistence
 
+All persistent data is stored in `./docker-mount-data/`:
+- `glow-postgres/` - Glow API database
+- `odk-postgres/` - ODK Central database
+- `odk-secrets/` - ODK encryption keys
+- `.deploy/.env.admin` - Admin credentials
+- Other service data
+
+**Backup this directory regularly!**
+
+Recommended backup strategy:
 ```bash
-docker build -t glow-launcher -f deploy/aws/Dockerfile .
-docker run --rm -it \
-  -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
-  -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
-  -e AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN \
-  -e AWS_REGION=eu-west-2 \
-  glow-launcher \
-  --domain eu.glow-project.org \
-  --certificate-arn arn:aws:acm:eu-west-2:123456789012:certificate/abc123
+# Stop services
+cd /path/to/glow
+sudo docker compose --profile odk stop
+
+# Backup data
+sudo tar czf glow-backup-$(date +%Y%m%d).tar.gz docker-mount-data/
+
+# Restart services
+sudo docker compose --profile odk start
 ```
 
-### Using Direct Python
+### Updates
+
+To update to a new version:
 
 ```bash
-uv run --project deploy/aws glow-deploy \
-  --domain eu.glow-project.org \
-  --certificate-arn arn:aws:acm:eu-west-2:123456789012:certificate/abc123
+cd /path/to/glow
+git fetch --tags
+git checkout v1.3.0  # New version
+docker compose --profile odk up -d --build
 ```
 
-## Update Existing Deployment
+This manual workflow preserves data in `docker-mount-data/`, but version compatibility checks are your responsibility.
 
-### Using Docker Compose with AWS SSO
+### Retrieving Credentials
 
+Admin credentials are stored in:
 ```bash
-cd deploy/aws
-AWS_PROFILE=my-profile docker compose --profile sso run --rm deploy \
-  --domain eu.glow-project.org \
-  --git-ref v1.2.3 \
-  --update
+cat ./docker-mount-data/.deploy/.env.admin
 ```
 
-### Using Docker Compose with Environment Credentials
+This file contains:
+- ODK Central admin email
+- ODK Central admin password
 
+### Troubleshooting
+
+**Services not starting:**
 ```bash
-cd deploy/aws
-docker compose --profile env run --rm deploy-env \
-  --domain eu.glow-project.org \
-  --git-ref v1.2.3 \
-  --update
+sudo docker compose ps
+sudo docker compose logs
 ```
 
-### Using Docker Run with AWS SSO
-
+**Check versions:**
 ```bash
-docker run --rm -it \
-  -e AWS_PROFILE=my-profile \
-  -e AWS_REGION=eu-west-2 \
-  -v "$HOME/.aws:/aws-host:ro" \
-  glow-launcher \
-  --domain eu.glow-project.org \
-  --git-ref v1.2.3 \
-  --update
+cat docker-mount-data/.glow-deployment-version
 ```
 
-### Using Docker Run with Environment Credentials
+**Major version upgrade blocked:**
+If you see an error about major version upgrades, consult `UPGRADING.md` for migration instructions.
 
-```bash
-docker run --rm -it \
-  -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
-  -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
-  -e AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN \
-  -e AWS_REGION=eu-west-2 \
-  glow-launcher \
-  --domain eu.glow-project.org \
-  --git-ref v1.2.3 \
-  --update
-```
-
-### Using Direct Python
-
-```bash
-uv run --project deploy/aws glow-deploy \
-  --domain eu.glow-project.org \
-  --git-ref v1.2.3 \
-  --update
-```
-
-## What It Does
-
-For Docker-based AWS SSO runs, the launcher mounts the host `~/.aws` directory read-only and copies it into a container-local `~/.aws` before invoking the deploy script. Any cache or token refresh written by the AWS CLI inside Docker stays inside the container and does not leave root-owned files on the host.
-
-### Initial Provision
-
-1. Resolves the git reference to a commit SHA
-2. Checks if a runner AMI exists in your AWS account for that commit
-3. Builds the AMI using Packer if not found
-4. Applies Terraform to create:
-   - ALB with HTTPS listeners
-   - Security groups and IAM roles
-   - Single long-lived EC2 instance with 100GB root volume
-   - CloudWatch log groups
-5. Waits for the instance to bootstrap and activate the stack
-6. Verifies service health
-
-### Update
-
-1. Finds the existing instance via Terraform state
-2. Sends an SSM command to:
-   - Fetch and checkout the target git reference
-   - Run optional `deploy/update-instance.sh` hook
-   - Stop and restart containers
-3. Verifies service health
-
-Updates that change `api/src/glow_api/suppression.yaml` are refused on non-demo deployments, as is an update whose running version can't be determined. The same dataset must not be released under two sets of rules, so provision a new deployment instead. Demo deployments are allowed through with a note.
-
-## Flags
-
-- `--domain` (required): deployment domain
-- `--certificate-arn`: ACM certificate ARN
-- `--git-ref`: git tag/branch/commit (default: main)
-- `--aws-region`: AWS region (default: eu-west-2 or AWS_REGION env var)
-- `--runner-instance-type`: instance type (default: t3.medium)
-- `--runner-root-volume-size-gb`: root volume size (default: 100GB)
-- `--force-rebuild-ami`: rebuild AMI even if one exists
-- `--dry-run`: plan only, do not apply
-- `--update`: update existing instance instead of provision
-- `--demo`: provision a demo deployment (see below); fixed at provision time
-
-## Demo Deployments
-
-`--demo` provisions an instance that serves fictional data with no Cognito. Anyone can log in from the role picker as an admin or a school user. Demo mode is fixed at provision time: `--update` keeps it, and re-provisioning the same domain with a different mode fails.
-
-On every activation, `deploy/aws/runtime/activate-stack.sh` does the following:
-
-- Adds `compose.demo.yml`. ODK Postgres is built from the pre-seeded `dev` target, and `GLOW_DEMO_MODE` / `PUBLIC_DEMO_MODE` are set.
-- Writes the Cognito values blank.
-- Resets the seeded ODK users (`admin@glow.local`, `api@glow.local`) from the public `devpassword` to the generated passwords in `.env.admin` / `.env.runtime`. It does this with nginx stopped, before ODK is reachable from the load balancer, so `devpassword` is never exposed during activation.
-- Wipes and re-seeds Glow's users and schools (`glow-api demo reset`).
-
-The seeded ODK data lives inside the `postgres14` container, not on the persistent volume. Recreating that container manually, outside activation, restores the seed, and `devpassword` then works until the next `--update` rotates it again. Re-run `--update` after any manual container recreation.
-
-Demo deployments need the seed dump from Git LFS. Runner AMIs install `git-lfs`, and the repository checkout pulls the seed dump from LFS (a failed pull only warns, since other deployments don't need it). On an older AMI without `git-lfs`, demo activation stops with an error instead of building from the pointer file. Snapshot restore is refused for demo deployments.
-
-## Certificate Assumption
-
-Deployment requires an already-issued ACM certificate for:
-
-- `<domain>`
-- `api.<domain>`
-- `odk.<domain>`
-
-Provide the ARN with `--certificate-arn`.
-
-## DNS Ownership
-
-DNS is assumed to be managed externally. After deployment, configure these records with your DNS provider:
-
-- `<domain>` → ALB DNS (CNAME or ALIAS)
-- `api.<domain>` → ALB DNS (CNAME)
-- `odk.<domain>` → ALB DNS (CNAME)
-
-The deploy script prints the exact ALB DNS name.
-
-## Architecture
-
-- **AMI**: Thin image with Docker, git, and dependencies pre-installed
-- **Instance**: Long-lived EC2 with persistent root volume
-- **State**: All data stored in `/var/lib/glow` on the root volume
-- **Updates**: In-place via SSM, no instance replacement
-- **Backups**: Use AWS Backup or EBS snapshots
-
-## Notes
-
-- The instance is protected with `delete_on_termination = false` on the root volume
-- Terraform ignores AMI and userdata changes to prevent accidental replacement
-- For dependency updates, rebuild the AMI with `--force-rebuild-ami`
-- Routine application updates use `--update` and happen over SSM
+**Data location:**
+If you want data on a separate partition, you can:
+1. Mount your partition at `/data`
+2. Create symlink: `ln -s /data ./docker-mount-data`
+3. Start the stack as normal

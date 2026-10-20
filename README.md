@@ -164,7 +164,7 @@ The response has `dataset_version`, `rules_sha256`, `min_n`, `generated_at`, `su
 
 Each build uses a fresh in-memory salt and is cached per dataset version, so every id changes whenever the data changes or the API restarts. Ids can't be joined across exports.
 
-Suppression is driven by `api/src/glow_api/suppression.yaml`. A demographic column missing from it makes `/export` fail with a 500 naming the column. The rules can't change on a live deployment: the deploy tool refuses such `--update`s (see [DEPLOYMENT.md](DEPLOYMENT.md)).
+Suppression is driven by `api/src/glow_api/suppression.yaml`. A demographic column missing from it makes `/export` fail with a 500 naming the column. The rules can't change on a live deployment: changing them requires a fresh deployment.
 
 ### Suppression
 
@@ -249,48 +249,9 @@ npm run dev
 npm run check
 ```
 
-## Deployment (AWS)
+## Deployment
 
-See `deploy/aws/` for the AWS deployment package.
-
-See `DEPLOYMENT.md` for the quick start guide.
-
-The deployment uses:
-- Local Packer builds for thin runner AMIs
-- Single-pass Terraform for infrastructure
-- Long-lived EC2 instance with persistent root volume
-- SSM-based in-place updates
-- Application Load Balancer with host-based routing
-- ACM for TLS certificates with external DNS validation
-- Auto-configured ODK Central integration
-
-### Initial Provision
-
-```bash
-uv run --project deploy/aws glow-deploy \
-  --domain eu.glow-project.org \
-  --certificate-arn arn:aws:acm:...
-```
-
-### Update
-
-```bash
-uv run --project deploy/aws glow-deploy \
-  --domain eu.glow-project.org \
-  --git-ref v1.2.3 \
-  --update
-```
-
-Useful flags:
-
-- `--certificate-arn arn:aws:acm:...`
-- `--git-ref v1.2.3`
-- `--aws-region eu-west-2`
-- `--force-rebuild-ami`
-- `--dry-run`
-- `--update`
-
-DNS is assumed to be managed externally. The deploy script prints the ALB DNS records to configure with your DNS provider.
+See `DEPLOYMENT.md` for deployment instructions.
 
 ## Data Collection & Format
 
@@ -308,7 +269,7 @@ The current BeWell questionnaire form is included in this repo at `odk-forms/bew
 - `school` — school identifier carried on each questionnaire form
 - Questionnaire items from the [#BeeWell GM Survey](https://beewellprogramme.org) (e.g. `bw_wbeing_1`–`bw_wbeing_7` for SWEMWBS wellbeing, `bw_emodies_1`–`bw_emodies_10` for emotional difficulties, and ~120 further items)
 
-The form is automatically uploaded to ODK Central during deployment by `deploy/aws/runtime/activate-stack.sh`.
+The form is automatically uploaded to ODK Central at deployment.
 
 ### Development/Testing Data Flow
 
