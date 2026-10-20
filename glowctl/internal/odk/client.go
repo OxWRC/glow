@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oxwrc/glow/glowctl/internal/config"
@@ -149,7 +150,8 @@ func (c *Client) Logout(ctx context.Context, token string) error {
 	path := "/v1/sessions/" + url.PathEscape(token)
 	code, _, err := c.do(ctx, "DELETE", path, token, nil)
 	if err != nil {
-		return err
+		// The URL (and error text) contains the token; never surface it.
+		return fmt.Errorf("ODK logout: request failed")
 	}
 	if code/100 != 2 {
 		return fmt.Errorf("ODK logout: HTTP %d", code)
@@ -202,7 +204,7 @@ func (c *Client) UserByEmail(ctx context.Context, token, email string) (int, err
 		return 0, err
 	}
 	for _, u := range us {
-		if u.Email == email {
+		if strings.EqualFold(u.Email, email) {
 			return u.ID, nil
 		}
 	}

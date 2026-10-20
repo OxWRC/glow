@@ -43,6 +43,8 @@ func cli(ctx context.Context, r compose.Runner, email, cmd, password string) (st
 	return r.Run(ctx, args, in)
 }
 
+// alreadyExists matches ODK's "A resource already exists ..." wording
+// (problem 409.3); the exact promote wording on a re-grant is unverified.
 func alreadyExists(out string, err error) bool {
 	s := out
 	if err != nil {
@@ -66,8 +68,10 @@ func ensureAdmin(ctx context.Context, r compose.Runner, email, pw string) error 
 			return fmt.Errorf("ODK user-set-password %s: %w", email, err)
 		}
 	}
-	// Failure here means already promoted.
-	_, _ = cli(ctx, r, email, "user-promote", "")
+	// Re-promoting an admin is tolerated ("already ..."); anything else is real.
+	if out, err := cli(ctx, r, email, "user-promote", ""); err != nil && !alreadyExists(out, err) {
+		return fmt.Errorf("ODK user-promote %s: %w", email, err)
+	}
 	return nil
 }
 

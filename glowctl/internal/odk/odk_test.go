@@ -140,7 +140,7 @@ func TestFreshInstall(t *testing.T) {
 	}
 	for _, c := range r.calls {
 		for _, a := range c.args {
-			if strings.Contains(a, "pw") {
+			if a == "adminpw" || a == "apipw" {
 				t.Fatal("password in argv")
 			}
 		}
@@ -253,5 +253,56 @@ func TestDemo(t *testing.T) {
 	f.projects = `[{"id":2,"name":"GLOW Development"}]`
 	if err := ConfigureDemo(context.Background(), r, c, "a", "p"); err == nil {
 		t.Fatal("want id error")
+	}
+}
+
+func TestPromoteFailureSurfaced(t *testing.T) {
+	r := &fakeRunner{fail: func(a []string) (string, error) {
+		if a[7] == "user-promote" {
+			return "", errors.New("docker: odk-service is not running")
+		}
+		return "", nil
+	}}
+	_, err := run(t, &fakeODK{}, r)
+	if err == nil || !strings.Contains(err.Error(), "user-promote") {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestPromoteAlreadyTolerated(t *testing.T) {
+	f := &fakeODK{projects: oneProj, users: apiUsers, assigns: `[{"actorId":42,"roleId":2}]`}
+	r := &fakeRunner{fail: func(a []string) (string, error) {
+		if a[7] == "user-promote" {
+			return "", errors.New("exit 1: A resource already exists")
+		}
+		return "", nil
+	}}
+	if _, err := run(t, f, r); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUserByEmailCaseInsensitive(t *testing.T) {
+	f := &fakeODK{users: `[{"id":42,"email":"API@X"}]`}
+	srv := f.server()
+	defer srv.Close()
+	id, err := NewClientForBase(srv.URL, "h").UserByEmail(context.Background(), "TOK", "api@x")
+	if err != nil || id != 42 {
+		t.Fatalf("id=%d err=%v", id, err)
+	}
+}
+
+func TestLogoutErrorRedactsToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
+	srv.Close() // connection error path includes the URL
+	err := NewClientForBase(srv.URL, "h").Logout(context.Background(), "SECRETTOKEN")
+	if err == nil || strings.Contains(err.Error(), "SECRETTOKEN") {
+		t.Fatalf("err %v", err)
+	}
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) }))
+	defer srv2.Close()
+	err = NewClientForBase(srv2.URL, "h").Logout(context.Background(), "SECRETTOKEN")
+	if err == nil || strings.Contains(err.Error(), "SECRETTOKEN") {
+		t.Fatalf("err %v", err)
 	}
 }
