@@ -34,7 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-glow-api = "glow_api.cli:cli"
+glow-api = "glow_api.entry:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

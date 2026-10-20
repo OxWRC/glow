@@ -14,11 +14,14 @@ Usage:
     python -m glow_api.cli api-keys revoke KEY_ID
 """
 
+import hashlib
 import json
 import sys
 from datetime import UTC, datetime
 
 import click
+import yaml
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from glow_api import audit
@@ -43,7 +46,9 @@ from glow_api.database import (
 )
 from glow_api.metadata_models import User
 from glow_api.models import validate_email
-from glow_api.settings import settings
+from glow_api.entry import format_validation_error
+from glow_api.settings import Settings, settings
+from glow_api.suppression import RULES_PATH
 from glow_api.vintages import cut_vintage, get_vintages_dir, list_vintages
 
 
@@ -529,6 +534,52 @@ def vintages_list() -> None:
             f"  {info.prefix} created {info.created_at:%Y-%m-%d %H:%M} by {creator}, "
             f"{info.row_count} rows"
         )
+
+
+# ---------------------------------------------------------------------------
+# config / suppression commands
+# ---------------------------------------------------------------------------
+
+
+@cli.group()
+def config() -> None:
+    """Configuration commands."""
+
+
+@config.command("check")
+def config_check() -> None:
+    """Validate settings with the production code; exit 1 on any problem."""
+    try:
+        s = Settings()
+        s.validate_auth_config()
+        if not s.DEMO_MODE and not s.OIDC_ISSUER:
+            # The API refuses to start in this state (see auth.py).
+            raise RuntimeError(
+                "GLOW_OIDC_ISSUER is not set and GLOW_DEMO_MODE is off. "
+                "Set GLOW_OIDC_ISSUER (and GLOW_OIDC_CLIENT_ID) or enable demo mode."
+            )
+    except ValidationError as exc:
+        for line in format_validation_error(exc):
+            click.echo(line)
+        sys.exit(1)
+    except RuntimeError as exc:
+        click.echo(str(exc))
+        sys.exit(1)
+    click.echo("Config OK")
+
+
+def hash_suppression_file(path) -> str:
+    """SHA-256 of the canonical JSON of the parsed rules (comment-insensitive)."""
+    with open(path, encoding="utf-8") as f:
+        rules = yaml.safe_load(f)
+    blob = json.dumps(rules, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+@cli.command("suppression-hash")
+def suppression_hash() -> None:
+    """Print the hash of the packaged suppression rules."""
+    click.echo(hash_suppression_file(RULES_PATH))
 
 
 if __name__ == "__main__":
