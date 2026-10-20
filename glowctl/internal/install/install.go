@@ -65,6 +65,9 @@ func Run(ctx context.Context, o Options) error {
 		return fmt.Errorf("glow.env is invalid:\n  %v", errors.Join(errs...).Error())
 	}
 	adminEmail := o.AdminEmail
+	if cfg.Demo && strings.TrimSpace(adminEmail) != "" {
+		step("--admin-email is ignored in demo mode (demo users are seeded)")
+	}
 	if !cfg.Demo {
 		if adminEmail, err = askAdmin(o); err != nil {
 			return err
@@ -112,6 +115,13 @@ func Run(ctx context.Context, o Options) error {
 		}
 	}
 
+	get := func(ctx context.Context, host, path string) (int, error) {
+		if o.Get != nil {
+			return o.Get(ctx, cfg, host, path)
+		}
+		return proxyGet(ctx, cfg, host, path)
+	}
+
 	r := o.Runner
 	if r == nil {
 		r = compose.Exec{C: compose.New(o.ReleaseDir, cfg.StateDir, cfg.Demo)}
@@ -155,6 +165,10 @@ func Run(ctx context.Context, o Options) error {
 		if _, err := odk.ConfigureProduction(ctx, r, c, odkAdmin, sec.ODKAdminPassword, odkAPI, sec.ODKAPIPassword); err != nil {
 			return err
 		}
+		step("waiting for the API (migrations)")
+		if err := verify(ctx, get, targets(cfg)[1:2], 60, wait(5*time.Second)); err != nil {
+			return err
+		}
 		step("ensuring GLOW admin " + adminEmail)
 		if err := ensureGlowAdmin(run, adminEmail); err != nil {
 			return err
@@ -192,11 +206,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	step("verifying through the proxy")
-	get := o.Get
-	if get == nil {
-		get = proxyGet
-	}
-	if err := verify(ctx, cfg, get, 30, wait(5*time.Second)); err != nil {
+	if err := verify(ctx, get, targets(cfg), 30, wait(5*time.Second)); err != nil {
 		return err
 	}
 
@@ -244,6 +254,13 @@ func rotateDemo(ctx context.Context, run runFn, interval time.Duration, pw map[s
 	if _, err := run(nil, "stop", "nginx"); err != nil {
 		return err
 	}
+	if err := rotateAfterStop(ctx, run, interval, pw); err != nil {
+		return fmt.Errorf("%w (nginx is stopped; rerun install)", err)
+	}
+	return nil
+}
+
+func rotateAfterStop(ctx context.Context, run runFn, interval time.Duration, pw map[string]string) error {
 	if _, err := run(nil, "up", "-d", "--pull", "missing", "odk-service"); err != nil {
 		return err
 	}
@@ -293,14 +310,18 @@ func ensureGlowAdmin(run runFn, email string) error {
 	return nil
 }
 
-// verify polls dashboard, api and ODK via the proxy until all answer 200.
-func verify(ctx context.Context, cfg *config.Config, get func(context.Context, *config.Config, string, string) (int, error), attempts int, interval time.Duration) error {
-	targets := [][2]string{{cfg.Domain, "/en/login"}, {"api." + cfg.Domain, "/health"}, {"odk." + cfg.Domain, "/"}}
+// targets are the proxy checks: dashboard, api (index 1) and ODK.
+func targets(cfg *config.Config) [][2]string {
+	return [][2]string{{cfg.Domain, "/en/login"}, {"api." + cfg.Domain, "/health"}, {"odk." + cfg.Domain, "/"}}
+}
+
+// verify polls the targets via the proxy until all answer 200.
+func verify(ctx context.Context, get func(context.Context, string, string) (int, error), targets [][2]string, attempts int, interval time.Duration) error {
 	var last error
 	for i := 0; i < attempts; i++ {
 		last = nil
 		for _, t := range targets {
-			code, err := get(ctx, cfg, t[0], t[1])
+			code, err := get(ctx, t[0], t[1])
 			if err == nil && code != http.StatusOK {
 				err = fmt.Errorf("HTTP %d", code)
 			}

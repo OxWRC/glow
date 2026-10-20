@@ -174,3 +174,38 @@ func TestLoadRequiresParts(t *testing.T) {
 		t.Fatal("want error for a bundle without image parts")
 	}
 }
+
+func TestOrigKeptFromFirstRewrite(t *testing.T) {
+	files := goodFiles()
+	b := mkBundle(t, files, allNames(files))
+	rel, _ := mkRelease(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(os.WriteFile(filepath.Join(rel, "compose.yml.orig"), []byte("PRISTINE"), 0o644))
+	must(Load(context.Background(), &fakeDocker{missing: map[string]bool{apiDigest: true}}, b, rel, io.Discard))
+	if o, _ := os.ReadFile(filepath.Join(rel, "compose.yml.orig")); string(o) != "PRISTINE" {
+		t.Fatalf("existing .orig overwritten: %q", o)
+	}
+}
+
+func TestRewriteOnlyWholeRefs(t *testing.T) {
+	files := goodFiles()
+	b := mkBundle(t, files, allNames(files))
+	rel := t.TempDir()
+	long := "docker.io/library/" + pgDigest
+	compose := "services:\n  a:\n    image: " + long + "\n  b:\n    image: \"" + pgDigest + "\"\n"
+	if err := os.WriteFile(filepath.Join(rel, "compose.yml"), []byte(compose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Load(context.Background(), &fakeDocker{missing: map[string]bool{pgDigest: true}}, b, rel, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(rel, "compose.yml"))
+	if !strings.Contains(string(got), "image: "+long+"\n") || !strings.Contains(string(got), `"`+pgTag+`"`) {
+		t.Fatalf("bad rewrite:\n%s", got)
+	}
+}

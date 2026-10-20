@@ -27,6 +27,7 @@ type fakeRunner struct {
 	stdins     map[string]string
 	glowUsers  []string
 	failConfig string // stdout of a failing `config check`
+	fail       func(s string) error
 }
 
 func (f *fakeRunner) Run(_ context.Context, args []string, stdin io.Reader) (string, error) {
@@ -38,6 +39,11 @@ func (f *fakeRunner) Run(_ context.Context, args []string, stdin io.Reader) (str
 			f.stdins = map[string]string{}
 		}
 		f.stdins[s] = string(b)
+	}
+	if f.fail != nil {
+		if err := f.fail(s); err != nil {
+			return "", err
+		}
 	}
 	switch {
 	case strings.HasSuffix(s, "config check"):
@@ -358,5 +364,61 @@ func TestDemoPath(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(e.st, "deployment.json"))
 	if !strings.Contains(string(b), `"demo":true`) {
 		t.Fatalf("deployment.json %s", b)
+	}
+}
+
+func TestWaitsForAPIBeforeCreatingAdmin(t *testing.T) {
+	e := setup(t, false)
+	o := e.opts(io.Discard)
+	healthy, healthCalls := false, 0
+	o.Get = func(_ context.Context, _ *config.Config, host, path string) (int, error) {
+		if host == "api.example.org" && path == "/health" {
+			if healthCalls++; healthCalls < 3 {
+				return 503, nil
+			}
+			healthy = true
+		}
+		return 200, nil
+	}
+	e.run.fail = func(s string) error {
+		if strings.Contains(s, "glow-api users") && !healthy {
+			return errors.New(`relation "users" does not exist`)
+		}
+		return nil
+	}
+	must(t, Run(context.Background(), o))
+	n := 0
+	for _, c := range e.run.calls {
+		if strings.Contains(c, "users create boss@example.org") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("admin created %d times", n)
+	}
+}
+
+func TestDemoRotationFailureMentionsNginx(t *testing.T) {
+	e := setup(t, true)
+	o := e.opts(io.Discard)
+	o.AdminEmail = ""
+	e.run.fail = func(s string) error {
+		if strings.HasSuffix(s, "user-set-password") {
+			return errors.New("boom")
+		}
+		return nil
+	}
+	err := Run(context.Background(), o)
+	if err == nil || !strings.Contains(err.Error(), "nginx is stopped; rerun install") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestDemoIgnoresAdminEmailWithNotice(t *testing.T) {
+	e := setup(t, true)
+	var out strings.Builder
+	must(t, Run(context.Background(), e.opts(&out))) // opts sets AdminEmail
+	if !strings.Contains(out.String(), "--admin-email is ignored in demo mode") {
+		t.Fatalf("no notice:\n%s", out.String())
 	}
 }

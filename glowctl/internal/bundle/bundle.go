@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -167,9 +168,10 @@ func rewrite(ctx context.Context, d Runner, digests map[string]string, releaseDi
 	sort.Strings(refs)
 	updated := map[string]string{}
 	for _, ref := range refs {
+		re := refRe(ref)
 		used := false
 		for _, c := range contents {
-			used = used || strings.Contains(c, ref)
+			used = used || re.MatchString(c)
 		}
 		if !used {
 			continue
@@ -179,8 +181,8 @@ func rewrite(ctx context.Context, d Runner, digests map[string]string, releaseDi
 		}
 		fmt.Fprintf(out, "[glowctl] %s not in image store by digest; using %s\n", ref, tagFor[ref])
 		for name, c := range contents {
-			if strings.Contains(c, ref) {
-				contents[name] = strings.ReplaceAll(c, ref, tagFor[ref])
+			if re.MatchString(c) {
+				contents[name] = re.ReplaceAllString(c, "${1}"+strings.ReplaceAll(tagFor[ref], "$", "$$")+"${2}")
 				updated[name] = contents[name]
 			}
 		}
@@ -199,7 +201,12 @@ func rewrite(ctx context.Context, d Runner, digests map[string]string, releaseDi
 		if err != nil {
 			return err
 		}
-		if err := state.WriteFileAtomic(p+".orig", orig, fi.Mode().Perm()); err != nil {
+		// Keep the first .orig: it is the pristine release file.
+		if _, err := os.Stat(p + ".orig"); os.IsNotExist(err) {
+			if err := state.WriteFileAtomic(p+".orig", orig, fi.Mode().Perm()); err != nil {
+				return err
+			}
+		} else if err != nil {
 			return err
 		}
 		if err := state.WriteFileAtomic(p, []byte(c), fi.Mode().Perm()); err != nil {
@@ -207,4 +214,10 @@ func rewrite(ctx context.Context, d Runner, digests map[string]string, releaseDi
 		}
 	}
 	return nil
+}
+
+// refRe matches ref as a whole token: bounded by start/whitespace/quote on
+// each side, so postgres@sha256:X never matches inside library/postgres@sha256:X.
+func refRe(ref string) *regexp.Regexp {
+	return regexp.MustCompile(`(^|[\s"'])` + regexp.QuoteMeta(ref) + `($|[\s"'])`)
 }
