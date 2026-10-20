@@ -19,7 +19,7 @@ def run(tmp_path, args, **env):
     full_env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
-        "TZ": "Europe/London",
+        "TZ": "BST-1",
         **env,
     }
     return subprocess.run(

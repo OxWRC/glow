@@ -8,6 +8,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Host TZ must not affect behaviour (BST-1 is a POSIX TZ string).
+        TZ: [UTC, BST-1, Pacific/Auckland]
+    env:
+      TZ: ${{ matrix.TZ }}
     defaults:
       run:
         working-directory: api

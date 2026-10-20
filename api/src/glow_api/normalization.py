@@ -5,7 +5,6 @@ and prepares submissions for query execution.
 """
 
 import logging
-from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -14,53 +13,6 @@ import pandas as pd
 from glow_api.settings import settings
 
 logger = logging.getLogger(__name__)
-
-
-def derive_period_id(timestamp: datetime) -> str:
-    """Derive period_id from a submission timestamp.
-
-    Args:
-        timestamp: The submission createdAt timestamp (may be timezone-aware or naive)
-
-    Returns:
-        Period ID string in format "YYYY-YYYY" (e.g., "2023-2024")
-
-    Rules:
-        - Convert to deployment timezone first
-        - Apply academic year cutoff (September 1 by default)
-        - Timestamps before cutoff belong to previous academic year
-        - Timestamps on or after cutoff belong to current academic year
-    """
-    # Get deployment timezone
-    tz = ZoneInfo(settings.PERIOD_TIMEZONE)
-
-    # If timestamp is naive, assume it's already in deployment timezone
-    # If timestamp is aware, convert to deployment timezone
-    if timestamp.tzinfo is None:
-        local_time = timestamp.replace(tzinfo=tz)
-    else:
-        local_time = timestamp.astimezone(tz)
-
-    # Determine academic year based on cutoff
-    # If before September 1, belongs to previous academic year
-    cutoff_month = settings.PERIOD_CUTOFF_MONTH
-    cutoff_day = settings.PERIOD_CUTOFF_DAY
-
-    year = local_time.year
-    month = local_time.month
-    day = local_time.day
-
-    # Check if before cutoff
-    if month < cutoff_month or (month == cutoff_month and day < cutoff_day):
-        # Before cutoff - belongs to previous academic year
-        start_year = year - 1
-        end_year = year
-    else:
-        # On or after cutoff - belongs to current academic year
-        start_year = year
-        end_year = year + 1
-
-    return f"{start_year}-{end_year}"
 
 
 def normalize_submissions(df: pd.DataFrame) -> pd.DataFrame:
@@ -91,6 +43,7 @@ def normalize_submissions(df: pd.DataFrame) -> pd.DataFrame:
         "createdAt" not in df_normalized.columns
         and "SubmissionDate" in df_normalized.columns
     ):
+        # Naive timestamps from data are interpreted as UTC (utc=True below).
         df_normalized["createdAt"] = df_normalized["SubmissionDate"]
 
     # Parse createdAt timestamps and derive period_id

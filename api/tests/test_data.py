@@ -737,49 +737,31 @@ class TestDataStoreIntegration:
 class TestPeriodDerivation:
     """Test period derivation from submission timestamps (Step 2 TDD)."""
 
+    @staticmethod
+    def _period(created_at: str) -> str:
+        from glow_api.normalization import normalize_submissions
+
+        df = pd.DataFrame({"uid": ["S001"], "createdAt": [created_at]})
+        return normalize_submissions(df).loc[0, "period_id"]
+
     def test_derive_period_from_created_at(self):
         """Test that period_id is derived from createdAt timestamp."""
-        from glow_api.normalization import derive_period_id
-        from datetime import datetime
-
-        # Test with a specific timestamp
-        # Assuming UK timezone (Europe/London) and period cutoff at start of academic year
-        timestamp = datetime(2023, 10, 15, 10, 30, 0)  # October 15, 2023
-
-        period_id = derive_period_id(timestamp)
-
-        # Period should be "2023-2024" for October 2023
-        assert period_id == "2023-2024"
+        assert self._period("2023-10-15T10:30:00Z") == "2023-2024"
 
     def test_derive_period_respects_timezone(self):
-        """Test that period derivation converts to deployment timezone first."""
-        from glow_api.normalization import derive_period_id
-        from datetime import datetime, timezone
-
-        # Create UTC timestamp that is Aug 31 in UTC but still Aug 31 in UK
-        # UK is GMT+1 in summer (BST), so we need to account for that
-        timestamp_utc = datetime(2023, 8, 31, 10, 30, 0, tzinfo=timezone.utc)
-
-        period_id = derive_period_id(timestamp_utc)
-
-        # Should use UK time (Aug 31 11:30 BST), which is before Sept 1
-        # August should be in previous academic year
-        assert period_id == "2022-2023"
+        """Period derivation converts to deployment timezone first."""
+        # 2023-08-31 23:30Z is Sep 1 00:30 BST: next academic year.
+        assert self._period("2023-08-31T23:30:00Z") == "2023-2024"
+        assert self._period("2023-08-31T10:30:00Z") == "2022-2023"
 
     def test_derive_period_with_cutoff_date(self):
         """Test that period cutoff applies correctly at academic year boundary."""
-        from glow_api.normalization import derive_period_id
-        from datetime import datetime
+        assert self._period("2023-08-31T12:00:00Z") == "2022-2023"
+        assert self._period("2023-09-01T12:00:00Z") == "2023-2024"
 
-        # Just before cutoff (end of August)
-        before_cutoff = datetime(2023, 8, 31, 12, 0, 0)
-        period_before = derive_period_id(before_cutoff)
-        assert period_before == "2022-2023"
-
-        # Just after cutoff (start of September)
-        after_cutoff = datetime(2023, 9, 1, 12, 0, 0)
-        period_after = derive_period_id(after_cutoff)
-        assert period_after == "2023-2024"
+    def test_naive_created_at_is_utc(self):
+        """Naive timestamps are UTC: 23:30 naive on Aug 31 is BST Sep 1."""
+        assert self._period("2023-08-31T23:30:00") == "2023-2024"
 
     def test_normalize_submissions_adds_period_id(self):
         """Test that normalizing submissions adds period_id column."""

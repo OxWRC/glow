@@ -12,6 +12,7 @@ needs school names, and isn't on ODK's network in every stack).
 import logging
 import os
 import threading
+from datetime import timezone
 from pathlib import Path
 from typing import Optional
 
@@ -49,7 +50,7 @@ class CountsStore:
         self._etags: dict[str, Optional[str]] = {}
         self._form_frames: dict[str, pd.DataFrame] = {}
         self._lock = threading.Lock()
-        self._scheduler = BackgroundScheduler()
+        self._scheduler = BackgroundScheduler(timezone=timezone.utc)
 
     def _load(self) -> pd.DataFrame:
         with log_duration("Load count fields from ODK Central") as log_data:

@@ -185,9 +185,13 @@ def _read_meta(root: Path, prefix: str) -> dict:
 
 
 def _vintage_info_from_meta(prefix: str, meta: dict) -> VintageInfo:
+    created_at = datetime.fromisoformat(meta["created_at"])
+    if created_at.tzinfo is None:
+        # Naive timestamps from data are interpreted as UTC.
+        created_at = created_at.replace(tzinfo=timezone.utc)
     return VintageInfo(
         prefix=prefix,
-        created_at=datetime.fromisoformat(meta["created_at"]),
+        created_at=created_at,
         dataset_version=meta["dataset_version"],
         row_count=meta["row_count"],
         created_by_user_id=meta.get("created_by_user_id"),

@@ -131,10 +131,10 @@ def deduplicate_submissions(
     if "school" in df.columns:
         group_cols.append("school")
 
-    # Parse createdAt if it's a string
+    # Parse createdAt to UTC-aware
     df = df.copy()
-    if df["createdAt"].dtype == object:
-        df["createdAt"] = pd.to_datetime(df["createdAt"])
+    # Naive timestamps from data are interpreted as UTC.
+    df["createdAt"] = pd.to_datetime(df["createdAt"], utc=True, format="ISO8601")
 
     # Sort by createdAt descending (latest first)
     df = df.sort_values("createdAt", ascending=False)

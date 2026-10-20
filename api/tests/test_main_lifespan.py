@@ -28,7 +28,7 @@ class _FakeDataStore:
 class _FakeScheduler:
     instances: ClassVar[list["_FakeScheduler"]] = []
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.jobs = []
         self.started = False
         self.shut_down = False

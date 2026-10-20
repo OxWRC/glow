@@ -107,6 +107,9 @@ def test_startup_schedules_hourly_poll(monkeypatch):
     class FakeScheduler:
         running = False
 
+        def __init__(self, **kwargs):
+            pass
+
         def add_job(self, func, trigger, **kwargs):
             jobs.append((func, trigger, kwargs))
 

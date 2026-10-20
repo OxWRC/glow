@@ -3,7 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, RootModel, field_validator
+from pydantic import AwareDatetime, BaseModel, Field, RootModel, field_validator
 
 from glow_api.database import normalise_email
 
@@ -238,10 +238,10 @@ class ApiKeyRead(BaseModel):
     name: str
     prefix: str
     created_by: Optional[str] = None
-    created_at: datetime
-    expires_at: datetime
-    revoked_at: Optional[datetime] = None
-    last_used_at: Optional[datetime] = None
+    created_at: AwareDatetime
+    expires_at: AwareDatetime
+    revoked_at: Optional[AwareDatetime] = None
+    last_used_at: Optional[AwareDatetime] = None
     use_count: int
 
 
@@ -252,13 +252,13 @@ class ApiKeyCreated(BaseModel):
     name: str
     prefix: str
     key: str
-    created_at: datetime
-    expires_at: datetime
+    created_at: AwareDatetime
+    expires_at: AwareDatetime
 
 
 class VintageRead(BaseModel):
     prefix: str
-    created_at: datetime
+    created_at: AwareDatetime
     dataset_version: str
     row_count: int
     created_by_username: Optional[str] = None
@@ -268,7 +268,7 @@ class VintageStatus(BaseModel):
     """Whether any vintage has been cut yet - what /query and /export read."""
 
     available: bool
-    created_at: Optional[datetime] = None
+    created_at: Optional[AwareDatetime] = None
 
 
 class CountsResponse(BaseModel):
@@ -281,7 +281,7 @@ class ExportResponse(BaseModel):
     dataset_version: str
     rules_sha256: str
     min_n: int
-    generated_at: datetime
+    generated_at: AwareDatetime
     suppressed: bool
     suppressed_periods: list[str] = Field(default_factory=list)
     coarsening: dict[str, int]
@@ -292,5 +292,5 @@ class RawExportResponse(BaseModel):
     """Demo-only: the unredacted frame /export is built from."""
 
     dataset_version: str
-    generated_at: datetime
+    generated_at: AwareDatetime
     rows: list[dict[str, Any]]

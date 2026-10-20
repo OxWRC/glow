@@ -1,4 +1,5 @@
 import os
+from datetime import timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,6 +25,19 @@ configure_logging()
 logger = structlog.get_logger("glow_api")
 
 
+def build_vintage_scheduler(ds) -> BackgroundScheduler:
+    """Monthly vintage cut, pinned to UTC so the host TZ never shifts it."""
+    scheduler = BackgroundScheduler(timezone=timezone.utc)
+    scheduler.add_job(
+        scheduled_cut_vintage,
+        "cron",
+        args=[ds],
+        day=settings.VINTAGE_CADENCE_CRON_DAY,
+        hour=settings.VINTAGE_CADENCE_CRON_HOUR,
+    )
+    return scheduler
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting application lifespan...")
@@ -44,14 +58,7 @@ async def lifespan(app: FastAPI):
 
         vintage_scheduler = None
         if settings.VINTAGES_DIR:
-            vintage_scheduler = BackgroundScheduler()
-            vintage_scheduler.add_job(
-                scheduled_cut_vintage,
-                "cron",
-                args=[ds],
-                day=settings.VINTAGE_CADENCE_CRON_DAY,
-                hour=settings.VINTAGE_CADENCE_CRON_HOUR,
-            )
+            vintage_scheduler = build_vintage_scheduler(ds)
             vintage_scheduler.start()
             logger.info("Vintage cut scheduler started")
         else:
