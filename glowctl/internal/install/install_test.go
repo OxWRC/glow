@@ -624,3 +624,50 @@ func TestDemoDoesNotPrintBackupKey(t *testing.T) {
 		t.Fatalf("demo printed key:\n%s", out.String())
 	}
 }
+
+// A demo state dir switched to production shows its (demo-created) key on the
+// first production install, then never again.
+func TestDemoThenProductionShowsKeyOnce(t *testing.T) {
+	e := setup(t, true)
+	var out0 strings.Builder
+	must(t, Run(context.Background(), e.opts(&out0)))
+	key := secret(t, e.st, "GLOW_BACKUP_KEY")
+	if strings.Contains(out0.String(), key) {
+		t.Fatal("demo printed key")
+	}
+	if _, err := os.Stat(filepath.Join(e.st, ".backup-key-shown")); err == nil {
+		t.Fatal("demo created the marker")
+	}
+	prod := "GLOW_DOMAIN=example.org\nGLOW_STATE_DIR=" + e.st + "\nGLOW_OIDC_ISSUER=https://idp.example.org\nGLOW_OIDC_CLIENT_ID=glow\nGLOW_BACKUP_PATH=" + t.TempDir() + "\n"
+	must(t, os.WriteFile(filepath.Join(e.rel, "glow.env"), []byte(prod), 0o644))
+	e.odk.projects = nil // fake ODK: the demo seed's project is not production's
+	var out1, out2 strings.Builder
+	must(t, Run(context.Background(), e.opts(&out1)))
+	o1 := strings.TrimRight(out1.String(), "\n")
+	if strings.Count(o1, key) != 1 || !strings.HasSuffix(o1, key) {
+		t.Fatalf("first production run must print key last:\n%s", o1)
+	}
+	if fi, err := os.Stat(filepath.Join(e.st, ".backup-key-shown")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("marker: %v", err)
+	}
+	must(t, Run(context.Background(), e.opts(&out2)))
+	if strings.Contains(out2.String(), key) || strings.Contains(out2.String(), keyMsg) {
+		t.Fatal("reprinted on second production run")
+	}
+}
+
+func TestFailureLineBeforeKey(t *testing.T) {
+	e := setup(t, false)
+	e.run.failConfig = "boom\n"
+	var out strings.Builder
+	o := e.opts(&out)
+	o.Err = &out
+	if err := Run(context.Background(), o); err == nil {
+		t.Fatal("want error")
+	}
+	s := out.String()
+	f, k := strings.Index(s, "[glowctl] install failed: "), strings.Index(s, keyMsg)
+	if f < 0 || k < 0 || f > k || !strings.HasSuffix(strings.TrimRight(s, "\n"), secret(t, e.st, "GLOW_BACKUP_KEY")) {
+		t.Fatalf("want failure line then key last:\n%s", s)
+	}
+}

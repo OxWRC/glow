@@ -254,11 +254,10 @@ func installCmd(args []string) int {
 	defer stop()
 	err = install.Run(ctx, install.Options{
 		ReleaseDir: rel, AdminEmail: *admin, Bundle: *bundleDir,
-		Stdin: os.Stdin, IsTTY: fi != nil && fi.Mode()&os.ModeCharDevice != 0, Out: os.Stdout,
+		Stdin: os.Stdin, IsTTY: fi != nil && fi.Mode()&os.ModeCharDevice != 0, Out: os.Stdout, Err: os.Stderr,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[glowctl] install failed: %v\n", err)
-		return 1
+		return 1 // install.Run printed the failure (before the backup key)
 	}
 	return 0
 }

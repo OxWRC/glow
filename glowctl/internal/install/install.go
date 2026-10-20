@@ -31,10 +31,13 @@ type Options struct {
 	Docker                 bundle.Runner
 	ODK                    func(*config.Config) *odk.Client
 	// Get fetches https://<host><path> through the local proxy, returning the status.
-	Get      func(ctx context.Context, cfg *config.Config, host, path string) (int, error)
-	Stdin    io.Reader
-	IsTTY    bool
-	Out      io.Writer
+	Get   func(ctx context.Context, cfg *config.Config, host, path string) (int, error)
+	Stdin io.Reader
+	IsTTY bool
+	Out   io.Writer
+	// Err, when set, receives the "install failed" line from Run itself, so
+	// it precedes the backup key (which must be the operator's last output).
+	Err      io.Writer
 	Interval time.Duration // overrides every poll interval (tests); 0 = defaults
 	Progress time.Duration // how often waits print a progress line; 0 = 30s
 }
@@ -44,13 +47,31 @@ type Options struct {
 var StateDirs = []string{"glow-postgres", "odk-postgres", "odk-secrets", "odk-transfer",
 	"odk-enketo-redis-main", "odk-enketo-redis-cache", "api-audit-logs", "vintages", "caddy-data", "backup-status"}
 
+// BackupKeyShownMarker in the state dir records that the key was printed.
+const BackupKeyShownMarker = ".backup-key-shown"
+
 // BackupKeyMessage precedes the backup key, printed once when it is generated.
 const BackupKeyMessage = "Store this backup key somewhere other than this server. Without it, backups cannot be restored."
 
 const cliJS = "/usr/odk/lib/bin/cli.js"
 
 // Run performs (or re-performs, idempotently) the install.
-func Run(ctx context.Context, o Options) error {
+func Run(ctx context.Context, o Options) (err error) {
+	// Deferred so the backup key is the operator's last output, after the
+	// failure line (if any) — later steps or an error must not scroll it away.
+	var showKey, markerPath string
+	defer func() {
+		if err != nil && o.Err != nil {
+			fmt.Fprintf(o.Err, "[glowctl] install failed: %v\n", err)
+		}
+		if showKey == "" {
+			return
+		}
+		fmt.Fprintf(o.Out, "[glowctl] %s\n[glowctl] backup key: %s\n", BackupKeyMessage, showKey)
+		// Best effort: if the marker cannot be written the key is shown again
+		// next time, which is the safe direction.
+		state.WriteFileAtomic(markerPath, nil, 0o600) //nolint:errcheck
+	}()
 	step := func(s string) { fmt.Fprintf(o.Out, "[glowctl] %s\n", s) }
 	every := o.Progress
 	if every <= 0 {
@@ -99,17 +120,16 @@ func Run(ctx context.Context, o Options) error {
 	}
 
 	step("ensuring generated secrets")
-	sec, created, err := state.EnsureSecrets(cfg.StateDir)
+	sec, _, err := state.EnsureSecrets(cfg.StateDir)
 	if err != nil {
 		return err
 	}
-	for _, k := range created {
-		// The only secret ever printed, and only in the run that created it:
-		// last, so neither later steps nor a failure scroll it away. Demo has
-		// no backups, so its key is not shown.
-		if k == "GLOW_BACKUP_KEY" && !cfg.Demo {
-			defer fmt.Fprintf(o.Out, "[glowctl] %s\n[glowctl] backup key: %s\n", BackupKeyMessage, sec.BackupKey)
-		}
+	// The only secret ever printed: once per production state dir, tracked by
+	// a marker (not "created this run"), so a demo state dir switched to
+	// production still shows its key. Demo has no backups: never shown there.
+	markerPath = filepath.Join(cfg.StateDir, BackupKeyShownMarker)
+	if _, serr := os.Stat(markerPath); !cfg.Demo && os.IsNotExist(serr) {
+		showKey = sec.BackupKey
 	}
 	step("writing runtime.env")
 	if err := state.WriteRuntimeEnv(cfg, sec, o.ReleaseDir, filepath.Join(cfg.StateDir, "runtime.env")); err != nil {
