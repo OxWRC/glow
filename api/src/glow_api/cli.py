@@ -44,7 +44,7 @@ from glow_api.database import (
 from glow_api.metadata_models import User
 from glow_api.models import validate_email
 from glow_api.settings import settings
-from glow_api.vintages import cut_vintage, get_s3_client, list_vintages
+from glow_api.vintages import cut_vintage, get_vintages_dir, list_vintages
 
 
 @click.group()
@@ -508,7 +508,7 @@ def vintages_cut() -> None:
     from glow_api.data import ODKFetchError, get_datastore
 
     try:
-        info = cut_vintage(get_datastore(), get_s3_client(), created_by=None)
+        info = cut_vintage(get_datastore(), get_vintages_dir(), created_by=None)
     except ODKFetchError as exc:
         click.echo(f"Error: {exc}. No vintage cut.", err=True)
         sys.exit(1)
@@ -519,7 +519,7 @@ def vintages_cut() -> None:
 @vintages.command("list")
 def vintages_list() -> None:
     """List all vintages, oldest first."""
-    rows = list_vintages(get_s3_client())
+    rows = list_vintages(get_vintages_dir())
     if not rows:
         click.echo("No vintages.")
         return

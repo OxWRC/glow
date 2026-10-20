@@ -2,10 +2,8 @@
 
 import json
 
-import boto3
 import pytest
 from click.testing import CliRunner
-from moto import mock_aws
 from sqlalchemy.orm import sessionmaker
 
 import glow_api.cli as cli_module
@@ -15,8 +13,6 @@ from glow_api.data import DataStore
 from glow_api.settings import settings
 from tests.mock_odk import MockODKClient
 
-BUCKET = "test-glow-cli-vintages"
-
 
 @pytest.fixture()
 def cli_env(monkeypatch, db_engine, tmp_path):
@@ -24,7 +20,7 @@ def cli_env(monkeypatch, db_engine, tmp_path):
     monkeypatch.setattr(cli_module, "SessionLocal", Session)
     audit_path = tmp_path / "audit.jsonl"
     monkeypatch.setattr(settings, "AUDIT_LOG_PATH", str(audit_path))
-    monkeypatch.setattr(settings, "VINTAGES_S3_BUCKET", BUCKET)
+    monkeypatch.setattr(settings, "VINTAGES_DIR", str(tmp_path / "vintages-root"))
     audit_module.reset_audit_sink()
 
     from glow_api import vintages as vintages_module
@@ -39,13 +35,7 @@ def cli_env(monkeypatch, db_engine, tmp_path):
     original_get_datastore = glow_api.data.get_datastore
     glow_api.data.get_datastore = lambda: fake_store
 
-    with mock_aws():
-        client = boto3.client("s3", region_name="eu-west-2")
-        client.create_bucket(
-            Bucket=BUCKET,
-            CreateBucketConfiguration={"LocationConstraint": "eu-west-2"},
-        )
-        yield Session, audit_path
+    yield Session, audit_path
 
     glow_api.data.get_datastore = original_get_datastore
     audit_module.reset_audit_sink()

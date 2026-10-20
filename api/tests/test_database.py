@@ -44,7 +44,7 @@ def test_extract_schools_from_dataframe_backfills_legacy_name_matched_school(
 def test_upsert_user_by_sub_links_existing_username_instead_of_duplicating(
     db_session,
 ):
-    """A row created via the pre-Cognito `create_user` path has no
+    """A row created via the email-less `create_user` path has no
     `oidc_sub` yet. Bootstrapping/logging in as that same username with a
     real `sub` must attach the sub to the existing row (matched by
     username), not attempt a second INSERT and hit the username unique

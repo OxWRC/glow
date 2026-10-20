@@ -1,8 +1,7 @@
 from fastapi import APIRouter
 
-# Password-based /auth/login was removed with Cognito auth (Task 2 of the
-# Cognito migration): its only dependency, authenticate_user, is gone,
-# leaving this router with no routes.
+# Password-based /auth/login was removed with the move to OIDC auth: its only
+# dependency, authenticate_user, is gone, leaving this router with no routes.
 #
 # The demo-mode login (Task 4) deliberately does NOT attach here: this
 # router is registered unconditionally in main.py, so any route added to it

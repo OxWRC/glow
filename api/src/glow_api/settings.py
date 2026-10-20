@@ -56,8 +56,7 @@ class Settings(BaseSettings):
     DEMO_MODE: bool = False
 
     # Vintages (periodic, immutable dataset archives /query and /export pin against)
-    VINTAGES_S3_BUCKET: Optional[str] = None
-    AWS_REGION: Optional[str] = None
+    VINTAGES_DIR: Optional[str] = None
     VINTAGE_CADENCE_CRON_DAY: int = 1  # day of month
     VINTAGE_CADENCE_CRON_HOUR: int = 3  # UTC hour
 

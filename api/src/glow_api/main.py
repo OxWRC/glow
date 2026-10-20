@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
         counts_store.startup()
 
         vintage_scheduler = None
-        if settings.VINTAGES_S3_BUCKET:
+        if settings.VINTAGES_DIR:
             vintage_scheduler = BackgroundScheduler()
             vintage_scheduler.add_job(
                 scheduled_cut_vintage,
@@ -56,8 +56,8 @@ async def lifespan(app: FastAPI):
             logger.info("Vintage cut scheduler started")
         else:
             logger.warning(
-                "GLOW_VINTAGES_S3_BUCKET not set - /query and /export will "
-                "503 until a vintage is cut manually and the bucket is configured"
+                "GLOW_VINTAGES_DIR not set - /query and /export will "
+                "503 until the vintages directory is configured and a vintage is cut"
             )
 
         yield

@@ -18,22 +18,8 @@ services:
       GLOW_ODK_API_PASSWORD: devpassword
       GLOW_ODK_VERIFY_SSL: "false"
       # Dev-only: mints local tokens via /demo/login instead of requiring
-      # a real Cognito pool for local dev/demo.
+      # a real identity provider for local dev/demo.
       GLOW_DEMO_MODE: "true"
-      # Vintages live in S3 only; dev uses the s3mock service below (same
-      # setup as compose.test.yml). Without these, cutting a vintage 503s and
-      # /query + /export have nothing to read.
-      <<: &dev-vintages-s3
-        GLOW_VINTAGES_S3_BUCKET: glow-vintages-dev
-        GLOW_AWS_REGION: us-east-1
-        AWS_ACCESS_KEY_ID: glow-dev
-        AWS_SECRET_ACCESS_KEY: glow-dev-secret
-        AWS_ENDPOINT_URL_S3: http://s3mock:9090
-    networks:
-      - vintages_s3
-    depends_on:
-      s3mock:
-        condition: service_healthy
 
   glow-init:
     extends:
@@ -42,20 +28,20 @@ services:
     working_dir: /app
     volumes:
       - ./api:/app
+      - ./docker-mount-data/vintages:/var/lib/glow-vintages
     environment:
+      GLOW_VINTAGES_DIR: /var/lib/glow-vintages
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
       # Same counts cache file api itself writes to (shared via the /app bind
       # mount above) -- lets `demo reset` seed schools from api's slim poll
       # instead of racing its own ODK fetch.
       GLOW_DATA_CACHE_PATH: ${GLOW_DATA_CACHE_PATH:-.cache.parquet}
-      <<: *dev-vintages-s3
     depends_on:
       api:
         condition: service_healthy
     networks:
       - api_db
       - public
-      - vintages_s3
     restart: "no"
     command:
       - sh
@@ -67,8 +53,9 @@ services:
           sleep 2
         done
         glow-api demo reset
-        # /query and /export only read pinned vintages, and s3mock starts
-        # empty - cut one now rather than waiting for the scheduler.
+        # /query and /export only read pinned vintages, and the vintages
+        # directory starts empty - cut one now rather than waiting for the
+        # scheduler.
         glow-api vintages cut
 
   dashboard:
@@ -89,7 +76,7 @@ services:
       # VITE_-prefixed vars to import.meta.env.
       VITE_PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
       # Dev-only: shows the role-picker login instead of redirecting to a
-      # (likely unconfigured) real Cognito hosted UI. Pairs with the api
+      # (likely unconfigured) real identity provider. Pairs with the api
       # service's GLOW_DEMO_MODE above.
       VITE_PUBLIC_DEMO_MODE: "true"
     healthcheck:
@@ -113,23 +100,5 @@ services:
     build:
       target: dev
 
-  # Stand-in for a real deploy's vintages store. In-memory: it
-  # starts empty on each `up`, and glow-init cuts a fresh vintage.
-  s3mock:
-    image: adobe/s3mock:5.2.3
-    environment:
-      COM_ADOBE_TESTING_S3MOCK_STORE_INITIALBUCKETS: glow-vintages-dev
-    networks:
-      - vintages_s3
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 5s
-
 volumes:
   dashboard_node_modules:
-
-networks:
-  vintages_s3:

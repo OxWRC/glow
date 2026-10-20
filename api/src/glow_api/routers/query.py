@@ -1,7 +1,8 @@
 """Period-oriented multi-variable query endpoint."""
 
 import time
-from typing import Any, Optional
+from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -18,7 +19,7 @@ from glow_api.settings import settings
 from glow_api.models import CountsResponse, VintageStatus
 from glow_api.vintages import (
     get_current_vintage_frame,
-    get_s3_client,
+    get_vintages_dir,
     get_vintage_status,
 )
 from sqlalchemy.orm import Session
@@ -149,14 +150,14 @@ def query_get(
 
 
 @router.get("/vintage", response_model=VintageStatus)
-def query_vintage_status(s3_client: Any = Depends(get_s3_client)) -> VintageStatus:
+def query_vintage_status(root: Path = Depends(get_vintages_dir)) -> VintageStatus:
     """Whether any data has been published (a vintage cut) yet.
 
     Lets the dashboard show a "waiting for data" state instead of probing
     /dimensions or /query for their 503. Public, like dataset-scoped /query:
     it reveals only that a cut happened and when.
     """
-    return get_vintage_status(s3_client)
+    return get_vintage_status(root)
 
 
 @router.get("/counts", response_model=CountsResponse)

@@ -70,10 +70,8 @@ async def _enter_and_exit_lifespan():
         pass
 
 
-def test_scheduler_started_with_configured_cron_when_bucket_set(
-    lifespan_env, monkeypatch
-):
-    monkeypatch.setattr(main_module.settings, "VINTAGES_S3_BUCKET", "a-bucket")
+def test_scheduler_started_with_configured_cron_when_dir_set(lifespan_env, monkeypatch):
+    monkeypatch.setattr(main_module.settings, "VINTAGES_DIR", "/a-dir")
     monkeypatch.setattr(main_module.settings, "VINTAGE_CADENCE_CRON_DAY", 1)
     monkeypatch.setattr(main_module.settings, "VINTAGE_CADENCE_CRON_HOUR", 3)
 
@@ -90,8 +88,8 @@ def test_scheduler_started_with_configured_cron_when_bucket_set(
     assert scheduler.shut_down
 
 
-def test_scheduler_not_started_when_bucket_unconfigured(lifespan_env, monkeypatch):
-    monkeypatch.setattr(main_module.settings, "VINTAGES_S3_BUCKET", None)
+def test_scheduler_not_started_when_dir_unconfigured(lifespan_env, monkeypatch):
+    monkeypatch.setattr(main_module.settings, "VINTAGES_DIR", None)
 
     asyncio.run(_enter_and_exit_lifespan())
 
@@ -100,7 +98,7 @@ def test_scheduler_not_started_when_bucket_unconfigured(lifespan_env, monkeypatc
 
 def test_no_full_fetch_at_startup(lifespan_env, monkeypatch):
     # The full dataset is only fetched when a vintage is cut.
-    monkeypatch.setattr(main_module.settings, "VINTAGES_S3_BUCKET", "a-bucket")
+    monkeypatch.setattr(main_module.settings, "VINTAGES_DIR", "/a-dir")
 
     asyncio.run(_enter_and_exit_lifespan())
 
@@ -108,7 +106,7 @@ def test_no_full_fetch_at_startup(lifespan_env, monkeypatch):
 
 
 def test_counts_store_starts_and_stops(lifespan_env, monkeypatch):
-    monkeypatch.setattr(main_module.settings, "VINTAGES_S3_BUCKET", None)
+    monkeypatch.setattr(main_module.settings, "VINTAGES_DIR", None)
 
     asyncio.run(_enter_and_exit_lifespan())
 

@@ -34,9 +34,7 @@ services:
       # separate, later task; this just gives them a path into the container.
       GLOW_OIDC_ISSUER: ${GLOW_OIDC_ISSUER}
       GLOW_OIDC_CLIENT_ID: ${GLOW_OIDC_CLIENT_ID}
-      # Passthrough, same reasoning as OIDC above.
-      GLOW_VINTAGES_S3_BUCKET: ${GLOW_VINTAGES_S3_BUCKET}
-      GLOW_AWS_REGION: ${GLOW_AWS_REGION}
+      GLOW_VINTAGES_DIR: /var/lib/glow-vintages
       GLOW_APP_VERSION: ${APP_VERSION:-dev}
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
       GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
@@ -45,6 +43,7 @@ services:
       - ./data:/data:ro
       - ./deploy/.deploy/share:/deploy:ro
       - ./docker-mount-data/api-audit-logs:/var/log/glow-api
+      - ./docker-mount-data/vintages:/var/lib/glow-vintages
     depends_on:
       api-db:
         condition: service_healthy
@@ -99,8 +98,8 @@ services:
       NODE_ENV: production
       PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
       # Passthrough only - no `:-` default, same reasoning as the api
-      # service's GLOW_COGNITO_* vars above: there is no working default
-      # Cognito client/domain, so an empty-string default would just
+      # service's GLOW_OIDC_* vars above: there is no working default
+      # client/domain, so an empty-string default would just
       # silently swallow Compose's own "variable is not set" warning.
       PUBLIC_COGNITO_CLIENT_ID: ${PUBLIC_COGNITO_CLIENT_ID}
       PUBLIC_COGNITO_DOMAIN: ${PUBLIC_COGNITO_DOMAIN}

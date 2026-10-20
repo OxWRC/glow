@@ -6,19 +6,24 @@ vintage cuts return byte-identical suppressed output, because they're
 reading the same frozen frame, not two different live reads a caller could
 subtract from each other.
 
-S3 is the only source of truth: no DB table. A vintage is identified by a
-lexicographically-sortable timestamp prefix, so "latest" is just "last in a
-sorted listing" - see get_latest_vintage_prefix.
+A local directory (settings.VINTAGES_DIR) is the only source of truth: no DB
+table. A vintage is identified by a lexicographically-sortable timestamp
+prefix, so "latest" is just "last in a sorted listing" - see
+get_latest_vintage_prefix. Layout: <root>/vintages/<prefix>/frame.parquet and
+meta.json. A vintage is published by renaming a fully written ".tmp-" directory
+into place, so a crashed cut is never listed or served.
 """
 
-import io
 import json
+import os
 import secrets
+import shutil
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from pathlib import Path
+from typing import Callable, Optional
 
 import pandas as pd
 from fastapi import Depends, HTTPException
@@ -50,14 +55,14 @@ class VintageInfo:
 
 
 class VintageStorageNotConfigured(RuntimeError):
-    """No bucket configured - main.py maps this to a 503."""
+    """No vintages directory configured - main.py maps this to a 503."""
 
 
-def _bucket(bucket: Optional[str]) -> str:
-    bucket = bucket or settings.VINTAGES_S3_BUCKET
-    if not bucket:
-        raise VintageStorageNotConfigured("GLOW_VINTAGES_S3_BUCKET is not set")
-    return bucket
+def get_vintages_dir() -> Path:
+    """FastAPI dependency: the configured root, or fail closed."""
+    if not settings.VINTAGES_DIR:
+        raise VintageStorageNotConfigured("GLOW_VINTAGES_DIR is not set")
+    return Path(settings.VINTAGES_DIR)
 
 
 def _vintage_prefix(created_at: datetime) -> str:
@@ -72,12 +77,18 @@ def _vintage_prefix(created_at: datetime) -> str:
     return f"vintages/{created_at.strftime(PREFIX_TIME_FORMAT)}-{disambiguator}/"
 
 
-def _frame_key(prefix: str) -> str:
-    return f"{prefix}frame.parquet"
+_PRIVATE_DIR = 0o700
+_PRIVATE_FILE = 0o600
 
 
-def _meta_key(prefix: str) -> str:
-    return f"{prefix}meta.json"
+def _write_private(path: Path, data: bytes) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, _PRIVATE_FILE)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+
+
+def _write_meta(directory: Path, meta: dict) -> None:
+    _write_private(directory / "meta.json", json.dumps(meta, default=str).encode())
 
 
 def _serialize_observed_periods(observed_periods: dict) -> dict:
@@ -98,12 +109,12 @@ class _LatestPrefixCache:
         self._fetched_at: float = 0.0
         self._loaded = False
 
-    def get(self, s3_client: Any, bucket: str) -> Optional[str]:
+    def get(self, root: Path) -> Optional[str]:
         with self._lock:
             now = time.monotonic()
             if self._loaded and (now - self._fetched_at) < self._ttl:
                 return self._prefix
-            self._prefix = _list_latest_prefix(s3_client, bucket)
+            self._prefix = _list_latest_prefix(root)
             self._fetched_at = now
             self._loaded = True
             return self._prefix
@@ -116,7 +127,7 @@ class _LatestPrefixCache:
 class VintageCache:
     """Every frame this process has been asked to serve, keyed by prefix.
 
-    Never evicts: S3 objects are immutable from the app's perspective once
+    Never evicts: vintage files are immutable from the app's perspective once
     written (a vintage's prefix is never reused), so there's no reason to
     throw an old entry away - at most ~60 vintages over the project's
     5-year life, a few MB each, the whole history costs nothing to keep in
@@ -152,21 +163,25 @@ def get_vintage_cache() -> VintageCache:
     return _vintage_cache
 
 
-def _list_prefixes(s3_client: Any, bucket: str) -> list[str]:
-    response = s3_client.list_objects_v2(
-        Bucket=bucket, Prefix="vintages/", Delimiter="/"
+def _list_prefixes(root: Path) -> list[str]:
+    vintages_root = root / "vintages"
+    if not vintages_root.is_dir():
+        return []
+    # Dot-prefixed names are in-flight (".tmp-") cuts, never vintages.
+    return sorted(
+        f"vintages/{entry.name}/"
+        for entry in vintages_root.iterdir()
+        if entry.is_dir() and not entry.name.startswith(".")
     )
-    return sorted(entry["Prefix"] for entry in response.get("CommonPrefixes", []))
 
 
-def _list_latest_prefix(s3_client: Any, bucket: str) -> Optional[str]:
-    prefixes = _list_prefixes(s3_client, bucket)
+def _list_latest_prefix(root: Path) -> Optional[str]:
+    prefixes = _list_prefixes(root)
     return prefixes[-1] if prefixes else None
 
 
-def _read_meta(s3_client: Any, bucket: str, prefix: str) -> dict:
-    obj = s3_client.get_object(Bucket=bucket, Key=_meta_key(prefix))
-    return json.loads(obj["Body"].read())
+def _read_meta(root: Path, prefix: str) -> dict:
+    return json.loads((root / prefix / "meta.json").read_bytes())
 
 
 def _vintage_info_from_meta(prefix: str, meta: dict) -> VintageInfo:
@@ -188,11 +203,10 @@ _cut_lock = threading.Lock()
 
 def cut_vintage(
     datastore: DataStore,
-    s3_client: Any,
+    root: Path,
     created_by: Optional[tuple[int, str]] = None,
-    bucket: Optional[str] = None,
 ) -> VintageInfo:
-    """Fetch the latest data from ODK, freeze it, and upload it as a new vintage.
+    """Fetch the latest data from ODK, freeze it, and write it as a new vintage.
 
     The cut is the only regular full fetch (see DataStore), so it raises
     ODKFetchError rather than freezing stale data if ODK can't be reached.
@@ -202,14 +216,13 @@ def cut_vintage(
     existing nullable-FK convention for "no user", just without a live FK.
     """
     with _cut_lock:
-        return _cut_vintage(datastore, s3_client, created_by, _bucket(bucket))
+        return _cut_vintage(datastore, root, created_by)
 
 
 def _cut_vintage(
     datastore: DataStore,
-    s3_client: Any,
+    root: Path,
     created_by: Optional[tuple[int, str]],
-    bucket: str,
 ) -> VintageInfo:
     datastore.refresh(strict=True)
     frozen = datastore.to_frozen()
@@ -217,12 +230,6 @@ def _cut_vintage(
     prefix = _vintage_prefix(created_at)
     version = dataset_version(frozen.df)
     row_count = len(frozen.df)
-
-    frame_buf = io.BytesIO()
-    frozen.df.to_parquet(frame_buf)
-    s3_client.put_object(
-        Bucket=bucket, Key=_frame_key(prefix), Body=frame_buf.getvalue()
-    )
 
     created_by_user_id, created_by_username = created_by if created_by else (None, None)
     meta = {
@@ -236,11 +243,25 @@ def _cut_vintage(
         "created_by_user_id": created_by_user_id,
         "created_by_username": created_by_username,
     }
-    s3_client.put_object(
-        Bucket=bucket,
-        Key=_meta_key(prefix),
-        Body=json.dumps(meta, default=str).encode(),
-    )
+
+    # Publish atomically: write everything into a dot-prefixed temp dir, then
+    # rename it into place. Listing ignores dot-prefixed names, so a crash
+    # mid-cut can never leave a half-written vintage that looks like latest.
+    vintages_root = root / "vintages"
+    vintages_root.mkdir(mode=_PRIVATE_DIR, parents=True, exist_ok=True)
+    vintages_root.chmod(_PRIVATE_DIR)
+    final_dir = root / prefix
+    tmp_dir = vintages_root / f".tmp-{final_dir.name}"
+    tmp_dir.mkdir(mode=_PRIVATE_DIR)
+    try:
+        frame_path = tmp_dir / "frame.parquet"
+        frozen.df.to_parquet(frame_path)
+        frame_path.chmod(_PRIVATE_FILE)
+        _write_meta(tmp_dir, meta)
+        os.rename(tmp_dir, final_dir)
+    except BaseException:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
     # A manual cut must take effect on the very next request, not after the
     # latest-prefix TTL window. The frame cache needs no invalidation here:
@@ -253,7 +274,7 @@ def _cut_vintage(
 def scheduled_cut_vintage(datastore: DataStore) -> VintageInfo:
     """Scheduler job entry point. Bypasses HTTP middleware, so it writes its
     own audit line directly - same reasoning as the CLI's _audit_cli."""
-    info = cut_vintage(datastore, get_s3_client(), created_by=None)
+    info = cut_vintage(datastore, get_vintages_dir(), created_by=None)
     audit_module.write_audit_line(
         {
             "actor": "scheduler",
@@ -266,25 +287,21 @@ def scheduled_cut_vintage(datastore: DataStore) -> VintageInfo:
     return info
 
 
-def list_vintages(s3_client: Any, bucket: Optional[str] = None) -> list[VintageInfo]:
-    bucket = _bucket(bucket)
-    prefixes = _list_prefixes(s3_client, bucket)
+def list_vintages(root: Path) -> list[VintageInfo]:
     return [
-        _vintage_info_from_meta(prefix, _read_meta(s3_client, bucket, prefix))
-        for prefix in prefixes
+        _vintage_info_from_meta(prefix, _read_meta(root, prefix))
+        for prefix in _list_prefixes(root)
     ]
 
 
-def get_latest_vintage_prefix(
-    s3_client: Any, bucket: Optional[str] = None
-) -> Optional[str]:
-    return _latest_prefix_cache.get(s3_client, _bucket(bucket))
+def get_latest_vintage_prefix(root: Path) -> Optional[str]:
+    return _latest_prefix_cache.get(root)
 
 
-def get_vintage_status(s3_client: Any, bucket: Optional[str] = None) -> VintageStatus:
+def get_vintage_status(root: Path) -> VintageStatus:
     """Whether a vintage exists, and when the latest was cut - read off its
     prefix, so it costs no more than the TTL-cached listing."""
-    prefix = get_latest_vintage_prefix(s3_client, bucket)
+    prefix = get_latest_vintage_prefix(root)
     if prefix is None:
         return VintageStatus(available=False)
     timestamp = prefix.removeprefix("vintages/").rsplit("-", 1)[0]
@@ -294,13 +311,9 @@ def get_vintage_status(s3_client: Any, bucket: Optional[str] = None) -> VintageS
     return VintageStatus(available=True, created_at=created_at)
 
 
-def load_vintage_frame(
-    prefix: str, s3_client: Any, bucket: Optional[str] = None
-) -> DataFrameWithWhitelists:
-    bucket = _bucket(bucket)
-    frame_obj = s3_client.get_object(Bucket=bucket, Key=_frame_key(prefix))
-    df = pd.read_parquet(io.BytesIO(frame_obj["Body"].read()))
-    meta = _read_meta(s3_client, bucket, prefix)
+def load_vintage_frame(prefix: str, root: Path) -> DataFrameWithWhitelists:
+    df = pd.read_parquet(root / prefix / "frame.parquet")
+    meta = _read_meta(root, prefix)
     return DataFrameWithWhitelists(
         df=df,
         categorical_whitelist=meta["categorical_whitelist"],
@@ -310,14 +323,8 @@ def load_vintage_frame(
     )
 
 
-def get_s3_client() -> Any:
-    import boto3
-
-    return boto3.client("s3", region_name=settings.AWS_REGION)
-
-
 def get_current_vintage_frame(
-    s3_client: Any = Depends(get_s3_client),
+    root: Path = Depends(get_vintages_dir),
 ) -> DataFrameWithWhitelists:
     """FastAPI dependency: the frame /query and /export must read instead of
     datastore.to_frozen(). Fails closed (503) rather than falling back to
@@ -325,7 +332,7 @@ def get_current_vintage_frame(
     module exists to close, invisibly and inconsistently before/after the
     first cut.
     """
-    prefix = get_latest_vintage_prefix(s3_client)
+    prefix = get_latest_vintage_prefix(root)
     if prefix is None:
         raise HTTPException(status_code=503, detail="No vintage available yet")
-    return _vintage_cache.get(prefix, lambda: load_vintage_frame(prefix, s3_client))
+    return _vintage_cache.get(prefix, lambda: load_vintage_frame(prefix, root))

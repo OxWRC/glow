@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -37,7 +39,7 @@ from glow_api.models import (
     UserUpdate,
     VintageRead,
 )
-from glow_api.vintages import VintageInfo, cut_vintage, get_s3_client, list_vintages
+from glow_api.vintages import VintageInfo, cut_vintage, get_vintages_dir, list_vintages
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -392,7 +394,7 @@ def revoke_key(
 
 # ---------------------------------------------------------------------------
 # Vintages (periodic, immutable dataset archives /query and /export pin
-# against). S3 is the only source of truth - see glow_api.vintages.
+# against). The vintages directory is the only source of truth - see glow_api.vintages.
 # ---------------------------------------------------------------------------
 
 
@@ -409,9 +411,9 @@ def _vintage_read(info: VintageInfo) -> VintageRead:
 @router.get("/vintages", response_model=list[VintageRead])
 def list_vintages_route(
     _: UserRead = Depends(_require_admin),
-    s3_client=Depends(get_s3_client),
+    root: Path = Depends(get_vintages_dir),
 ) -> list[VintageRead]:
-    return [_vintage_read(info) for info in list_vintages(s3_client)]
+    return [_vintage_read(info) for info in list_vintages(root)]
 
 
 @router.post(
@@ -420,9 +422,9 @@ def list_vintages_route(
 def cut_vintage_route(
     admin: UserRead = Depends(_require_admin),
     datastore: DataStore = Depends(get_datastore),
-    s3_client=Depends(get_s3_client),
+    root: Path = Depends(get_vintages_dir),
 ) -> VintageRead:
-    info = cut_vintage(datastore, s3_client, created_by=(admin.id, admin.username))
+    info = cut_vintage(datastore, root, created_by=(admin.id, admin.username))
     request_context.record_event(
         "vintage_cut",
         actor=admin.username,

@@ -8,19 +8,17 @@ new student's exact value algebraically. Pinning both endpoints to an
 immutable vintage means two calls between cuts return byte-identical
 output, however much the live data underneath has changed.
 
-These go through the REAL get_current_vintage_frame dependency chain (S3 via
-moto), unlike most other /query and /export tests, which use conftest's
+These go through the REAL get_current_vintage_frame dependency chain (a tmp_path
+vintages dir), unlike most other /query and /export tests, which use conftest's
 shortcut of pinning the dependency straight to a fixed frame for
 convenience - that shortcut would make this specific behaviour untestable.
 """
 
 import threading
 
-import boto3
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
-from moto import mock_aws
 
 from glow_api.api_keys import issue_api_key
 from glow_api.data import DataStore, get_datastore
@@ -28,10 +26,8 @@ from glow_api.database import get_db
 from glow_api.export import get_suppression_rules
 from glow_api.main import app
 from glow_api.suppression import parse_rules
-from glow_api.vintages import cut_vintage, get_s3_client
+from glow_api.vintages import cut_vintage
 from tests.mock_odk import MockODKClient
-
-BUCKET = "test-glow-vintages-pinning"
 
 # Six students, one period, one school - well clear of min_n=5 so the
 # period isn't suppressed and an actual mean is returned. No "createdAt"
@@ -70,14 +66,8 @@ def _make_period_store() -> DataStore:
 
 
 @pytest.fixture()
-def s3_client():
-    with mock_aws():
-        client = boto3.client("s3", region_name="eu-west-2")
-        client.create_bucket(
-            Bucket=BUCKET,
-            CreateBucketConfiguration={"LocationConstraint": "eu-west-2"},
-        )
-        yield client
+def vintages_root(tmp_path):
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)
@@ -92,10 +82,10 @@ def _reset_vintage_caches():
 
 
 @pytest.fixture()
-def pinned_client(db_session, s3_client, monkeypatch):
+def pinned_client(db_session, vintages_root, monkeypatch):
     import glow_api.vintages as vintages_module
 
-    monkeypatch.setattr(vintages_module.settings, "VINTAGES_S3_BUCKET", BUCKET)
+    monkeypatch.setattr(vintages_module.settings, "VINTAGES_DIR", str(vintages_root))
 
     fake_store = _make_period_store()
 
@@ -107,7 +97,6 @@ def pinned_client(db_session, s3_client, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_datastore] = override_get_datastore
-    app.dependency_overrides[get_s3_client] = lambda: s3_client
     app.dependency_overrides[get_suppression_rules] = lambda: _TEST_RULES
 
     with TestClient(app, raise_server_exceptions=True) as c:
@@ -157,11 +146,11 @@ def test_vintage_status_before_first_cut_says_no_data_yet(pinned_client):
     assert response.json() == example["response"]
 
 
-def test_vintage_status_after_cut_reports_when(pinned_client, s3_client):
+def test_vintage_status_after_cut_reports_when(pinned_client, vintages_root):
     from datetime import datetime
 
     client, fake_store = pinned_client
-    info = cut_vintage(fake_store, s3_client, bucket=BUCKET)
+    info = cut_vintage(fake_store, vintages_root)
 
     body = client.get("/query/vintage").json()
 
@@ -169,9 +158,9 @@ def test_vintage_status_after_cut_reports_when(pinned_client, s3_client):
     assert datetime.fromisoformat(body["created_at"]) == info.created_at
 
 
-def test_query_is_pinned_not_live(pinned_client, s3_client):
+def test_query_is_pinned_not_live(pinned_client, vintages_root):
     client, fake_store = pinned_client
-    cut_vintage(fake_store, s3_client, bucket=BUCKET)
+    cut_vintage(fake_store, vintages_root)
 
     first = client.get("/query/", params={"v": ["bw_wbeing_1"]})
     second = client.get("/query/", params={"v": ["bw_wbeing_1"]})
@@ -185,7 +174,7 @@ def test_query_is_pinned_not_live(pinned_client, s3_client):
         "a live data change leaked into /query's output before a new vintage was cut"
     )
 
-    cut_vintage(fake_store, s3_client, bucket=BUCKET)
+    cut_vintage(fake_store, vintages_root)
 
     fourth = client.get("/query/", params={"v": ["bw_wbeing_1"]})
     assert fourth.json() != first.json(), (
@@ -193,11 +182,11 @@ def test_query_is_pinned_not_live(pinned_client, s3_client):
     )
 
 
-def test_export_is_pinned_not_live(pinned_client, s3_client, db_session):
+def test_export_is_pinned_not_live(pinned_client, vintages_root, db_session):
     client, fake_store = pinned_client
     _, raw_key = issue_api_key(db_session, "test", None, None)
     client.headers["X-API-Key"] = raw_key
-    cut_vintage(fake_store, s3_client, bucket=BUCKET)
+    cut_vintage(fake_store, vintages_root)
 
     first = client.get("/export")
     second = client.get("/export")

@@ -88,7 +88,9 @@ def test_export_requires_valid_key(auth_client, db_session):
 
 def test_export_rejects_jwt_only(auth_client, db_session):
     upsert_user_by_sub(db_session, "jwt-only-sub", username="jwtonly", is_admin=True)
-    token = create_access_token({"sub": "jwt-only-sub", "cognito:username": "jwtonly"})
+    token = create_access_token(
+        {"sub": "jwt-only-sub", "preferred_username": "jwtonly"}
+    )
     headers = {"Authorization": f"Bearer {token}"}
     # The token itself is good: a JWT route accepts it.
     assert auth_client.get("/me", headers=headers).status_code == 200

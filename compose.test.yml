@@ -15,8 +15,8 @@ services:
       GLOW_ODK_API_EMAIL: api@glow.local
       GLOW_ODK_API_PASSWORD: devpassword
       GLOW_ODK_VERIFY_SSL: "false"
-      # No real Cognito pool in CI: without this, _build_verifier() raises
-      # at import time (neither a pool nor the bypass is configured) and the
+      # No real identity provider in CI: without this, _build_verifier() raises
+      # at import time (neither an issuer nor the bypass is configured) and the
       # api container never boots. smoke_compose.sh and smoke.spec.ts both
       # log in via /demo/login, which only exists when this is set.
       GLOW_DEMO_MODE: "true"
@@ -25,24 +25,10 @@ services:
       # fetch (neither container has a bind-mounted source tree in CI to
       # share it "for free" the way compose.override.yml's dev glow-init does).
       GLOW_DATA_CACHE_PATH: /cache/data.parquet
-      # No real AWS account in CI: point the vintages S3 client at the
-      # s3mock service below instead. get_s3_client() is a bare
-      # boto3.client("s3", ...) call, so these are read straight off boto3's
-      # own standard env vars / credential chain, not through Settings.
-      # An explicit endpoint_url also makes botocore default to path-style
-      # addressing, which is what a non-AWS host like s3mock needs.
-      GLOW_VINTAGES_S3_BUCKET: glow-vintages-test
-      GLOW_AWS_REGION: us-east-1
-      AWS_ACCESS_KEY_ID: glow-test
-      AWS_SECRET_ACCESS_KEY: glow-test-secret
-      AWS_ENDPOINT_URL_S3: http://s3mock:9090
+      GLOW_VINTAGES_DIR: /var/lib/glow-vintages
     volumes:
       - glow_cache:/cache
-    networks:
-      - vintages_s3
-    depends_on:
-      s3mock:
-        condition: service_healthy
+      - glow_vintages:/var/lib/glow-vintages
     healthcheck:
       interval: 5s
       timeout: 5s
@@ -53,32 +39,11 @@ services:
   api-db:
     restart: "no"
 
-  # Local S3-compatible store for the vintages feature (glow_api.vintages),
-  # which has no DB table and treats S3 as its only source of truth. Real
-  # deploys use a real vintages store instead.
-  # CI has no AWS account, so the api container's cut_vintage /
-  # list_vintages calls need something to hit instead, or they 500 the way
-  # they did before this existed. initial-buckets auto-creates the bucket
-  # named below on startup, so nothing else has to create it.
-  s3mock:
-    image: adobe/s3mock:5.2.3
-    environment:
-      COM_ADOBE_TESTING_S3MOCK_STORE_INITIALBUCKETS: glow-vintages-test
-    networks:
-      - vintages_s3
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 5s
-    restart: "no"
-
   dashboard:
     environment:
       PUBLIC_API_BASE: http://127.0.0.1:8000
-      # Login form is gone (Cognito hosted UI replaced it); CI has no real
-      # pool, so smoke.spec.ts drives the demo-mode role picker instead.
+      # Login form is gone (the OIDC login replaced it); CI has no real
+      # provider, so smoke.spec.ts drives the demo-mode role picker instead.
       PUBLIC_DEMO_MODE: "true"
     restart: "no"
     depends_on:
@@ -142,6 +107,4 @@ services:
 
 volumes:
   glow_cache:
-
-networks:
-  vintages_s3:
+  glow_vintages:
