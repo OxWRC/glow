@@ -2,8 +2,8 @@
 
 Usage:
     python -m glow_api.cli users list
-    python -m glow_api.cli users create USERNAME
-    python -m glow_api.cli users update USERNAME
+    python -m glow_api.cli users create EMAIL [--schools A,B] [--admin]
+    python -m glow_api.cli users update EMAIL [--schools ...] [--active/--inactive] [--admin/--no-admin]
     python -m glow_api.cli users delete USERNAME
     python -m glow_api.cli schools list
     python -m glow_api.cli schools create NAME
@@ -18,7 +18,6 @@ import json
 import sys
 from datetime import UTC, datetime
 
-import boto3
 import click
 from sqlalchemy import select
 
@@ -31,6 +30,7 @@ from glow_api.database import (
     delete_user,
     get_api_key_by_id,
     get_school_by_name,
+    get_user_by_email,
     get_user_by_username,
     list_api_keys,
     list_schools,
@@ -40,9 +40,9 @@ from glow_api.database import (
     seed_demo,
     sync_schools,
     update_user,
-    upsert_user_by_sub,
 )
 from glow_api.metadata_models import User
+from glow_api.models import validate_email
 from glow_api.settings import settings
 from glow_api.vintages import cut_vintage, get_s3_client, list_vintages
 
@@ -109,74 +109,8 @@ def users_list() -> None:
         )
 
 
-def _get_cognito_client():
-    """Construct the boto3 Cognito Identity Provider client.
-
-    Its own function so tests can monkeypatch this instead of touching
-    boto3/AWS credentials.
-    """
-    return boto3.client("cognito-idp", region_name=settings.COGNITO_REGION)
-
-
-def _bootstrap_cognito_user(
-    db,
-    username: str,
-    password: str,
-    permanent: bool,
-    is_admin: bool,
-    school_ids: list[int],
-) -> User:
-    """Create/find `username` in Cognito, then upsert the local row by its `sub`.
-
-    Idempotent: if the Cognito user already exists (UsernameExistsException),
-    falls back to AdminGetUser for its `sub` instead of failing - matching
-    compose.override.yml's tolerance for re-running the bootstrap on an
-    already-provisioned pool. Either way, `upsert_user_by_sub` is used (not
-    `create_user`) so a Cognito-exists-but-local-row-missing user still gets
-    a local row rather than an "already exists" error.
-    """
-    pool_id = settings.COGNITO_USER_POOL_ID
-    client = _get_cognito_client()
-    try:
-        response = client.admin_create_user(
-            UserPoolId=pool_id,
-            Username=username,
-            MessageAction="SUPPRESS",
-        )
-        attributes = response["User"]["Attributes"]
-    except client.exceptions.UsernameExistsException:
-        response = client.admin_get_user(UserPoolId=pool_id, Username=username)
-        attributes = response["UserAttributes"]
-
-    oidc_sub = next(a["Value"] for a in attributes if a["Name"] == "sub")
-
-    client.admin_set_user_password(
-        UserPoolId=pool_id,
-        Username=username,
-        Password=password,
-        Permanent=permanent,
-    )
-
-    return upsert_user_by_sub(
-        db,
-        oidc_sub,
-        username=username,
-        is_admin=is_admin,
-        school_ids=school_ids,
-    )
-
-
 @users.command("create")
-@click.argument("username")
-@click.option(
-    "--password",
-    default=None,
-    help=(
-        "Cognito password to set for this user. Only used with --bootstrap "
-        "(ignored otherwise); prompted interactively if --bootstrap is given "
-        "without it."
-    ),
-)
+@click.argument("email")
 @click.option(
     "--schools",
     default="",
@@ -185,50 +119,13 @@ def _bootstrap_cognito_user(
 @click.option(
     "--admin", "is_admin", is_flag=True, default=False, help="Grant admin privileges."
 )
-@click.option(
-    "--bootstrap",
-    is_flag=True,
-    default=False,
-    help=(
-        "Provision this user in Cognito too (AdminCreateUser/AdminSetUserPassword) "
-        "and upsert the local row by its Cognito sub. Requires GLOW_COGNITO_USER_POOL_ID "
-        "to be configured. Idempotent: safe to re-run against an already-provisioned pool."
-    ),
-)
-@click.option(
-    "--permanent-password",
-    is_flag=True,
-    default=False,
-    help=(
-        "With --bootstrap, set the password as permanent instead of temporary "
-        "(force-change-on-first-login). For demo/seed accounts only."
-    ),
-)
-def users_create(
-    username: str,
-    password: str | None,
-    schools: str,
-    is_admin: bool,
-    bootstrap: bool,
-    permanent_password: bool,
-) -> None:
-    """Create a new user."""
-    if permanent_password and not bootstrap:
-        click.echo("--permanent-password only applies with --bootstrap.", err=True)
+def users_create(email: str, schools: str, is_admin: bool) -> None:
+    """Create a user by EMAIL; they link to their identity on first login."""
+    try:
+        email = validate_email(email)
+    except ValueError:
+        click.echo(f"'{email}' is not a valid email address.", err=True)
         sys.exit(1)
-
-    if bootstrap and not settings.COGNITO_USER_POOL_ID:
-        click.echo(
-            "GLOW_COGNITO_USER_POOL_ID is not configured - --bootstrap only makes "
-            "sense when Cognito is the active identity provider.",
-            err=True,
-        )
-        sys.exit(1)
-
-    if not bootstrap and password is not None:
-        click.echo("--password only applies with --bootstrap; ignoring.", err=True)
-    if bootstrap and password is None:
-        password = click.prompt("Password", hide_input=True, confirmation_prompt=True)
 
     with SessionLocal() as db:
         # Parse school names and get IDs
@@ -245,27 +142,13 @@ def users_create(
                     sys.exit(1)
                 school_ids.append(school.id)
 
-        if bootstrap:
-            user = _bootstrap_cognito_user(
-                db,
-                username=username,
-                password=password,
-                permanent=permanent_password,
-                is_admin=is_admin,
-                school_ids=school_ids,
-            )
-        else:
-            existing = get_user_by_username(db, username)
-            if existing is not None:
-                click.echo(f"User '{username}' already exists.", err=True)
-                sys.exit(1)
+        if get_user_by_email(db, email) or get_user_by_username(db, email):
+            click.echo(f"User '{email}' already exists.", err=True)
+            sys.exit(1)
 
-            user = create_user(
-                db,
-                username=username,
-                school_ids=school_ids,
-                is_admin=is_admin,
-            )
+        user = create_user(
+            db, username=email, email=email, school_ids=school_ids, is_admin=is_admin
+        )
         # Eagerly load school names before session closes
         school_names = [s.name for s in user.schools]
         user_id = user.id
@@ -290,14 +173,23 @@ def users_create(
     default=None,
     help="Set user active or inactive.",
 )
+@click.option(
+    "--admin/--no-admin",
+    "is_admin",
+    default=None,
+    help="Grant or revoke admin privileges.",
+)
 def users_update(
     username: str,
     schools: str | None,
     active: bool | None,
+    is_admin: bool | None,
 ) -> None:
-    """Update a user's schools, or active status."""
-    if schools is None and active is None:
-        click.echo("Nothing to update. Provide --schools or --active/--inactive.")
+    """Update a user's schools, active status, or admin flag."""
+    if schools is None and active is None and is_admin is None:
+        click.echo(
+            "Nothing to update. Provide --schools, --active/--inactive or --admin/--no-admin."
+        )
         return
 
     school_ids: list[int] | None = None
@@ -320,7 +212,9 @@ def users_update(
         if user is None:
             click.echo(f"User '{username}' not found.", err=True)
             sys.exit(1)
-        update_user(db, user, school_ids=school_ids, is_active=active)
+        update_user(
+            db, user, school_ids=school_ids, is_active=active, is_admin=is_admin
+        )
 
     click.echo(f"User '{username}' updated.")
 

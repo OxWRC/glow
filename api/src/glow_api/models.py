@@ -1,8 +1,21 @@
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, field_validator
+
+from glow_api.database import normalise_email
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def validate_email(value: str) -> str:
+    """Return the normalised email, or raise ValueError if it is not valid."""
+    email = normalise_email(value)
+    if email is None or not _EMAIL_RE.match(email):
+        raise ValueError("invalid email address")
+    return email
 
 
 class SuppressionCode(str, Enum):
@@ -19,9 +32,11 @@ class TokenData(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str
+    email: str
     school_ids: list[int] = Field(default_factory=list)
     is_admin: bool = False
+
+    _normalise_email = field_validator("email")(validate_email)
 
 
 class UserRead(BaseModel):

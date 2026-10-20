@@ -115,6 +115,13 @@ def normalise_email(email: str | None) -> str | None:
     return email or None
 
 
+def get_user_by_email(db: Session, email: str) -> User | None:
+    normalised = normalise_email(email)
+    if normalised is None:
+        return None
+    return db.query(User).filter(User.email == normalised).first()
+
+
 def get_user_by_sub(db: Session, oidc_sub: str) -> User | None:
     return db.query(User).filter(User.oidc_sub == oidc_sub).first()
 
@@ -143,7 +150,7 @@ def upsert_user_by_sub(
     """Find or create the local User row for a given OIDC `sub`, syncing
     is_admin/school_ids to the given values on every call.
 
-    Used by the demo-mode login and the user bootstrap CLI
+    Used by the demo-mode login
     to link a local row to an identity that only exists as a token
     claim - `get_user_by_sub` then finds a real row for the rest of the auth
     stack. `username` defaults to `oidc_sub` when creating a new row (only

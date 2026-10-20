@@ -158,7 +158,7 @@ class TestAdminMutationAuditEvents:
             resp = admin_client.post(
                 "/admin/users",
                 json={
-                    "username": "brandnewuser",
+                    "email": "brandnewuser@school.org",
                     "school_ids": [],
                     "is_admin": False,
                 },
@@ -169,4 +169,4 @@ class TestAdminMutationAuditEvents:
         assert mutation["stage"] == "admin_mutation"
         assert mutation["action"] == "create_user"
         assert mutation["actor_username"] == "adminuser"
-        assert mutation["target_username"] == "brandnewuser"
+        assert mutation["target_username"] == "brandnewuser@school.org"

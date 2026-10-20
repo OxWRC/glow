@@ -27,9 +27,9 @@ For the most consistent development experience:
 3. Click "Reopen in Container" when prompted (or use Command Palette → "Dev Containers: Reopen in Container")
 4. Wait for the devcontainer to build and app services to start
 5. Generate and seed test data (see [Data Collection & Format](#data-collection--format) section below)
-6. Log in: local dev has `GLOW_DEMO_MODE` on by default (`compose.override.yml`), so the dashboard's login page shows a role picker (Admin / School) — no user needs to be created manually. Against a real Cognito-backed deployment, the first admin is created with `--bootstrap` (see [Admin CLI](#admin-cli) below):
+6. Log in: local dev has `GLOW_DEMO_MODE` on by default (`compose.override.yml`), so the dashboard's login page shows a role picker (Admin / School) — no user needs to be created manually. Against a real deployment, create the first admin by email (they are linked to their identity provider account on first login; see [Admin CLI](#admin-cli) below):
    ```bash
-   docker compose exec api glow-api users create admin --bootstrap --admin --password 'TempPass123!'
+   docker compose exec api glow-api users create admin@example.org --admin
    ```
 
 The dashboard will be available at <http://localhost:3000> and the API at <http://localhost:8000>.
@@ -59,8 +59,8 @@ docker compose --profile odk up --build
 
 # Local dev has GLOW_DEMO_MODE on by default, so sign in via the
 # dashboard's role picker — no user needs to be created manually. Against a
-# real Cognito-backed deployment, create the first admin with --bootstrap:
-docker compose exec api glow-api users create admin --bootstrap --admin --password 'TempPass123!'
+# real deployment, create the first admin by email:
+docker compose exec api glow-api users create admin@example.org --admin
 ```
 
 The dashboard will be available at <http://localhost:3000>.
@@ -118,7 +118,7 @@ Interactive documentation is available at `/docs` (Swagger UI) and `/redoc`.
 
 ### Authentication
 
-Sign-in is Cognito-backed: the dashboard redirects to the Cognito hosted UI, exchanges the returned code for a token, and calls `GET /me` with it. There is no password-grant endpoint. For local dev, set `GLOW_DEMO_MODE`/`VITE_PUBLIC_DEMO_MODE` (on by default via `compose.override.yml`) to skip Cognito and use `POST /demo/login` with the dashboard's role picker instead. The first admin against a real Cognito pool is created with `glow-api users create <username> --bootstrap --admin` (see [Admin CLI](#admin-cli)).
+Sign-in is Cognito-backed: the dashboard redirects to the Cognito hosted UI, exchanges the returned code for a token, and calls `GET /me` with it. There is no password-grant endpoint. For local dev, set `GLOW_DEMO_MODE`/`VITE_PUBLIC_DEMO_MODE` (on by default via `compose.override.yml`) to skip Cognito and use `POST /demo/login` with the dashboard's role picker instead. The first admin is created with `glow-api users create <email> --admin`; the user is linked to their identity on first verified login (see [Admin CLI](#admin-cli)).
 
 ### Admin CLI
 
@@ -130,22 +130,16 @@ glow-api db init
 glow-api users list
 
 # Create a regular user
-glow-api users create alice
+glow-api users create alice@example.org
 
 # Create an admin user
-glow-api users create --admin bob
-
-# Bootstrap the first admin against a real Cognito pool (provisions the user
-# in Cognito too; requires GLOW_COGNITO_USER_POOL_ID to be configured).
-# --password is optional with --bootstrap: omit it and you're prompted
-# interactively instead of putting a password on the command line.
-glow-api users create carol --bootstrap --admin --password 'TempPass123!'
+glow-api users create --admin bob@example.org
 
 # Update a user
-glow-api users update alice --scope '{"filters": {"school": ["Greenwood"]}}'
+glow-api users update alice@example.org --schools "Greenwood" --admin
 
 # Delete a user
-glow-api users delete alice
+glow-api users delete alice@example.org
 
 # Issue an export API key (the key is printed once; lifetime defaults to
 # GLOW_API_KEY_EXPIRE_DAYS), list keys, revoke one

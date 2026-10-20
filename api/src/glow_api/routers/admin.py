@@ -12,6 +12,7 @@ from glow_api.database import (
     get_api_key_by_id,
     get_db,
     get_school_by_id,
+    get_user_by_email,
     get_user_by_id,
     get_user_by_username,
     list_api_keys,
@@ -89,15 +90,18 @@ def create_new_user(
     current_admin: UserRead = Depends(_require_admin),
     db: Session = Depends(get_db),
 ) -> UserRead:
-    existing = get_user_by_username(db, payload.username)
-    if existing is not None:
+    if (
+        get_user_by_username(db, payload.email) is not None
+        or get_user_by_email(db, payload.email) is not None
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Username '{payload.username}' already exists",
+            detail=f"User '{payload.email}' already exists",
         )
     user = create_user(
         db,
-        username=payload.username,
+        username=payload.email,
+        email=payload.email,
         school_ids=payload.school_ids,
         is_admin=payload.is_admin,
     )

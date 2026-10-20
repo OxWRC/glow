@@ -101,14 +101,14 @@ def test_admin_create_user(admin_client, sample_schools):
     alpha_id = sample_schools["Focus School Academy"].id
 
     payload = {
-        "username": "analyst",
+        "email": "analyst@school.org",
         "school_ids": [alpha_id],
         "is_admin": False,
     }
     response = admin_client.post("/admin/users", json=payload)
     assert response.status_code == status.HTTP_201_CREATED
     user = response.json()
-    assert user["username"] == "analyst"
+    assert user["username"] == "analyst@school.org"
     assert alpha_id in user["school_ids"]
     assert "Focus School Academy" in user["school_names"]
 
@@ -121,7 +121,7 @@ def test_admin_update_user(admin_client, sample_schools):
     create_response = admin_client.post(
         "/admin/users",
         json={
-            "username": "analyst",
+            "email": "analyst@school.org",
             "school_ids": [alpha_id],
             "is_admin": False,
         },
@@ -150,7 +150,7 @@ def test_admin_delete_user(admin_client, sample_schools):
     create_response = admin_client.post(
         "/admin/users",
         json={
-            "username": "analyst",
+            "email": "analyst@school.org",
             "school_ids": [alpha_id],
             "is_admin": False,
         },
@@ -162,7 +162,7 @@ def test_admin_delete_user(admin_client, sample_schools):
 
     list_response = admin_client.get("/admin/users")
     usernames = [user["username"] for user in list_response.json()]
-    assert "analyst" not in usernames
+    assert "analyst@school.org" not in usernames
 
 
 def test_admin_me_endpoint(admin_client):
@@ -658,3 +658,22 @@ def test_dimensions_reads_the_pinned_vintage_not_live_data(
 
     assert response.status_code == status.HTTP_200_OK
     assert [v["key"] for v in response.json()["variables"]] == ["bw_vintage_1"]
+
+
+def test_admin_create_user_by_email(admin_client):
+    response = admin_client.post("/admin/users", json={"email": " New@School.org"})
+    assert response.status_code == status.HTTP_201_CREATED
+    body = response.json()
+    assert body["username"] == body["email"] == "new@school.org"
+
+
+def test_admin_create_user_rejects_invalid_email(admin_client):
+    response = admin_client.post("/admin/users", json={"email": "not-an-email"})
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+def test_admin_create_user_duplicate_email_conflicts(admin_client):
+    first = admin_client.post("/admin/users", json={"email": "dup@school.org"})
+    assert first.status_code == status.HTTP_201_CREATED
+    second = admin_client.post("/admin/users", json={"email": "DUP@school.org"})
+    assert second.status_code == status.HTTP_409_CONFLICT

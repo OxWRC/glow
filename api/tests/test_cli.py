@@ -35,7 +35,7 @@ def test_users_create_and_list(monkeypatch, db_engine, sample_schools):
         [
             "users",
             "create",
-            "alice",
+            "alice@x.org",
             "--schools",
             "Focus School Academy",
             "--admin",
@@ -43,17 +43,17 @@ def test_users_create_and_list(monkeypatch, db_engine, sample_schools):
     )
 
     assert create_result.exit_code == 0
-    assert "User 'alice' created" in create_result.output
+    assert "User 'alice@x.org' created" in create_result.output
 
     with Session() as session:
-        user = session.query(User).filter_by(username="alice").one()
+        user = session.query(User).filter_by(username="alice@x.org").one()
         assert user.is_admin is True
         assert len(user.schools) == 1
         assert user.schools[0].name == "Focus School Academy"
 
     list_result = runner.invoke(cli_module.cli, ["users", "list"])
     assert list_result.exit_code == 0
-    assert "alice" in list_result.output
+    assert "alice@x.org" in list_result.output
 
 
 def test_users_delete(monkeypatch, db_engine, sample_schools):
@@ -63,20 +63,20 @@ def test_users_delete(monkeypatch, db_engine, sample_schools):
     runner = CliRunner()
     runner.invoke(
         cli_module.cli,
-        ["users", "create", "alice"],
+        ["users", "create", "alice@x.org"],
     )
 
     delete_result = runner.invoke(
         cli_module.cli,
-        ["users", "delete", "alice"],
+        ["users", "delete", "alice@x.org"],
         input="y\n",
     )
 
     assert delete_result.exit_code == 0
-    assert "User 'alice' deleted." in delete_result.output
+    assert "User 'alice@x.org' deleted." in delete_result.output
 
     with Session() as session:
-        assert session.query(User).filter_by(username="alice").first() is None
+        assert session.query(User).filter_by(username="alice@x.org").first() is None
 
 
 def test_schools_sync_extracts_creates_and_grants_access(
@@ -157,3 +157,45 @@ def test_schools_sync_is_idempotent(monkeypatch, db_engine, sample_df):
 
         schools = list_schools(session)
         assert len(schools) == 2
+
+
+def _session(monkeypatch, db_engine):
+    Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
+    monkeypatch.setattr(cli_module, "SessionLocal", Session)
+    return Session
+
+
+def test_cli_users_create_by_email(monkeypatch, db_engine):
+    Session = _session(monkeypatch, db_engine)
+    result = CliRunner().invoke(cli_module.cli, ["users", "create", " Bob@Y.org "])
+    assert result.exit_code == 0, result.output
+    with Session() as s:
+        user = s.query(User).filter_by(email="bob@y.org").one()
+        assert user.username == "bob@y.org"
+        assert user.oidc_sub is None
+
+
+def test_cli_users_create_rejects_invalid_email(monkeypatch, db_engine):
+    _session(monkeypatch, db_engine)
+    result = CliRunner().invoke(cli_module.cli, ["users", "create", "alice"])
+    assert result.exit_code != 0
+
+
+def test_cli_users_update_admin_flag(monkeypatch, db_engine):
+    Session = _session(monkeypatch, db_engine)
+    runner = CliRunner()
+    runner.invoke(cli_module.cli, ["users", "create", "c@y.org"])
+    for flag, expected in (("--admin", True), ("--no-admin", False)):
+        result = runner.invoke(cli_module.cli, ["users", "update", "c@y.org", flag])
+        assert result.exit_code == 0, result.output
+        with Session() as s:
+            assert s.query(User).filter_by(email="c@y.org").one().is_admin is expected
+
+
+def test_cli_has_no_bootstrap_option(monkeypatch, db_engine):
+    _session(monkeypatch, db_engine)
+    result = CliRunner().invoke(
+        cli_module.cli, ["users", "create", "x@y.org", "--bootstrap"]
+    )
+    assert result.exit_code != 0
+    assert "No such option" in result.output
