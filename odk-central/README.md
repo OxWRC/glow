@@ -31,7 +31,7 @@ In `compose.yml`, the `odk` profile includes:
   - Enketo's cache Redis store
 - `secrets`
   - creates the secret files Enketo and Central expect to find on a shared volume
-- `mail`
+- `mail` (dev/test overlays only)
   - local SMTP sink for Central mail integration
 
 ## Network Shape

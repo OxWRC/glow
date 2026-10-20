@@ -221,14 +221,6 @@ build/
 *.tfstate.backup
 .terraform.lock.hcl
 
-# Deployment runtime files
-deploy/.deploy/*
-!deploy/.deploy/.gitkeep
-!deploy/.deploy/share/
-deploy/.deploy/share/*
-!deploy/.deploy/share/.gitkeep
-!deploy/.deploy/share/.env.runtime
-
 # Git worktrees (scratch, per-plan isolated workspaces)
 .worktrees/
 

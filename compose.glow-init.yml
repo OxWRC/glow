@@ -9,8 +9,15 @@
 # wholesale rather than merged, so each environment writes its own full
 # command.
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   glow-init:
+    logging: *default-logging
     build:
       context: ./api
       dockerfile: Dockerfile

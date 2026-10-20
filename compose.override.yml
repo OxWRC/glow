@@ -1,5 +1,11 @@
 # Development overrides for compose.yml.
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   # Dev publishes service ports directly and skips the proxy; run it with
   # `docker compose --profile proxy up` to try the production routing.
@@ -35,7 +41,7 @@ services:
     working_dir: /app
     volumes:
       - ./api:/app
-      - ./docker-mount-data/vintages:/var/lib/glow-vintages
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/vintages:/var/lib/glow-vintages
     environment:
       GLOW_VINTAGES_DIR: /var/lib/glow-vintages
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
@@ -114,7 +120,14 @@ services:
       EXTRA_SERVER_NAMES: " localhost 127.0.0.1"
 
   odk-service:
+    depends_on:
+      mail:
+        condition: service_started
     environment:
+      EMAIL_HOST: mail
+      EMAIL_PORT: "1025"
+      EMAIL_SECURE: "false"
+      EMAIL_IGNORE_TLS: "true"
       DOMAIN: ${ODK_DOMAIN:-odk.local}
       HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-8443}
 
@@ -126,6 +139,14 @@ services:
   postgres14:
     build:
       target: dev
+
+  # Dev/test-only SMTP sink; production sets GLOW_SMTP_* instead.
+  mail:
+    logging: *default-logging
+    image: axllent/mailpit:v1.27
+    networks:
+      - odk_internal
+    restart: unless-stopped
 
 volumes:
   dashboard_node_modules:

@@ -49,6 +49,8 @@ jobs:
       - name: Install Playwright browsers
         working-directory: dashboard
         run: npx playwright install --with-deps chromium
+      - name: Check compose structure
+        run: bash scripts/check_compose.sh
       - name: Bring up compose stack and run API smoke checks
         env:
           PLAYWRIGHT_SCOPED_SCHOOL: Beahanberg High School

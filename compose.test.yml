@@ -4,6 +4,12 @@
 # GLOW_TLS_CERT_DIR (a self-signed cert), which the proxy and ODK pick up from
 # compose.yml.
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   api:
     # Published for the Playwright e2e, which talks to the api directly.
@@ -29,6 +35,7 @@ services:
       GLOW_DATA_CACHE_PATH: /cache/data.parquet
       GLOW_VINTAGES_DIR: /var/lib/glow-vintages
     volumes:
+      - ./data:/data:ro
       - glow_cache:/cache
       - glow_vintages:/var/lib/glow-vintages
     healthcheck:
@@ -108,6 +115,24 @@ services:
         # smoke test exercises actual data, not just auth plumbing.
         glow-api users create --schools "$$GLOW_CONNECTED_SCHOOL" alpha-user@example.org || \
           glow-api users update --schools "$$GLOW_CONNECTED_SCHOOL" --active alpha-user@example.org
+
+  # Dev/test-only SMTP sink; production sets GLOW_SMTP_* instead.
+  mail:
+    logging: *default-logging
+    image: axllent/mailpit:v1.27
+    networks:
+      - odk_internal
+    restart: unless-stopped
+
+  odk-service:
+    depends_on:
+      mail:
+        condition: service_started
+    environment:
+      EMAIL_HOST: mail
+      EMAIL_PORT: "1025"
+      EMAIL_SECURE: "false"
+      EMAIL_IGNORE_TLS: "true"
 
 volumes:
   glow_cache:

@@ -2,8 +2,15 @@
 # Glow services always run. ODK Central is available behind the `odk` profile so
 # local development and CI can opt in without paying its startup cost by default.
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   api:
+    logging: *default-logging
     build:
       context: ./api
       dockerfile: Dockerfile
@@ -40,8 +47,6 @@ services:
       GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["https://${GLOW_DOMAIN:-localhost}"]}
       GLOW_AUDIT_LOG_PATH: ${GLOW_AUDIT_LOG_PATH:-/var/log/glow-api/audit.jsonl}
     volumes:
-      - ./data:/data:ro
-      - ./deploy/.deploy/share:/deploy:ro
       - ${GLOW_STATE_DIR:-./docker-mount-data}/api-audit-logs:/var/log/glow-api
       - ${GLOW_STATE_DIR:-./docker-mount-data}/vintages:/var/lib/glow-vintages
     depends_on:
@@ -69,6 +74,7 @@ services:
       start_period: 20s
 
   api-db:
+    logging: *default-logging
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-glow}
@@ -89,6 +95,7 @@ services:
       start_period: 10s
 
   dashboard:
+    logging: *default-logging
     build:
       context: ./dashboard
       dockerfile: Dockerfile
@@ -122,6 +129,7 @@ services:
   #                          behind this proxy, which terminates TLS)
   # GLOW_TLS_MODE picks the Caddyfile: acme (default), files, or off.
   proxy:
+    logging: *default-logging
     image: caddy:2.10.2
     environment:
       GLOW_DOMAIN: ${GLOW_DOMAIN:-localhost}
@@ -144,6 +152,7 @@ services:
     restart: unless-stopped
 
   postgres14:
+    logging: *default-logging
     build:
       context: ./odk-central/postgres
       target: base
@@ -165,13 +174,8 @@ services:
       retries: 5
       start_period: 10s
 
-  mail:
-    image: axllent/mailpit:v1.27
-    networks:
-      - odk_internal
-    restart: unless-stopped
-
   secrets:
+    logging: *default-logging
     image: busybox:1.36
     command:
       - /bin/sh
@@ -202,12 +206,14 @@ services:
     restart: unless-stopped
 
   pyxform:
+    logging: *default-logging
     image: ghcr.io/getodk/pyxform-http:v4.4.1
     networks:
       - odk_internal
     restart: unless-stopped
 
   enketo:
+    logging: *default-logging
     build:
       context: ./odk-central/enketo
       dockerfile: Dockerfile
@@ -232,6 +238,7 @@ services:
     restart: unless-stopped
 
   enketo_redis_main:
+    logging: *default-logging
     image: redis:8.6.2
     volumes:
       - ./odk-central/redis/redis-enketo-main.conf:/usr/local/etc/redis/redis.conf:ro
@@ -244,6 +251,7 @@ services:
     restart: unless-stopped
 
   enketo_redis_cache:
+    logging: *default-logging
     image: redis:8.6.2
     volumes:
       - ./odk-central/redis/redis-enketo-cache.conf:/usr/local/etc/redis/redis.conf:ro
@@ -256,6 +264,7 @@ services:
     restart: unless-stopped
 
   odk-service:
+    logging: *default-logging
     image: ghcr.io/getodk/central-service:${ODK_CENTRAL_TAG:-v2026.1.2}
     depends_on:
       postgres14:
@@ -265,8 +274,6 @@ services:
       pyxform:
         condition: service_started
       enketo:
-        condition: service_started
-      mail:
         condition: service_started
     command: ["/usr/odk/start-odk.sh"]
     environment:
@@ -279,13 +286,15 @@ services:
       PGPASSWORD: ${ODK_POSTGRES_PASSWORD:-odk}
       PGAPPNAME: odkcentral
       DB_POOL_SIZE: ${ODK_DB_POOL_SIZE:-10}
-      EMAIL_FROM: ${ODK_EMAIL_FROM:-no-reply@odk.local}
-      EMAIL_HOST: mail
-      EMAIL_PORT: ${ODK_EMAIL_PORT:-1025}
-      EMAIL_SECURE: ${ODK_EMAIL_SECURE:-false}
-      EMAIL_IGNORE_TLS: ${ODK_EMAIL_IGNORE_TLS:-true}
-      EMAIL_USER: ${ODK_EMAIL_USER:-}
-      EMAIL_PASSWORD: ${ODK_EMAIL_PASSWORD:-}
+      # Outbound mail: set GLOW_SMTP_* for a real relay. Unset host leaves
+      # ODK running but unable to send mail (dev/test overlays add mailpit).
+      EMAIL_FROM: ${GLOW_SMTP_FROM:-no-reply@${GLOW_DOMAIN:-localhost}}
+      EMAIL_HOST: ${GLOW_SMTP_HOST:-}
+      EMAIL_PORT: ${GLOW_SMTP_PORT:-587}
+      EMAIL_SECURE: ${GLOW_SMTP_SECURE:-false}
+      EMAIL_IGNORE_TLS: "false"
+      EMAIL_USER: ${GLOW_SMTP_USER:-}
+      EMAIL_PASSWORD: ${GLOW_SMTP_PASSWORD:-}
       OIDC_ENABLED: ${ODK_OIDC_ENABLED:-false}
       OIDC_ISSUER_URL: ${ODK_OIDC_ISSUER_URL:-}
       OIDC_CLIENT_ID: ${ODK_OIDC_CLIENT_ID:-}
@@ -314,6 +323,7 @@ services:
     restart: unless-stopped
 
   nginx:
+    logging: *default-logging
     image: ghcr.io/getodk/central-nginx:${ODK_CENTRAL_TAG:-v2026.1.2}
     depends_on:
       odk-service:
