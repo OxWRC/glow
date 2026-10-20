@@ -46,7 +46,7 @@ for name, s in services.items():
         src = v.get("source", "")
         if v.get("type") != "bind" or src.startswith(repo + "/"):
             continue  # repo-tracked config (Caddyfile, redis conf, templates)
-        if not src.startswith("/srv/glow/"):
+        if src != "/srv/glow" and not src.startswith("/srv/glow/"):
             bad.append(f"{name}: {src}")
 if bad:
     sys.exit("check_compose: state not under GLOW_STATE_DIR: " + "; ".join(bad))
@@ -82,7 +82,7 @@ for name, s in services.items():
     tag = img.rsplit(":", 1)[1] if ":" in img.rsplit("/", 1)[-1] else ""
     if tag in ("", "latest"):
         errors.append(f"{name}: third-party image needs explicit tag: {img}")
-want = {"api": "glow-api", "dashboard": "glow-dashboard", "enketo": "glow-enketo", "postgres14": os.environ["WANT_PG"]}
+want = {"api": "glow-api", "dashboard": "glow-dashboard", "enketo": "glow-enketo", "postgres14": os.environ["WANT_PG"], "backup": "glow-backup"}
 for svc, base in want.items():
     if svc in services and services[svc].get("image") != f"r.example/x/{base}:v9.9.9":
         errors.append(f"{svc}: image is not {base}")
@@ -96,4 +96,10 @@ WANT_PG=glow-odk-postgres imgcheck -f compose.yml
 WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.demo.yml
 WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.override.yml
 WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.test.yml
+# Backups run in production only; the demo overlay must not render the service.
+docker compose -f compose.yml config --services 2>/dev/null | grep -qx backup ||
+  { echo "check_compose: backup service missing from compose.yml" >&2; exit 1; }
+if docker compose -f compose.yml -f compose.demo.yml config --services 2>/dev/null | grep -qx backup; then
+  echo "check_compose: backup service present in demo overlay" >&2; exit 1
+fi
 echo "check_compose: OK"

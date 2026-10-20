@@ -418,3 +418,12 @@ def test_vintage_files_are_private(root, sample_df):
     assert ((root / "vintages").stat().st_mode & 0o777) == 0o700
     for name in ("frame.parquet", "meta.json"):
         assert ((vintage_dir / name).stat().st_mode & 0o777) == 0o600
+
+
+def test_cut_sweeps_stale_tmp_dirs(root, sample_df):
+    stale = root / "vintages" / ".tmp-crashed"
+    stale.mkdir(parents=True)
+    (stale / "frame.parquet").write_bytes(b"unsuppressed")
+    keep = cut_vintage(_make_mock_datastore(sample_df), root)
+    assert not stale.exists()
+    assert [i.prefix for i in list_vintages(root)] == [keep.prefix]

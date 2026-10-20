@@ -29,6 +29,7 @@ jobs:
           - { image: glow-odk-postgres, context: ./odk-central/postgres, target: base }
           - { image: glow-odk-postgres-demo, context: ./odk-central/postgres, target: dev }
           - { image: glow-enketo, context: ./odk-central/enketo }
+          - { image: glow-backup, context: ./backup }
     steps:
       - uses: actions/checkout@v7
         with:

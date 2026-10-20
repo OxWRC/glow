@@ -1,0 +1,9 @@
+# Test overlay: the backup repository mounted read-only (stands in for a full or
+# failing backup disk).
+services:
+  backup:
+    volumes:
+      - type: bind
+        source: ${GLOW_TEST_RO_DIR}
+        target: /backup
+        read_only: true

@@ -223,11 +223,23 @@ def cut_vintage(
         return _cut_vintage(datastore, root, created_by)
 
 
+def _sweep_stale_tmp_dirs(vintages_root: Path) -> None:
+    """Remove ".tmp-" dirs left by a crashed cut (unsuppressed data).
+
+    Called with _cut_lock held, so no cut in this process is mid-publish.
+    """
+    if not vintages_root.is_dir():
+        return
+    for stale in vintages_root.glob(".tmp-*"):
+        shutil.rmtree(stale, ignore_errors=True)
+
+
 def _cut_vintage(
     datastore: DataStore,
     root: Path,
     created_by: Optional[tuple[int, str]],
 ) -> VintageInfo:
+    _sweep_stale_tmp_dirs(root / "vintages")
     datastore.refresh(strict=True)
     frozen = datastore.to_frozen()
     created_at = datetime.now(timezone.utc)

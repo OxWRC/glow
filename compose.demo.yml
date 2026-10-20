@@ -29,6 +29,11 @@ services:
     volumes:
       - glow_cache:/cache
 
+  # No backups in a demo deployment: fictional data, nothing to protect.
+  backup:
+    profiles:
+      - disabled-in-demo
+
   dashboard:
     environment:
       PUBLIC_DEMO_MODE: "true"

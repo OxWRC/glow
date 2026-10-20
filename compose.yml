@@ -96,6 +96,41 @@ services:
       retries: 5
       start_period: 10s
 
+  # Hourly encrypted restic backups of both DBs and the state files (see
+  # backup/glow-backup.sh). Production only: compose.demo.yml disables it.
+  # The state dir is mounted read-write only because the status file is
+  # replaced by atomic rename; the script never writes anything else there.
+  backup:
+    logging: *default-logging
+    image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-backup:${GLOW_VERSION:-dev}
+    build:
+      context: ./backup
+      dockerfile: Dockerfile
+    environment:
+      RESTIC_REPOSITORY: /backup
+      RESTIC_PASSWORD: ${GLOW_BACKUP_KEY:-}
+      POSTGRES_HOST: api-db
+      POSTGRES_DB: ${POSTGRES_DB:-glow}
+      POSTGRES_USER: ${POSTGRES_USER:-glow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-production}
+      ODK_POSTGRES_HOST: postgres14
+      ODK_POSTGRES_DB: ${ODK_POSTGRES_DB:-odk}
+      ODK_POSTGRES_USER: ${ODK_POSTGRES_USER:-odk}
+      ODK_POSTGRES_PASSWORD: ${ODK_POSTGRES_PASSWORD:-odk}
+    volumes:
+      - ${GLOW_BACKUP_PATH:-${GLOW_STATE_DIR:-./docker-mount-data}/backups}:/backup
+      - ${GLOW_STATE_DIR:-./docker-mount-data}:/state
+      - ${GLOW_ENV_FILE:-./glow.env}:/release/glow.env:ro
+    depends_on:
+      api-db:
+        condition: service_healthy
+      postgres14:
+        condition: service_healthy
+    networks:
+      - api_db
+      - odk_internal
+    restart: unless-stopped
+
   dashboard:
     logging: *default-logging
     image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-dashboard:${GLOW_VERSION:-dev}
