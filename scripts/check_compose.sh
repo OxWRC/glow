@@ -48,4 +48,37 @@ for name, s in services.items():
 if bad:
     sys.exit("check_compose: state not under GLOW_STATE_DIR: " + "; ".join(bad))
 '
+# Image naming for publishing: built services carry GLOW_REGISTRY/GLOW_VERSION
+# names; third-party images pin an explicit non-latest tag.
+imgcheck() {
+  GLOW_REGISTRY=r.example/x GLOW_VERSION=v9.9.9 docker compose "$@" config --format json 2>/dev/null |
+    python3 -c '
+import json, os, sys
+services = json.load(sys.stdin)["services"]
+errors = []
+for name, s in services.items():
+    img = s.get("image")
+    if not img:
+        errors.append(f"{name}: no image"); continue
+    if img.startswith("r.example/x/"):
+        if not img.endswith(":v9.9.9"):
+            errors.append(f"{name}: bad tag {img}")
+        continue
+    tag = img.rsplit(":", 1)[1] if ":" in img.rsplit("/", 1)[-1] else ""
+    if tag in ("", "latest"):
+        errors.append(f"{name}: third-party image needs explicit tag: {img}")
+want = {"api": "glow-api", "dashboard": "glow-dashboard", "enketo": "glow-enketo", "postgres14": os.environ["WANT_PG"]}
+for svc, base in want.items():
+    if svc in services and services[svc].get("image") != f"r.example/x/{base}:v9.9.9":
+        errors.append(f"{svc}: image is not {base}")
+if "glow-init" in services and services["glow-init"]["image"] != services["api"]["image"]:
+    errors.append("glow-init must reuse the api image")
+if errors:
+    sys.exit("check_compose: " + "; ".join(errors))
+'
+}
+WANT_PG=glow-odk-postgres imgcheck -f compose.yml
+WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.demo.yml
+WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.override.yml
+WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.test.yml
 echo "check_compose: OK"

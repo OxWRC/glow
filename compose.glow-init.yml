@@ -18,6 +18,7 @@ x-logging: &default-logging
 services:
   glow-init:
     logging: *default-logging
+    image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-api:${GLOW_VERSION:-dev}
     build:
       context: ./api
       dockerfile: Dockerfile

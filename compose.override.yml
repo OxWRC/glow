@@ -137,6 +137,7 @@ services:
       HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-8443}
 
   postgres14:
+    image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-odk-postgres-demo:${GLOW_VERSION:-dev}
     build:
       target: dev
 

@@ -62,6 +62,7 @@ services:
         condition: service_completed_successfully
 
   postgres14:
+    image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-odk-postgres-demo:${GLOW_VERSION:-dev}
     build:
       target: dev
     restart: "no"

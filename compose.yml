@@ -11,6 +11,7 @@ x-logging: &default-logging
 services:
   api:
     logging: *default-logging
+    image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-api:${GLOW_VERSION:-dev}
     build:
       context: ./api
       dockerfile: Dockerfile
@@ -96,6 +97,7 @@ services:
 
   dashboard:
     logging: *default-logging
+    image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-dashboard:${GLOW_VERSION:-dev}
     build:
       context: ./dashboard
       dockerfile: Dockerfile
@@ -153,6 +155,7 @@ services:
 
   postgres14:
     logging: *default-logging
+    image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-odk-postgres:${GLOW_VERSION:-dev}
     build:
       context: ./odk-central/postgres
       target: base
@@ -214,6 +217,7 @@ services:
 
   enketo:
     logging: *default-logging
+    image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-enketo:${GLOW_VERSION:-dev}
     build:
       context: ./odk-central/enketo
       dockerfile: Dockerfile
