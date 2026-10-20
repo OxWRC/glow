@@ -346,3 +346,20 @@ func TestAtomicWriteSyncsDir(t *testing.T) {
 		t.Fatalf("parent dir not synced: %q", synced)
 	}
 }
+
+// A present-but-bad backup key is damage, not absence: regenerating it would
+// orphan the existing restic repository.
+func TestSecretsInvalidBackupKeyErrors(t *testing.T) {
+	base := "GLOW_SECRET_KEY=a\nPOSTGRES_PASSWORD=b\nODK_POSTGRES_PASSWORD=c\nODK_ADMIN_PASSWORD=d\nODK_API_PASSWORD=e\n"
+	for _, line := range []string{"GLOW_BACKUP_KEY=\n", "GLOW_BACKUP_KEY=xyz\n", "GLOW_BACKUP_KEY=" + strings.Repeat("A", 64) + "\n"} {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "secrets.env")
+		os.WriteFile(p, []byte(base+line), 0o600)
+		if _, _, err := EnsureSecrets(dir); err == nil || !strings.Contains(err.Error(), "GLOW_BACKUP_KEY") || strings.Contains(err.Error(), "xyz") {
+			t.Errorf("%q: got %v", line, err)
+		}
+		if b, _ := os.ReadFile(p); string(b) != base+line {
+			t.Errorf("%q: file changed", line)
+		}
+	}
+}

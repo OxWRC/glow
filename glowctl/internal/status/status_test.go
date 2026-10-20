@@ -213,3 +213,26 @@ func TestDemoSkipsBackupChecks(t *testing.T) {
 		t.Fatalf("%v %+v", err, cs)
 	}
 }
+
+func TestGraceOnlyBeforeFirstBackup(t *testing.T) {
+	st := t.TempDir()
+	writeDep(t, st, now.Add(-10*time.Minute))
+	writeBS(t, st, okStatus(now.Add(-3*time.Hour)))
+	if cs, ok := backupChecks(t, st); ok || find(cs, "backup").OK {
+		t.Fatalf("stale backup must fail despite recent deployment: %+v", cs)
+	}
+}
+
+func TestBackupInFutureFails(t *testing.T) {
+	st := t.TempDir()
+	writeDep(t, st, now.Add(-24*time.Hour))
+	writeBS(t, st, okStatus(now.Add(10*time.Minute)))
+	cs, ok := backupChecks(t, st)
+	if ok || !strings.Contains(find(cs, "backup").Detail, "clock skew?") {
+		t.Fatalf("%+v", cs)
+	}
+	writeBS(t, st, okStatus(now.Add(4*time.Minute)))
+	if cs, ok := backupChecks(t, st); !ok {
+		t.Fatalf("small skew tolerated: %+v", cs)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -38,6 +39,8 @@ var requiredKeys = []string{"GLOW_SECRET_KEY", "POSTGRES_PASSWORD", "ODK_POSTGRE
 // installs gain them, but an existing value is never replaced.
 var laterKeys = []string{"GLOW_BACKUP_KEY"}
 
+var hex64 = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 func randomHex() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -63,15 +66,24 @@ func EnsureSecrets(stateDir string) (Secrets, []string, error) {
 		return s, nil, err
 	} else {
 		f := s.fields()
+		present := map[string]bool{}
 		for _, line := range strings.Split(string(data), "\n") {
 			k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
 			if dst, known := f[k]; ok && known {
 				*dst = v
+				present[k] = true
 			}
 		}
 		for _, k := range requiredKeys {
 			if *f[k] == "" {
 				return Secrets{}, nil, fmt.Errorf("%s is missing %s; restore it from backup (secrets are never regenerated)", path, k)
+			}
+		}
+		// A later key's line, once written, is never replaced: a damaged
+		// GLOW_BACKUP_KEY regenerated would orphan the existing backups.
+		for _, k := range laterKeys {
+			if present[k] && !hex64.MatchString(*f[k]) {
+				return Secrets{}, nil, fmt.Errorf("%s has an invalid %s (want 64 hex characters); restore the original value (it is never regenerated)", path, k)
 			}
 		}
 	}

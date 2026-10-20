@@ -104,8 +104,11 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	for _, k := range created {
-		if k == "GLOW_BACKUP_KEY" { // the only secret ever printed, and only now
-			fmt.Fprintf(o.Out, "[glowctl] %s\n[glowctl] backup key: %s\n", BackupKeyMessage, sec.BackupKey)
+		// The only secret ever printed, and only in the run that created it:
+		// last, so neither later steps nor a failure scroll it away. Demo has
+		// no backups, so its key is not shown.
+		if k == "GLOW_BACKUP_KEY" && !cfg.Demo {
+			defer fmt.Fprintf(o.Out, "[glowctl] %s\n[glowctl] backup key: %s\n", BackupKeyMessage, sec.BackupKey)
 		}
 	}
 	step("writing runtime.env")

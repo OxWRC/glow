@@ -38,7 +38,7 @@ type Options struct {
 }
 
 // MaxBackupAge is how old the last successful backup may be; a fresh install
-// gets the same grace period before its first scheduled backup is due.
+// gets the same grace period, but only until its first backup is recorded.
 const MaxBackupAge = 2 * time.Hour
 
 // BackupStatus is <state>/backup-status/backup-status.json, written by the
@@ -84,7 +84,9 @@ func checkBackups(stateDir string, now time.Time) []Check {
 		bc.Detail = fmt.Sprintf("unreadable last_backup_at %q", bs.LastBackupAt)
 	case !bs.LastBackupOK:
 		bc.Detail = "last backup failed at " + bs.LastBackupAt + ": " + bs.LastBackupError + logsHint
-	case now.Sub(at) > MaxBackupAge && !inGrace:
+	case at.Sub(now) > 5*time.Minute:
+		bc.Detail = "last_backup_at " + bs.LastBackupAt + " is in the future (clock skew?)"
+	case now.Sub(at) > MaxBackupAge:
 		bc.Detail = "last successful backup " + bs.LastBackupAt + " is older than 2h" + logsHint
 	default:
 		bc.OK, bc.Detail = true, "last successful backup "+bs.LastBackupAt

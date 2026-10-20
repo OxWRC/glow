@@ -587,3 +587,40 @@ func TestInstallRefusesWhileLocked(t *testing.T) {
 		t.Fatalf("got %v, calls %v", err, e.run.calls)
 	}
 }
+
+func TestBackupKeyPrintedLastEvenOnFailure(t *testing.T) {
+	e := setup(t, false)
+	e.run.failConfig = "boom\n"
+	var out strings.Builder
+	if err := Run(context.Background(), e.opts(&out)); err == nil {
+		t.Fatal("want error")
+	}
+	key := secret(t, e.st, "GLOW_BACKUP_KEY")
+	o := strings.TrimRight(out.String(), "\n")
+	if strings.Count(o, key) != 1 || !strings.HasSuffix(o, key) || !strings.Contains(o, keyMsg) {
+		t.Fatalf("key not last:\n%s", o)
+	}
+	var out2 strings.Builder
+	must(t, func() error { e.run.failConfig = ""; return Run(context.Background(), e.opts(&out2)) }())
+	if strings.Contains(out2.String(), key) {
+		t.Fatal("reprinted")
+	}
+}
+
+func TestBackupKeyPrintedLastOnSuccess(t *testing.T) {
+	e := setup(t, false)
+	var out strings.Builder
+	must(t, Run(context.Background(), e.opts(&out)))
+	if !strings.HasSuffix(strings.TrimRight(out.String(), "\n"), secret(t, e.st, "GLOW_BACKUP_KEY")) {
+		t.Fatalf("key not last:\n%s", out.String())
+	}
+}
+
+func TestDemoDoesNotPrintBackupKey(t *testing.T) {
+	e := setup(t, true)
+	var out strings.Builder
+	must(t, Run(context.Background(), e.opts(&out)))
+	if strings.Contains(out.String(), keyMsg) || strings.Contains(out.String(), secret(t, e.st, "GLOW_BACKUP_KEY")) {
+		t.Fatalf("demo printed key:\n%s", out.String())
+	}
+}
