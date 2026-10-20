@@ -421,9 +421,17 @@ def test_vintage_files_are_private(root, sample_df):
 
 
 def test_cut_sweeps_stale_tmp_dirs(root, sample_df):
-    stale = root / "vintages" / ".tmp-crashed"
+    import os
+
+    vintages = root / "vintages"
+    stale = vintages / ".tmp-crashed"
     stale.mkdir(parents=True)
     (stale / "frame.parquet").write_bytes(b"unsuppressed")
+    old = time.time() - 2 * 3600
+    os.utime(stale, (old, old))
+    fresh = vintages / ".tmp-in-flight-elsewhere"
+    fresh.mkdir()
     keep = cut_vintage(_make_mock_datastore(sample_df), root)
     assert not stale.exists()
+    assert fresh.exists()  # may belong to another process's live cut
     assert [i.prefix for i in list_vintages(root)] == [keep.prefix]

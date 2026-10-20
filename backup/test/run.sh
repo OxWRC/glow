@@ -9,6 +9,7 @@ T=$(mktemp -d)
 export COMPOSE_PROJECT_NAME=glowbackuptest
 export GLOW_STATE_DIR=$T/state GLOW_BACKUP_PATH=$T/bk GLOW_ENV_FILE=$T/glow.env
 export GLOW_REGISTRY=glowtest GLOW_VERSION=test
+export GLOW_BACKUP_FIRST_DELAY=1 GLOW_BACKUP_INTERVAL=3600
 export GLOW_BACKUP_KEY=testkey-0123456789abcdef
 export POSTGRES_PASSWORD=pgpass ODK_POSTGRES_PASSWORD=odkpass
 BUILD_ARGS=(--build-arg "HTTP_PROXY=${HTTP_PROXY:-}" --build-arg "HTTPS_PROXY=${HTTPS_PROXY:-}"
@@ -22,7 +23,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$GLOW_STATE_DIR"/{odk-secrets,api-audit-logs,vintages/20260101T000000Z,vintages/.tmp-x,glow-postgres,odk-postgres} "$GLOW_BACKUP_PATH"
+mkdir -p "$GLOW_STATE_DIR"/{backup-status,odk-secrets,api-audit-logs,vintages/20260101T000000Z,vintages/.tmp-x,glow-postgres,odk-postgres} "$GLOW_BACKUP_PATH"
 echo s > "$GLOW_STATE_DIR/odk-secrets/enketo-secret"
 echo 'GLOW_BACKUP_KEY=x' > "$GLOW_STATE_DIR/secrets.env"
 echo '{}' > "$GLOW_STATE_DIR/odk-forms-state.json"
@@ -38,11 +39,21 @@ dc exec -T api-db psql -q -U glow -d glow -c "create table t(v text); insert int
 dc exec -T postgres14 psql -q -U odk -d odk -c "create table t(v text); insert into t values ('odk-row');"
 dc up -d --no-deps backup >/dev/null
 bk() { dc exec -T backup glow-backup.sh "$@"; }
-status() { cat "$GLOW_STATE_DIR/backup-status.json"; }
+STATUS_FILE=$GLOW_STATE_DIR/backup-status/backup-status.json
+status() { cat "$STATUS_FILE"; }
+# The loop's first iteration (delay 1s) does a backup and a verify.
+for _ in $(seq 1 60); do
+  [ -s "$STATUS_FILE" ] && jq -e '.last_verify_ok == true' "$STATUS_FILE" >/dev/null 2>&1 && break
+  sleep 1
+done
+status | jq -e '.last_backup_ok == true and .last_verify_ok == true' >/dev/null || fail "loop did not complete: $(status 2>&1)"
+# C2: the loop is now asleep; a manual run must not wait for it.
+start=$(date +%s)
+timeout 120 docker compose -f compose.yml exec -T backup glow-backup.sh backup || fail "manual backup failed or blocked"
+[ $(( $(date +%s) - start )) -lt 60 ] || fail "manual backup waited on the loop's lock"
 
-bk backup || fail "backup exited non-zero"
 snaps=$(dc exec -T backup restic snapshots --json)
-n=$(echo "$snaps" | jq 'length'); [ "$n" = 1 ] || fail "want 1 snapshot, got $n"
+n=$(echo "$snaps" | jq 'length'); [ "$n" = 2 ] || fail "want 2 snapshots (loop + manual), got $n"
 echo "$snaps" | jq -e '.[0].tags | index("glow")' >/dev/null || fail "snapshot not tagged glow"
 files=$(dc exec -T backup restic ls latest)
 for want in glow.dump odk.dump /state/secrets.env /state/odk-secrets/enketo-secret /release/glow.env \
@@ -54,10 +65,19 @@ echo "$files" | grep -q '\.tmp-' && fail ".tmp- vintage dir was backed up"
 status | jq -e '.last_backup_ok == true and (.last_backup_at | test("Z$")) and .last_backup_error == ""' >/dev/null || fail "bad ok status: $(status)"
 bk verify || fail "verify exited non-zero"
 status | jq -e '.last_verify_ok == true and (.last_verify_at | test("Z$")) and .last_backup_ok == true' >/dev/null || fail "bad verify status: $(status)"
-echo "$(ls "$GLOW_STATE_DIR" | grep -c 'backup-status.json.')" | grep -qx 0 || fail "temp status file left behind"
+echo "$(ls -A "$GLOW_STATE_DIR/backup-status" | grep -c 'backup-status.json.')" | grep -qx 0 || fail "temp status file left behind"
 
 # Failure path: repository mounted read-only.
 RO=$T/ro; mkdir -p "$RO"
 if GLOW_TEST_RO_DIR=$RO dc -f backup/test/ro.yml run --rm --no-deps -T backup glow-backup.sh backup; then fail "backup into read-only repo exited 0"; fi
 status | jq -e '.last_backup_ok == false and (.last_backup_error | length > 0) and (.last_backup_at | test("Z$"))' >/dev/null || fail "bad failure status: $(status)"
+# C1: a failing dump must not be recorded as success.
+if dc run --rm --no-deps -T -e ODK_POSTGRES_PASSWORD=wrong backup glow-backup.sh backup; then fail "backup with wrong ODK password exited 0"; fi
+status | jq -e '.last_backup_ok == false and (.last_backup_error | length > 0)' >/dev/null || fail "dump failure recorded as success: $(status)"
+# I2: state is mounted read-only apart from the status dir.
+dc exec -T backup sh -c 'touch /state/x 2>/dev/null' && fail "/state is writable"
+# I1: dumps live on tmpfs and are gone after a run.
+dc exec -T backup sh -c 'test ! -e /tmp/glow-dumps && grep -q " /tmp tmpfs" /proc/mounts' || fail "/tmp not tmpfs or dumps left behind"
+# I4: prune is reported separately and a backup records it.
+status | jq -e 'has("last_prune_ok")' >/dev/null || fail "no prune status"
 echo "backup/test: OK"

@@ -223,15 +223,25 @@ def cut_vintage(
         return _cut_vintage(datastore, root, created_by)
 
 
+_STALE_TMP_SECONDS = 3600
+
+
 def _sweep_stale_tmp_dirs(vintages_root: Path) -> None:
     """Remove ".tmp-" dirs left by a crashed cut (unsuppressed data).
 
-    Called with _cut_lock held, so no cut in this process is mid-publish.
+    Called with _cut_lock held, so no cut in this process is mid-publish. A
+    cut from another process (CLI vs API) may be, so only dirs untouched for
+    over an hour are swept.
     """
     if not vintages_root.is_dir():
         return
+    cutoff = time.time() - _STALE_TMP_SECONDS
     for stale in vintages_root.glob(".tmp-*"):
-        shutil.rmtree(stale, ignore_errors=True)
+        try:
+            if stale.stat().st_mtime < cutoff:
+                shutil.rmtree(stale, ignore_errors=True)
+        except OSError:
+            pass
 
 
 def _cut_vintage(

@@ -98,15 +98,21 @@ services:
 
   # Hourly encrypted restic backups of both DBs and the state files (see
   # backup/glow-backup.sh). Production only: compose.demo.yml disables it.
-  # The state dir is mounted read-write only because the status file is
-  # replaced by atomic rename; the script never writes anything else there.
+  # State is mounted read-only; only <state>/backup-status (status file, written
+  # by atomic rename) is writable. /tmp is tmpfs so DB dumps (personal data)
+  # never touch the container's disk.
   backup:
     logging: *default-logging
     image: ${GLOW_REGISTRY:-ghcr.io/oxwrc}/glow-backup:${GLOW_VERSION:-dev}
     build:
       context: ./backup
       dockerfile: Dockerfile
+    init: true
+    tmpfs:
+      - /tmp
     environment:
+      GLOW_BACKUP_FIRST_DELAY: ${GLOW_BACKUP_FIRST_DELAY:-300}
+      GLOW_BACKUP_INTERVAL: ${GLOW_BACKUP_INTERVAL:-3600}
       RESTIC_REPOSITORY: /backup
       RESTIC_PASSWORD: ${GLOW_BACKUP_KEY:-}
       POSTGRES_HOST: api-db
@@ -119,7 +125,8 @@ services:
       ODK_POSTGRES_PASSWORD: ${ODK_POSTGRES_PASSWORD:-odk}
     volumes:
       - ${GLOW_BACKUP_PATH:-${GLOW_STATE_DIR:-./docker-mount-data}/backups}:/backup
-      - ${GLOW_STATE_DIR:-./docker-mount-data}:/state
+      - ${GLOW_STATE_DIR:-./docker-mount-data}:/state:ro
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/backup-status:/state/backup-status
       - ${GLOW_ENV_FILE:-./glow.env}:/release/glow.env:ro
     depends_on:
       api-db:

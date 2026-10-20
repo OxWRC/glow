@@ -97,9 +97,13 @@ WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.demo.yml
 WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.override.yml
 WANT_PG=glow-odk-postgres-demo imgcheck -f compose.yml -f compose.test.yml
 # Backups run in production only; the demo overlay must not render the service.
-docker compose -f compose.yml config --services 2>/dev/null | grep -qx backup ||
+prod_services=$(docker compose -f compose.yml config --services) ||
+  { echo "check_compose: compose config failed" >&2; exit 1; }
+echo "$prod_services" | grep -qx backup ||
   { echo "check_compose: backup service missing from compose.yml" >&2; exit 1; }
-if docker compose -f compose.yml -f compose.demo.yml config --services 2>/dev/null | grep -qx backup; then
+demo_services=$(docker compose -f compose.yml -f compose.demo.yml config --services) ||
+  { echo "check_compose: demo compose config failed" >&2; exit 1; }
+if echo "$demo_services" | grep -qx backup; then
   echo "check_compose: backup service present in demo overlay" >&2; exit 1
 fi
 echo "check_compose: OK"
