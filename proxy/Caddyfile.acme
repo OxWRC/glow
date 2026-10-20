@@ -1,6 +1,12 @@
 # TLS mode "acme": Caddy gets and renews Let's Encrypt certificates itself.
 # Needs GLOW_DOMAIN, api.GLOW_DOMAIN and odk.GLOW_DOMAIN to resolve to this
 # host and ports 80/443 reachable from the internet.
+{
+	# Expands to `email <GLOW_ACME_EMAIL>` (Let's Encrypt contact), or to
+	# nothing when GLOW_ACME_EMAIL is unset (compose.yml builds the line).
+	{$GLOW_ACME_EMAIL_DIRECTIVE:}
+}
+
 (upstream) {
 	reverse_proxy {args[0]} {
 		# Host is forwarded unchanged by default; ODK's nginx 421s on a wrong one.

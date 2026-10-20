@@ -1,0 +1,6 @@
+# Mounted via `extends` from compose.yml's proxy service (see there).
+# off mode: no aliases, Caddy does not serve :443.
+services:
+  proxy-networks:
+    networks:
+      public: {}

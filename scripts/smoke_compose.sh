@@ -71,6 +71,15 @@ if docker compose -f compose.yml port nginx 80 >/dev/null 2>&1; then
   exit 1
 fi
 
+# Enketo reaches odk.<domain> through the proxy only where Caddy serves :443.
+proxy_aliases() {
+  GLOW_TLS_MODE="$1" docker compose -f compose.yml config --format json | python3 -c '
+import json, sys
+print(" ".join(json.load(sys.stdin)["services"]["proxy"]["networks"]["public"].get("aliases", [])))'
+}
+case " $(proxy_aliases files) " in *" odk.glow.test "*) ;; *) echo "files mode: proxy lacks odk. alias" >&2; exit 1;; esac
+case " $(proxy_aliases off) " in *" odk."*) echo "off mode: proxy must not alias odk." >&2; exit 1;; esac
+
 "${COMPOSE[@]}" down -v --remove-orphans
 "${COMPOSE[@]}" build "${BUILD_ARGS[@]}" api dashboard glow-init
 # glow-init creates the admin@example.org/alpha-user@example.org and syncs schools once api is
@@ -85,7 +94,7 @@ via_proxy() {
     --cacert "$CERT_DIR/fullchain.pem" "$@"
 }
 
-body=$(mktemp)
+body=$(mktemp -p "$STATE_DIR")
 status=$(via_proxy glow.test -o "$body" -w '%{http_code}' https://glow.test/en/login)
 [ "$status" = 200 ] && grep -qi '<html' "$body" \
   || { echo "dashboard via proxy: HTTP $status" >&2; exit 1; }

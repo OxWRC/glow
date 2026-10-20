@@ -173,3 +173,7 @@ If you need to update ODK Central, check these together:
    - `redis/`
 
 When upgrading, compare this repo against the corresponding upstream `getodk/central` release's compose file and template files. The local files here are intentionally derived from upstream, so drift is the main risk.
+
+## Public URL reachability (proxy TLS modes)
+
+Enketo fetches forms from Central's public URL, `https://odk.<domain>`. In `acme` and `files` modes the proxy is aliased to that name on the internal `public` network, so the fetch goes straight to Caddy. In `off` mode there is no alias (Caddy does not serve :443): the server must be able to reach `https://odk.<domain>` (its own public URL, i.e. the operator's TLS terminator) via normal DNS. In `files` mode with a private CA, Enketo must trust that CA (not configured here).

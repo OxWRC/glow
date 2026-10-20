@@ -1,0 +1,9 @@
+# Mounted via `extends` from compose.yml's proxy service (see there).
+services:
+  proxy-networks:
+    networks:
+      public:
+        aliases:
+          - ${GLOW_DOMAIN:-localhost}
+          - api.${GLOW_DOMAIN:-localhost}
+          - odk.${GLOW_DOMAIN:-localhost}
