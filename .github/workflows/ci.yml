@@ -5,6 +5,14 @@ on:
   pull_request:
 
 jobs:
+  release-render-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v6
+      - name: Test release renderer
+        run: uv run --with pyyaml --with pytest pytest scripts/release -q
+
   compose-smoke:
     runs-on: ubuntu-latest
     steps:
