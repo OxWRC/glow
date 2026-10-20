@@ -4,7 +4,7 @@ Usage:
     python -m glow_api.cli users list
     python -m glow_api.cli users create EMAIL [--schools A,B] [--admin]
     python -m glow_api.cli users update EMAIL [--schools ...] [--active/--inactive] [--admin/--no-admin]
-    python -m glow_api.cli users delete USERNAME
+    python -m glow_api.cli users delete EMAIL
     python -m glow_api.cli schools list
     python -m glow_api.cli schools create NAME
     python -m glow_api.cli schools sync
@@ -161,8 +161,13 @@ def users_create(email: str, schools: str, is_admin: bool) -> None:
     )
 
 
+def _find_user(db, email: str):
+    """Look up by normalised email, falling back to legacy non-email usernames."""
+    return get_user_by_email(db, email) or get_user_by_username(db, email)
+
+
 @users.command("update")
-@click.argument("username")
+@click.argument("email")
 @click.option(
     "--schools",
     default=None,
@@ -180,7 +185,7 @@ def users_create(email: str, schools: str, is_admin: bool) -> None:
     help="Grant or revoke admin privileges.",
 )
 def users_update(
-    username: str,
+    email: str,
     schools: str | None,
     active: bool | None,
     is_admin: bool | None,
@@ -208,30 +213,30 @@ def users_update(
                 school_ids.append(school.id)
 
     with SessionLocal() as db:
-        user = get_user_by_username(db, username)
+        user = _find_user(db, email)
         if user is None:
-            click.echo(f"User '{username}' not found.", err=True)
+            click.echo(f"User '{email}' not found.", err=True)
             sys.exit(1)
         update_user(
             db, user, school_ids=school_ids, is_active=active, is_admin=is_admin
         )
 
-    click.echo(f"User '{username}' updated.")
+    click.echo(f"User '{email}' updated.")
 
 
 @users.command("delete")
-@click.argument("username")
+@click.argument("email")
 @click.confirmation_option(prompt="Are you sure you want to delete this user?")
-def users_delete(username: str) -> None:
+def users_delete(email: str) -> None:
     """Delete a user."""
     with SessionLocal() as db:
-        user = get_user_by_username(db, username)
+        user = _find_user(db, email)
         if user is None:
-            click.echo(f"User '{username}' not found.", err=True)
+            click.echo(f"User '{email}' not found.", err=True)
             sys.exit(1)
         delete_user(db, user)
 
-    click.echo(f"User '{username}' deleted.")
+    click.echo(f"User '{email}' deleted.")
 
 
 # ---------------------------------------------------------------------------

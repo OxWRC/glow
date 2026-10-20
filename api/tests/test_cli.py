@@ -199,3 +199,19 @@ def test_cli_has_no_bootstrap_option(monkeypatch, db_engine):
     )
     assert result.exit_code != 0
     assert "No such option" in result.output
+
+
+def test_cli_users_update_and_delete_normalise_email_argument(monkeypatch, db_engine):
+    Session = _session(monkeypatch, db_engine)
+    runner = CliRunner()
+    runner.invoke(cli_module.cli, ["users", "create", "c@y.org"])
+    result = runner.invoke(cli_module.cli, ["users", "update", " C@Y.org ", "--admin"])
+    assert result.exit_code == 0, result.output
+    with Session() as s:
+        assert s.query(User).filter_by(email="c@y.org").one().is_admin is True
+    result = runner.invoke(
+        cli_module.cli, ["users", "delete", " C@Y.org "], input="y\n"
+    )
+    assert result.exit_code == 0, result.output
+    with Session() as s:
+        assert s.query(User).filter_by(email="c@y.org").first() is None
