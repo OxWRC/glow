@@ -43,6 +43,7 @@ services:
       GLOW_OIDC_ISSUER: ${GLOW_OIDC_ISSUER}
       GLOW_OIDC_CLIENT_ID: ${GLOW_OIDC_CLIENT_ID}
       GLOW_VINTAGES_DIR: /var/lib/glow-vintages
+      GLOW_PERIOD_TIMEZONE: ${GLOW_PERIOD_TIMEZONE:-Europe/London}
       GLOW_APP_VERSION: ${APP_VERSION:-dev}
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
       GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["https://${GLOW_DOMAIN:-localhost}"]}
