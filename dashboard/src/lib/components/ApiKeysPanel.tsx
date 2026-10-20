@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createApiKey, listApiKeys, revokeApiKey, type ApiKey } from "../api";
+import { formatDateTime } from "../formatDateTime";
 import { createI18n, type Locale } from "../i18n";
 
 const TH =
@@ -121,7 +122,7 @@ export function ApiKeysPanel({
   }
 
   const today = now ?? new Date();
-  const date = (iso: string) => new Date(iso).toLocaleDateString(locale);
+  const date = (iso: string) => formatDateTime(iso, locale);
 
   function status(k: ApiKey): KeyStatus {
     if (k.revoked_at) return "revoked";

@@ -21,6 +21,11 @@ jobs:
 
   check:
     needs: detect-playwright-version
+    strategy:
+      matrix:
+        tz: [America/Los_Angeles, Pacific/Auckland]
+    env:
+      TZ: ${{ matrix.tz }}
     runs-on: ubuntu-latest
     container:
       # Image tag is derived from the playwright version actually resolved in
@@ -35,8 +40,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: '24'
-          cache: 'npm'
+          node-version: "24"
+          cache: "npm"
           cache-dependency-path: dashboard/package-lock.json
 
       - name: Install dependencies

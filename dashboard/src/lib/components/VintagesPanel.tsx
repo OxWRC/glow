@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cutVintage, listVintages, type Vintage } from "../api";
+import { formatDateTime } from "../formatDateTime";
 import { createI18n, type Locale } from "../i18n";
 
 const TH =
@@ -60,7 +61,7 @@ export function VintagesPanel({
     }
   }
 
-  const date = (iso: string) => new Date(iso).toLocaleString(locale);
+  const date = (iso: string) => formatDateTime(iso, locale);
 
   return (
     <section
