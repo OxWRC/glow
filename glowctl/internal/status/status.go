@@ -41,6 +41,13 @@ type Options struct {
 // gets the same grace period, but only until its first backup is recorded.
 const MaxBackupAge = 2 * time.Hour
 
+// The restore test runs weekly: a day's slack before warning, a missed week
+// more before failing.
+const (
+	VerifyWarnAge = 8 * 24 * time.Hour
+	VerifyFailAge = 15 * 24 * time.Hour
+)
+
 // BackupStatus is <state>/backup-status/backup-status.json, written by the
 // backup service. Timestamps are UTC "Z" strings, empty when never run.
 type BackupStatus struct {
@@ -95,10 +102,18 @@ func checkBackups(stateDir string, now time.Time) []Check {
 
 	vc := Check{Name: "restore test", OK: true, Detail: "not run yet"}
 	if bs.LastVerifyAt != "" {
-		if bs.LastVerifyOK {
-			vc.Detail = "passed " + bs.LastVerifyAt
-		} else {
+		vat, verr := time.Parse(time.RFC3339, bs.LastVerifyAt)
+		switch {
+		case !bs.LastVerifyOK:
 			vc.OK, vc.Detail = false, "failed at "+bs.LastVerifyAt+": "+bs.LastVerifyError+logsHint
+		case verr != nil:
+			vc.OK, vc.Detail = false, fmt.Sprintf("unreadable last_verify_at %q", bs.LastVerifyAt)
+		case now.Sub(vat) > VerifyFailAge:
+			vc.OK, vc.Detail = false, "last passed "+bs.LastVerifyAt+", older than 15 days (it runs weekly)"+logsHint
+		case now.Sub(vat) > VerifyWarnAge:
+			vc.Warn, vc.Detail = true, "last passed "+bs.LastVerifyAt+", older than 8 days (it runs weekly)"+logsHint
+		default:
+			vc.Detail = "passed " + bs.LastVerifyAt
 		}
 	}
 	cs = append(cs, vc)

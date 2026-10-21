@@ -250,3 +250,31 @@ func TestHealthStartingWarns(t *testing.T) {
 		t.Fatalf("%+v", cs)
 	}
 }
+
+func TestVerifyStaleWarnsThenFails(t *testing.T) {
+	st := t.TempDir()
+	writeDep(t, st, now.Add(-60*24*time.Hour))
+	withVerify := func(at string) string {
+		return `{"last_backup_at":"` + stamp(now.Add(-10*time.Minute)) + `","last_backup_ok":true,"last_backup_error":"",
+"last_verify_at":"` + at + `","last_verify_ok":true,"last_verify_error":""}`
+	}
+	day := 24 * time.Hour
+	for _, tc := range []struct {
+		name     string
+		at       string
+		ok, warn bool
+		detail   string
+	}{
+		{"7 days", stamp(now.Add(-7 * day)), true, false, "passed"},
+		{"9 days", stamp(now.Add(-9 * day)), true, true, "older than 8 days"},
+		{"16 days", stamp(now.Add(-16 * day)), false, false, "older than 15 days"},
+		{"garbage", "yesterday", false, false, "unreadable last_verify_at"},
+	} {
+		writeBS(t, st, withVerify(tc.at))
+		cs, ok := backupChecks(t, st)
+		c := find(cs, "restore test")
+		if c == nil || ok != tc.ok || c.OK != tc.ok || c.Warn != tc.warn || !strings.Contains(c.Detail, tc.detail) {
+			t.Errorf("%s: ok=%v %+v", tc.name, ok, c)
+		}
+	}
+}
