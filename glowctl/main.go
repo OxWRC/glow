@@ -23,17 +23,19 @@ import (
 	"github.com/oxwrc/glow/glowctl/internal/restore"
 	"github.com/oxwrc/glow/glowctl/internal/state"
 	"github.com/oxwrc/glow/glowctl/internal/status"
+	"github.com/oxwrc/glow/glowctl/internal/update"
 	"github.com/oxwrc/glow/glowctl/internal/users"
 )
 
 // version is set at release time with -ldflags "-X main.version=<tag>".
 var version = "dev"
 
-const usage = "usage: glowctl <install|status|backup|restore|doctor|users|version> [--dir DIR] [args...]"
+const usage = "usage: glowctl <install|status|update|backup|restore|doctor|users|version> [--dir DIR] [args...]"
 
 var commands = map[string]func(args []string) int{
 	"install": installCmd,
 	"status":  statusCmd,
+	"update":  updateCmd,
 	"backup":  backupCmd,
 	"restore": restoreCmd,
 	"doctor":  doctorCmd,
@@ -264,6 +266,64 @@ func readKey(file string) (string, error) {
 		return "", errors.New("backup key must be one non-empty line")
 	}
 	return k, nil
+}
+
+const updateUsage = "usage: glowctl update vX.Y.Z [--bundle FILE] [--yes] [--dir DIR]"
+
+func updateCmd(args []string) int {
+	dir, rest, err := splitDir(args)
+	if err != nil {
+		return fail("update", err)
+	}
+	var ver, bundleFile string
+	yes := false
+	for i := 0; i < len(rest); i++ {
+		switch a := rest[i]; {
+		case a == "--yes" || a == "-yes" || a == "-y":
+			yes = true
+		case a == "--bundle" || a == "-bundle":
+			if i+1 >= len(rest) {
+				fmt.Fprintln(os.Stderr, updateUsage)
+				return 2
+			}
+			bundleFile = rest[i+1]
+			i++
+		case strings.HasPrefix(a, "--bundle="):
+			bundleFile = strings.TrimPrefix(a, "--bundle=")
+		case !strings.HasPrefix(a, "-") && ver == "":
+			ver = a
+		default:
+			fmt.Fprintf(os.Stderr, "[glowctl] update: unexpected argument %q\n%s\n", a, updateUsage)
+			return 2
+		}
+	}
+	if ver == "" {
+		fmt.Fprintln(os.Stderr, updateUsage)
+		return 2
+	}
+	if bundleFile != "" {
+		if bundleFile, err = filepath.Abs(bundleFile); err != nil {
+			return fail("update", err)
+		}
+	}
+	cfg, err := loadValid(dir)
+	if err == nil {
+		err = requireInstalled(cfg)
+	}
+	if err != nil {
+		return fail("update", err)
+	}
+	fi, _ := os.Stdin.Stat()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	err = update.Run(ctx, update.Options{
+		ReleaseDir: dir, Cfg: cfg, Version: ver, Bundle: bundleFile, Yes: yes,
+		Stdin: os.Stdin, IsTTY: fi != nil && fi.Mode()&os.ModeCharDevice != 0, Out: os.Stdout,
+	})
+	if err != nil {
+		return fail("update", err)
+	}
+	return 0
 }
 
 func doctorCmd(args []string) int {

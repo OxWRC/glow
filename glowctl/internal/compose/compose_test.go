@@ -18,3 +18,10 @@ func TestArgv(t *testing.T) {
 }
 
 var _ Runner = Exec{}
+
+func TestWithEnvFile(t *testing.T) {
+	got := WithEnvFile("/rel", "/st/runtime.env.next", false).Argv("pull")
+	if got[7] != "/st/runtime.env.next" || got[len(got)-1] != "pull" {
+		t.Fatalf("%v", got)
+	}
+}

@@ -18,19 +18,26 @@ type Runner interface {
 
 // Compose builds and runs the fixed compose command line.
 type Compose struct {
-	releaseDir, stateDir string
-	demo                 bool
+	releaseDir, envFile string
+	demo                bool
 }
 
+// New uses <stateDir>/runtime.env for interpolation.
 func New(releaseDir, stateDir string, demo bool) *Compose {
-	return &Compose{releaseDir, stateDir, demo}
+	return &Compose{releaseDir, filepath.Join(stateDir, "runtime.env"), demo}
+}
+
+// WithEnvFile uses envFile instead of runtime.env (update prepares the new
+// release against a separate file until the swap).
+func WithEnvFile(releaseDir, envFile string, demo bool) *Compose {
+	return &Compose{releaseDir, envFile, demo}
 }
 
 // Argv returns the full command line including the leading "docker".
 func (c *Compose) Argv(args ...string) []string {
 	argv := []string{"docker", "compose", "--project-name", "glow",
 		"--project-directory", c.releaseDir,
-		"--env-file", filepath.Join(c.stateDir, "runtime.env"),
+		"--env-file", c.envFile,
 		"-f", filepath.Join(c.releaseDir, "compose.yml")}
 	if c.demo {
 		argv = append(argv, "-f", filepath.Join(c.releaseDir, "compose.demo.yml"))

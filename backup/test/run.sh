@@ -69,6 +69,16 @@ echo "$(ls -A "$GLOW_STATE_DIR/backup-status" | grep -c 'backup-status.json.')" 
 # Restore test really restores: the log names the checks and nothing is left behind.
 gone() { dc exec -T backup sh -c 'command -v pgrep >/dev/null || { echo "pgrep missing"; exit 99; }; test ! -e /tmp/glow-verify && ! pgrep postgres >/dev/null' || fail "throwaway cluster left behind ($1)"; }
 gone "after success"
+# rollback-dbs (glowctl update): restores only the named DB from the snapshot.
+snap=$(dc exec -T backup restic snapshots --json --tag glow --latest 1 | jq -r 'max_by(.time).id')
+dc exec -T api-db psql -q -U glow -d glow -c "update t set v = 'glow-changed'"
+dc exec -T postgres14 psql -q -U odk -d odk -c "update t set v = 'odk-changed'"
+bk rollback-dbs "$snap" glow >/dev/null || fail "rollback-dbs failed"
+[ "$(dc exec -T api-db psql -At -U glow -d glow -c 'select v from t')" = glow-row ] || fail "rollback-dbs did not restore the GLOW DB"
+[ "$(dc exec -T postgres14 psql -At -U odk -d odk -c 'select v from t')" = odk-changed ] || fail "rollback-dbs touched the ODK DB"
+dc exec -T backup sh -c 'test ! -e /tmp/glow-rollback' || fail "rollback dumps left behind"
+if bk rollback-dbs "$snap" bogus 2>/dev/null; then fail "rollback-dbs accepted an unknown DB"; fi
+dc exec -T postgres14 psql -q -U odk -d odk -c "update t set v = 'odk-row'"
 # Valid snapshot whose restored users table is empty while meta.json claims rows:
 # pg_restore --list and the restore both succeed; only the row-count check fails.
 dc exec -T api-db psql -q -U glow -d glow -c "drop database if exists scratch" -c "create database scratch"

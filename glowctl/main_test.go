@@ -143,3 +143,15 @@ func TestRestoreUsageAndKeyFile(t *testing.T) {
 		t.Fatal("empty key accepted")
 	}
 }
+
+func TestUpdateUsage(t *testing.T) {
+	for _, a := range [][]string{{"update"}, {"update", "v1.2.3", "extra"}, {"update", "v1.2.3", "--bogus"}, {"update", "v1.2.3", "--bundle"}} {
+		if got := run(a); got != 2 {
+			t.Errorf("run(%q)=%d want 2", a, got)
+		}
+	}
+	// Valid usage, but no glow.env in the dir: a plain failure, not usage.
+	if got := run([]string{"update", "v1.2.3", "--yes", "--dir", t.TempDir()}); got != 1 {
+		t.Errorf("update without glow.env = %d want 1", got)
+	}
+}

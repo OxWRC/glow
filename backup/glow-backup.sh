@@ -1,5 +1,5 @@
 #!/bin/sh
-# glow-backup.sh run-loop | backup | verify | check-key | restore-files | restore-dbs
+# glow-backup.sh run-loop | backup | verify | check-key | restore-files | restore-dbs | rollback-dbs
 #
 # One restic snapshot (tag "glow") per run holding: pg_dump -Fc of the GLOW DB
 # and the ODK DB, odk-secrets, secrets.env, glow.env, audit logs, vintages
@@ -252,6 +252,30 @@ do_restore_dbs() {
 	restore_db "$ODK_POSTGRES_PASSWORD" "${ODK_POSTGRES_HOST:-postgres14}" "$ODK_POSTGRES_USER" "$ODK_POSTGRES_DB" "$1/odk.dump"
 }
 
+# rollback-dbs SNAPSHOT glow|odk...: restore only the named DBs from
+# SNAPSHOT's dumps (glowctl update rollback; key from the environment). The
+# dumps stay in this container's tmpfs and are removed afterwards.
+ROLLBACK=/tmp/glow-rollback
+do_rollback_dbs() {
+	: "${RESTIC_PASSWORD:?GLOW_BACKUP_KEY is not set}"
+	snap=$1; shift
+	for d in "$@"; do
+		case $d in glow | odk) ;; *) echo "unknown database $d (want glow or odk)" >&2; exit 2 ;; esac
+	done
+	rm -rf "$ROLLBACK"
+	restic restore "$snap" --target "$ROLLBACK" --include "$DUMPS"
+	for d in "$@"; do
+		[ -s "$ROLLBACK$DUMPS/$d.dump" ] || { echo "snapshot $snap has no $d.dump" >&2; exit 1; }
+	done
+	for d in "$@"; do
+		if [ "$d" = glow ]; then
+			restore_db "$POSTGRES_PASSWORD" "${POSTGRES_HOST:-api-db}" "$POSTGRES_USER" "$POSTGRES_DB" "$ROLLBACK$DUMPS/glow.dump"
+		else
+			restore_db "$ODK_POSTGRES_PASSWORD" "${ODK_POSTGRES_HOST:-postgres14}" "$ODK_POSTGRES_USER" "$ODK_POSTGRES_DB" "$ROLLBACK$DUMPS/odk.dump"
+		fi
+	done
+}
+
 case "${1:-}" in
 	run-loop) run_loop ;;
 	backup) backup_cycle ;;
@@ -260,5 +284,11 @@ case "${1:-}" in
 	check-key) [ $# -eq 2 ] || exit 2; read_key; do_check_key "$2" ;;
 	restore-files) [ $# -eq 3 ] || exit 2; read_key; do_restore_files "$2" "$3" ;;
 	restore-dbs) [ $# -eq 2 ] || exit 2; do_restore_dbs "$2" ;;
-	*) echo "usage: $0 run-loop|backup|verify|check-key SNAP|restore-files SNAP DIR|restore-dbs DIR" >&2; exit 2 ;;
+	rollback-dbs)
+		[ $# -ge 3 ] || exit 2
+		# Runs beside the backup loop (exec): leave its dump/verify dirs alone.
+		trap 'rm -rf "$ROLLBACK"' EXIT
+		trap 'rm -rf "$ROLLBACK"; exit 143' TERM INT
+		shift; do_rollback_dbs "$@" ;;
+	*) echo "usage: $0 run-loop|backup|verify|check-key SNAP|restore-files SNAP DIR|restore-dbs DIR|rollback-dbs SNAP glow|odk..." >&2; exit 2 ;;
 esac
