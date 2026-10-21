@@ -34,7 +34,9 @@ jobs:
       - name: Compute ODK postgres dev image cache key
         id: odk-image-key
         run: |
-          echo "key=odk-postgres-dev-${{ hashFiles('odk-central/postgres/Dockerfile', 'odk-central/postgres/bake-seed.sh', 'odk-central/postgres/seed/dev-seed.dump') }}" >> "$GITHUB_OUTPUT"
+          # Image name in the key: a renamed image must miss the cache, or compose rebuilds it without the LFS dump.
+          img=$(docker compose -f compose.yml -f compose.test.yml config --images postgres14)
+          echo "key=odk-postgres-dev-${img//[:\/]/-}-${{ hashFiles('odk-central/postgres/Dockerfile', 'odk-central/postgres/bake-seed.sh', 'odk-central/postgres/seed/dev-seed.dump') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore cached ODK postgres dev image
         id: odk-image-cache
