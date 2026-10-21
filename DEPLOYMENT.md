@@ -99,7 +99,7 @@ GLOW does not run a login system. It checks tokens from your identity provider.
 - **Linking happens on first sign-in only when `email_verified` is `true`.** If the token's email matches an unlinked user and the token says `email_verified: true`, GLOW binds the token's `sub` to that user. A token without a true `email_verified` never links.
 - **After linking, `sub` is the identity.** Email is for display. If the provider later reports a changed, verified email, GLOW updates the displayed email.
 - **GLOW trusts your provider to verify email ownership.** A provider that sets `email_verified: true` for addresses nobody has checked lets anyone claim a pre-registered account. Do not use a provider or tenant that lets users self-assert email addresses.
-- **Microsoft Entra ID does not emit `email_verified` by default.** Configure it to emit that claim (optional claim `email_verified` on the ID token, or a claims mapping policy) and check that a test sign-in carries `email` and `email_verified: true`. Until then nobody can link.
+- **Microsoft Entra ID does not emit `email_verified` by default.** Its `email` claim is mutable and not guaranteed to be verified. GLOW will not link Entra users unless the ID token carries `email_verified: true`. Test with a real sign-in token before rollout. If your tenant cannot provide a verified-email claim, use another OIDC provider (or a broker or federation in front of Entra) that does.
 - **Switching OIDC provider means re-creating users.** Users are bound to the old provider's `sub`. Add the users again after the switch (disable the old accounts). Plan this before you collect data under one provider.
 
 ## Install
@@ -198,7 +198,7 @@ The result shows in `glowctl status`.
 
 **Restore drill.** A backup you have not restored is a guess. Do this on a spare server before you need it, and again after major updates:
 
-1. Install Docker, then download and unpack the **same release version** that made the backup (a snapshot from a newer version than the release is refused).
+1. Install Docker, then download and unpack the release that made the backup, or an older one (a snapshot newer than the release is refused). For a disaster restore, use the release matching the newest snapshot, then update.
 2. Create `glow.env` as for the original (same `GLOW_STATE_DIR` layout; `GLOW_DOMAIN` can differ for a drill).
 3. Copy the backup repository from the off-site store to the spare server.
 4. Put the backup key in a file readable only by root, then run:
@@ -209,7 +209,7 @@ sudo ./glowctl restore --from /path/to/backup-copy --key-file /root/glow-backup.
 
 `--snapshot ID` picks a snapshot (default `latest`); without `--key-file` you are prompted for the key on a terminal. `restore` checks the key first (a wrong key changes nothing), restores the databases, secrets, config and vintages, starts the stack and checks it through the proxy. The snapshot's `glow.env` is saved in the state directory for you to compare with yours and merge by hand.
 
-On a server that already holds live data, `restore` refuses unless you add `--force`. It then replaces the data and keeps the originals as `*.pre-restore`. Delete those once you are satisfied. `restore` must run as root. Release directories on the target should match the snapshot's version; for a disaster restore, install the release that matches the newest snapshot, then update.
+On a server that already holds live data, `restore` refuses unless you add `--force`. It then replaces the data and keeps the originals as `*.pre-restore`. Delete those once you are satisfied. `restore` must run as root.
 
 If `GLOW_BACKUP_PATH` on the restored server holds a different repository from the restored key, `restore` warns that backups will fail. Point `GLOW_BACKUP_PATH` at a repository for this key, or empty it.
 

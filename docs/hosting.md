@@ -67,7 +67,7 @@ Added risks: SSM outages or IAM mistakes can lock you out (keep a break-glass pa
 
 ## 4. Demo and production on one host
 
-Each stack needs its own release directory, `glow.env`, `GLOW_STATE_DIR`, domain and Compose project name, and the proxy ports must not collide. `glowctl` does not support this (see step 6); you do it by hand. A second server is the safer choice.
+Each stack needs its own release directory, `glow.env`, `GLOW_STATE_DIR`, domain and Compose project name, and the proxy ports must not collide. `glowctl` does not support this (see step 6); you do it by hand. Until then, use a separate server for demo; running a second stack on the same host is not supported by glowctl yet.
 
 ```
 users --> :80/:443  --> [ your front proxy (Caddy/nginx/HAProxy) ]
@@ -96,7 +96,7 @@ internet-connected machine --> download release assets --> (USB / internal mirro
 
 - **Offline bundle:** use the release assets (archive, `glow-images-*` parts, `digests.json`, `SHA256SUMS`, `glowctl` binary) as described in [Offline install](../DEPLOYMENT.md#offline-install). Install and update with `--bundle`. The parts are each under 2 GB so they fit hosting and transfer limits. Getting them to the server is up to you; verify checksums on the server.
 - **ICP filing (mainland China):** serving a website on a mainland domain from a mainland server requires ICP filing (and for some uses, public security filing). That is a legal process with your provider and takes time. Plan for it before the launch date. Servers outside the mainland (for example Hong Kong) avoid ICP but may have slower or less reliable access from the mainland.
-- **Registry mirrors:** GHCR and GitHub can be slow or blocked. The bundle avoids both. If you prefer online pulls, you can mirror the images into a registry you can reach and set `GLOW_REGISTRY` accordingly, or configure a Docker registry mirror; you must keep the mirror pinned to the same digests as `digests.json`.
+- **Registry mirrors:** GHCR and GitHub can be slow or blocked. The bundle avoids both. If you prefer online pulls, you can use a mirror that holds the same digests as `digests.json` (a Docker registry mirror, or your own registry via `GLOW_REGISTRY`). `update` needs the same registry for the new release. See [DEPLOYMENT.md](../DEPLOYMENT.md#configure-glowenv) for `GLOW_REGISTRY`.
 - **ACME:** Let's Encrypt validation needs the three names to resolve and port 80 reachable. Where that is impractical (or the domain is not yet filed), use `GLOW_TLS_MODE=files` with a certificate from a CA you can reach, or `off` behind your provider's certificate and load balancer.
 - **OIDC and SMTP:** the issuer must be reachable from the server (token keys are fetched by the API) and from users' browsers. Check this from inside the network before installing. A mail relay reachable from the server is needed for ODK email.
 - **Data residency:** keep the state, the backups and the off-site copy where your rules require. Choose the object-storage region accordingly.
