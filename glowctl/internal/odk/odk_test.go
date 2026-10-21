@@ -119,7 +119,15 @@ func run(t *testing.T, f *fakeODK, r *fakeRunner) (int, error) {
 
 func TestFreshInstall(t *testing.T) {
 	f := &fakeODK{projects: noProj, users: `[]`, assigns: `[]`}
-	r := &fakeRunner{}
+	// cli.js user-create makes the API user (no welcome email: works without SMTP).
+	r := &fakeRunner{fail: func(a []string) (string, error) {
+		if a[6] == "api@x" && a[7] == "user-create" {
+			f.mu.Lock()
+			f.users = apiUsers
+			f.mu.Unlock()
+		}
+		return "", nil
+	}}
 	pid, err := run(t, f, r)
 	if err != nil || pid != 1 {
 		t.Fatalf("pid=%d err=%v", pid, err)
@@ -127,13 +135,13 @@ func TestFreshInstall(t *testing.T) {
 	if !f.hosts["odk.example.org"] || len(f.hosts) != 1 {
 		t.Fatalf("hosts %v", f.hosts)
 	}
-	if !f.createdProj || f.count("POST /v1/users") != 1 || f.count("POST /v1/projects/1/assignments/2/42") != 1 {
+	if !f.createdProj || f.count("POST /v1/users") != 0 || f.count("POST /v1/projects/1/assignments/2/42") != 1 {
 		t.Fatalf("reqs %v", f.reqs)
 	}
 	if f.count("DELETE /v1/sessions/TOK") != 1 {
 		t.Fatalf("session not deleted: %v", f.reqs)
 	}
-	want := []string{"-u admin@x user-create stdin=adminpw", "-u admin@x user-promote stdin="}
+	want := []string{"-u admin@x user-create stdin=adminpw", "-u admin@x user-promote stdin=", "-u api@x user-create stdin=apipw"}
 	got := r.cliCmds()
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("cli %v", got)
@@ -318,5 +326,12 @@ func TestWaitReadyReportsProgress(t *testing.T) {
 	n := strings.Count(out.String(), "[glowctl] still waiting for ODK Central (")
 	if n < 2 || !strings.Contains(out.String(), "): ") {
 		t.Fatalf("want >=2 progress lines, got %d:\n%s", n, out.String())
+	}
+}
+
+func TestAPIUserMissingAfterCreate(t *testing.T) {
+	f := &fakeODK{projects: oneProj, users: `[]`, assigns: `[]`}
+	if _, err := run(t, f, &fakeRunner{}); err == nil || !strings.Contains(err.Error(), "not found after user-create") {
+		t.Fatalf("err = %v", err)
 	}
 }

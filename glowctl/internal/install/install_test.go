@@ -29,6 +29,9 @@ type fakeRunner struct {
 	glowUsers  []string
 	failConfig string // stdout of a failing `config check`
 	fail       func(s string) error
+	// odk receives the API user that `cli.js user-create` makes (the admin
+	// is not listed, keeping the fake's user ids stable).
+	odk *fakeODK
 }
 
 func (f *fakeRunner) Run(_ context.Context, args []string, stdin io.Reader) (string, error) {
@@ -56,6 +59,10 @@ func (f *fakeRunner) Run(_ context.Context, args []string, stdin io.Reader) (str
 		return strings.Join(f.glowUsers, "\n"), nil
 	case strings.Contains(s, "glow-api users create "):
 		f.glowUsers = append(f.glowUsers, args[len(args)-2])
+	case strings.HasSuffix(s, " user-create") && strings.Contains(s, "-u glow-api@") && f.odk != nil:
+		f.odk.mu.Lock()
+		f.odk.users = append(f.odk.users, args[len(args)-2])
+		f.odk.mu.Unlock()
 	}
 	return "", nil
 }
@@ -170,6 +177,7 @@ func setup(t *testing.T, demo bool) *env {
 	must(t, os.MkdirAll(filepath.Join(e.rel, "odk-forms"), 0o755))
 	must(t, os.WriteFile(filepath.Join(e.rel, "odk-forms", "a.xml"),
 		[]byte(`<h:html><model><instance><data id="form_a" version="1"/></instance></model></h:html>`), 0o644))
+	e.run.odk = e.odk
 	e.srv = httptest.NewServer(http.HandlerFunc(e.odk.handler))
 	t.Cleanup(e.srv.Close)
 	return e
@@ -222,6 +230,7 @@ func TestProductionHappyPathOrder(t *testing.T) {
 		"up -d --pull missing",
 		cli + "glow-admin@example.org user-create",
 		cli + "glow-admin@example.org user-promote",
+		cli + "glow-api@example.org user-create",
 		"exec -T api glow-api users list",
 		"exec -T api glow-api users create boss@example.org --admin",
 		"exec -T backup glow-backup.sh backup",

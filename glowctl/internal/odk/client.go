@@ -203,24 +203,6 @@ func (c *Client) UserByEmail(ctx context.Context, token, email string) (int, err
 	return 0, nil
 }
 
-// CreateUser creates a web user and returns its id.
-func (c *Client) CreateUser(ctx context.Context, token, email, password string) (int, error) {
-	code, b, err := c.do(ctx, "POST", "/v1/users", token, map[string]string{"email": email, "password": password})
-	if err != nil {
-		return 0, err
-	}
-	if code/100 != 2 {
-		return 0, fmt.Errorf("ODK create user %s: HTTP %d", email, code)
-	}
-	var r struct {
-		ID int `json:"id"`
-	}
-	if err := json.Unmarshal(b, &r); err != nil || r.ID == 0 {
-		return 0, fmt.Errorf("ODK create user %s: no id in response", email)
-	}
-	return r.ID, nil
-}
-
 // ViewerRole is ODK's Project Viewer role id.
 const ViewerRole = 2
 

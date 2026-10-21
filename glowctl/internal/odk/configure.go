@@ -112,8 +112,16 @@ func ConfigureProduction(ctx context.Context, r compose.Runner, c *Client, admin
 		return 0, err
 	}
 	if actor == 0 {
-		if actor, err = c.CreateUser(ctx, tok, apiEmail, apiPw); err != nil {
+		// cli.js, not POST /v1/users: the API sends a welcome email and
+		// fails (HTTP 500) when no SMTP relay is configured.
+		if out, err := cli(ctx, r, apiEmail, "user-create", apiPw); err != nil && !alreadyExists(out, err) {
+			return 0, fmt.Errorf("ODK user-create %s: %w", apiEmail, err)
+		}
+		if actor, err = c.UserByEmail(ctx, tok, apiEmail); err != nil {
 			return 0, err
+		}
+		if actor == 0 {
+			return 0, fmt.Errorf("ODK user %s not found after user-create", apiEmail)
 		}
 	} else if _, err := cli(ctx, r, apiEmail, "user-set-password", apiPw); err != nil {
 		return 0, fmt.Errorf("ODK user-set-password %s: %w", apiEmail, err)
