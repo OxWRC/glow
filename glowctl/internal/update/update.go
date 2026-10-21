@@ -706,7 +706,8 @@ func imagesOf(svcs map[string]service) map[string]string {
 }
 
 // up recreates exactly the services in recreate (--no-deps: their running
-// dependencies are left alone), then brings the rest up, which leaves
+// dependencies are left alone), then brings the rest up (removing services
+// the release dropped), which leaves
 // containers whose config is unchanged running: with the stable project
 // dir, ODK and the proxy keep running through a GLOW-only update.
 func up(ctx context.Context, r compose.Runner, recreate []string) error {
@@ -715,7 +716,9 @@ func up(ctx context.Context, r compose.Runner, recreate []string) error {
 			return err
 		}
 	}
-	_, err := r.Run(ctx, []string{"up", "-d"}, nil)
+	// Services dropped from the new release would otherwise keep running,
+	// their release bind paths dangling through current.
+	_, err := r.Run(ctx, []string{"up", "-d", "--remove-orphans"}, nil)
 	return err
 }
 

@@ -292,7 +292,7 @@ func TestSuccessArgvOrder(t *testing.T) {
 		"docker run --rm -e GLOW_DEMO_MODE=true reg/glow-api@sha256:a2 glow-api suppression-hash",
 		"glow-v1.0.0 runtime.env: exec -T backup glow-backup.sh backup",
 		"glow-v1.1.0 runtime.env: up -d --no-deps --force-recreate api",
-		"glow-v1.1.0 runtime.env: up -d",
+		"glow-v1.1.0 runtime.env: up -d --remove-orphans",
 		"forms glow-v1.1.0",
 	}
 	if got := e.calls(); strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -475,7 +475,7 @@ func TestHealthFailureRollsBackGlowDBOnly(t *testing.T) {
 	rolledBack := false
 	swapped := false
 	e.f.onCall = func(s string) {
-		if s == "glow-v1.1.0 runtime.env: up -d" {
+		if s == "glow-v1.1.0 runtime.env: up -d --remove-orphans" {
 			swapped = true
 		}
 		if swapped && s == "glow-v1.0.0 runtime.env: up -d --remove-orphans" {
@@ -490,7 +490,7 @@ func TestHealthFailureRollsBackGlowDBOnly(t *testing.T) {
 	calls := e.calls()
 	i := 0
 	for ; i < len(calls); i++ {
-		if calls[i] == "glow-v1.1.0 runtime.env: up -d" {
+		if calls[i] == "glow-v1.1.0 runtime.env: up -d --remove-orphans" {
 			break
 		}
 	}
@@ -720,7 +720,7 @@ func TestCancelAfterSwapStillRollsBack(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	e.f.onCall = func(s string) {
-		if s == "glow-v1.1.0 runtime.env: up -d" {
+		if s == "glow-v1.1.0 runtime.env: up -d --remove-orphans" {
 			cancel() // e.g. SIGHUP from a dropped SSH session
 		}
 	}

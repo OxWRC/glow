@@ -141,4 +141,16 @@ if bk backup 2>"$T/err"; then fail "backup into an emptied repository dir exited
 status | jq -e '.last_backup_ok == false and (.last_backup_error | contains("no restic repository at /backup (backup disk unmounted?)"))' >/dev/null ||
   fail "unmounted-disk failure not recorded: $(status)"
 dc exec -T backup sh -c 'test -z "$(ls -A /backup)"' || fail "a new repository was created in the emptied backup dir"
+# A corrupt status file is not proof of "never backed up": still no init,
+# and the failure recorded over it must not unlock init on the next run.
+dc exec -T backup sh -c 'echo "{garbage" > /state/backup-status/backup-status.json'
+for run in 1 2; do
+  if bk backup 2>"$T/err"; then fail "backup with a corrupt status file and no repo exited 0 (run $run)"; fi
+  dc exec -T backup sh -c 'test -z "$(ls -A /backup)"' || fail "a new repository was created despite a corrupt status file (run $run)"
+done
+status | jq -e '.last_backup_error | contains("backup disk unmounted?")' >/dev/null || fail "corrupt-status failure not recorded: $(status)"
+# Only a missing status file (a genuinely first backup) creates the repository.
+dc exec -T backup rm -f /state/backup-status/backup-status.json
+bk backup >/dev/null || fail "first backup without a status file failed"
+dc exec -T backup test -f /backup/config || fail "no repository created for the first backup"
 echo "backup/test: OK"

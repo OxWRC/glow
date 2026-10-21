@@ -56,11 +56,14 @@ on_signal() {
 }
 
 # write_status JQ_ARGS... : merge named fields into the status file, keeping the
-# rest (a corrupt file starts over), via temp file + rename in the same dir.
+# rest, via temp file + rename in the same dir. A corrupt file starts over but
+# keeps "has backed up" (see ever_backed_up), so it never unlocks repo init.
 write_status() {
 	cur='{}'
 	if [ -s "$STATUS" ] && jq -e 'type == "object"' "$STATUS" >/dev/null 2>&1; then
 		cur=$(cat "$STATUS")
+	elif [ -e "$STATUS" ]; then
+		cur='{"last_backup_success_at":"unknown (status file was unreadable)"}'
 	fi
 	tmp=$(mktemp "$STATUS_DIR/.backup-status.XXXXXX") || return 1
 	echo "$cur" | jq -S '{last_backup_at:"",last_backup_ok:false,last_backup_error:"",
@@ -90,9 +93,13 @@ count_rows() { # PASSWORD HOST USER DB TABLE -> row count, or -1 if unreadable
 }
 
 # ever_backed_up: the status file records a successful backup at some point
-# (last_backup_success_at; older status files only have last_backup_ok).
+# (last_backup_success_at; older status files only have last_backup_ok). A
+# status file that exists but cannot be parsed proves nothing: answer yes, so
+# only a missing file (a genuine first backup) lets ensure_repo init.
 ever_backed_up() {
-	[ -s "$STATUS" ] && jq -e '(.last_backup_success_at // "") != "" or .last_backup_ok == true' "$STATUS" >/dev/null 2>&1
+	[ -e "$STATUS" ] || return 1
+	jq -e 'type == "object"' "$STATUS" >/dev/null 2>&1 || return 0
+	jq -e '(.last_backup_success_at // "") != "" or .last_backup_ok == true' "$STATUS" >/dev/null 2>&1
 }
 
 # ensure_repo: open the repository, creating it only on the very first backup.
