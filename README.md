@@ -13,7 +13,7 @@ In local compose, the Glow services are exposed directly:
 - Dashboard → `http://localhost:3000`
 - API → `http://localhost:8000`
 
-The self-hosted ODK Central stack is available behind the optional `odk` compose profile.
+The self-hosted ODK Central stack is part of the compose stack.
 Its public entrypoint defaults to `http://localhost:8080` and `https://localhost:8443`.
 
 ## Quick Start
@@ -42,7 +42,7 @@ The devcontainer provides:
 
 ### Option 2: Docker Compose (Host-Based)
 
-`compose.yml` now defines the production-like core stack: Glow dashboard, Glow API, Glow Postgres, and an optional ODK Central profile. Local development layers on `compose.override.yml`, which switches the API and dashboard into reload/watch mode and bind-mounts the workspace.
+`compose.yml` now defines the production-like core stack: Glow dashboard, Glow API, Glow Postgres, and ODK Central. Local development layers on `compose.override.yml`, which switches the API and dashboard into reload/watch mode and bind-mounts the workspace.
 
 ```bash
 # Set a strong JWT secret
@@ -52,7 +52,7 @@ export GLOW_SECRET_KEY="your-strong-secret-here"
 export POSTGRES_PASSWORD="your-local-postgres-password"
 
 # Start the full stack including ODK Central
-docker compose --profile odk up --build
+docker compose up --build
 
 # In a separate terminal: Generate and seed test data
 # (see "Data Collection & Format" section below for detailed steps)
@@ -67,7 +67,7 @@ The dashboard will be available at <http://localhost:3000>.
 
 ### ODK Central
 
-The optional `odk` profile adds a self-hosted ODK Central stack using the official Central service/nginx images plus the supporting Postgres, Redis, Enketo, SMTP, and secrets services they require.
+The compose stack includes a self-hosted ODK Central stack using the official Central service/nginx images plus the supporting Postgres, Redis, Enketo, SMTP, and secrets services they require.
 
 Network boundaries in the compose setup are:
 
@@ -193,10 +193,10 @@ The dashboard provides:
 
 This repo uses a centralized approach to minimize drift between dev/test/prod:
 
-- **`compose.yml`** — production-like core stack (dashboard, API, Postgres)
+- **`compose.yml`** — production-like core stack (dashboard, API, Postgres, ODK Central)
   - Used by: CI smoke tests and as the base for local development
   - Defines runtime topology and network boundaries
-  - Includes the optional `odk` profile for self-hosted ODK Central
+  - Includes the self-hosted ODK Central services
 - **`compose.override.yml`** — local development overrides
   - Enables source bind mounts, Vite/Uvicorn reload, and dev-friendly defaults
   - The dashboard's `node_modules` lives in a named `dashboard_node_modules` volume, not the bind mount; if you switch dashboard toolchains (or hit confusing dependency errors after a pull), clear it with `docker volume rm glow_dashboard_node_modules` (or whatever `docker compose config --format json | grep dashboard_node_modules`/`docker volume ls` shows it resolved to) and let it rebuild
@@ -257,7 +257,7 @@ npm run check
 
 ## Deployment
 
-See `DEPLOYMENT.md` for deployment instructions.
+Production and demo installs use the release package and the `glowctl` binary: see [`DEPLOYMENT.md`](DEPLOYMENT.md) (install, backups, updates, monitoring) and [`docs/hosting.md`](docs/hosting.md) (where to host it). Nothing in this README is a deployment procedure.
 
 ## Data Collection & Format
 

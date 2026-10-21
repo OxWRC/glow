@@ -120,8 +120,8 @@ Restarting either should not restart the other.
 
 ## Deployment
 
-Deployment is being rebuilt as a portable Docker Compose package (see `docs/superpowers/specs/2026-10-20-portable-core-deployment-design.md`). The AWS tooling lives in the sibling repo `glow-deploy-aws`. See `DEPLOYMENT.md` for the current manual workflow.
+GLOW deploys as a portable Docker Compose package managed by the `glowctl` binary (Go, `glowctl/`): `install`, `update` (with automatic rollback), `backup`, `restore`, `status`, `doctor` and `users`. Operator docs: `DEPLOYMENT.md` (install, OIDC trust model, backups, updates, monitoring) and `docs/hosting.md` (hosting approaches). Design: `docs/superpowers/specs/2026-10-20-portable-core-deployment-design.md`. The AWS tooling lives in the sibling repo `glow-deploy-aws`.
 
 ### Release Tagging
 
-There is one tag namespace: `v*.*.*` (e.g. `v0.1.4`), the release of the docker compose stack (api, dashboard, ODK).
+There is one tag namespace: `v*.*.*` (e.g. `v0.1.4`). Pushing such a tag runs `.github/workflows/release.yml`, which builds and pushes the public images (GHCR, pinned by digest), the release archive (`glow-<tag>.tar.gz`), the offline bundle (image parts, `digests.json`, `SHA256SUMS`) and the `glowctl` binaries (linux amd64 and arm64).
