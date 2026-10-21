@@ -21,6 +21,8 @@ RELEASE_ENV=${GLOW_RELEASE_ENV:-/release/glow.env}
 STATUS=$STATUS_DIR/backup-status.json
 DUMPS=/tmp/glow-dumps
 VERIFY=/tmp/glow-verify
+RESTIC_OUT=/tmp/glow-restic-backup.json
+LOCK=/tmp/glow-backup.lock
 export RESTIC_REPOSITORY=${RESTIC_REPOSITORY:-/backup}
 # Encrypted repo metadata only, so it may live on disk (a volume), not tmpfs.
 export RESTIC_CACHE_DIR=${RESTIC_CACHE_DIR:-/cache}
@@ -39,10 +41,19 @@ cleanup() {
 		done
 		pkill -KILL -u postgres -f "$VERIFY" 2>/dev/null || true
 	fi
-	rm -rf "$DUMPS" "$VERIFY"
+	rm -rf "$DUMPS" "$VERIFY" "$RESTIC_OUT"
 }
-trap cleanup EXIT
-trap 'trap "" TERM INT; cleanup; kill 0 2>/dev/null; exit 143' TERM INT
+# The dump/verify dirs are shared by every process in the container (the loop
+# and one-shot `docker exec`s): only a holder of $LOCK may clean them. Steps
+# (_step) run with the lock held; everyone else takes it first.
+locked_cleanup() { (exec 9>"$LOCK"; flock 9; cleanup); }
+# Stop our own steps (releasing their lock), then clean what they left.
+on_signal() {
+	trap '' TERM INT
+	kill 0 2>/dev/null
+	locked_cleanup
+	exit 143
+}
 
 # write_status JQ_ARGS... : merge named fields into the status file, keeping the
 # rest (a corrupt file starts over), via temp file + rename in the same dir.
@@ -87,10 +98,15 @@ do_backup() {
 	o_forms=$(count_rows "$ODK_POSTGRES_PASSWORD" "${ODK_POSTGRES_HOST:-postgres14}" "$ODK_POSTGRES_USER" "$ODK_POSTGRES_DB" forms)
 	jq -n --argjson u "$g_users" --argjson s "$g_schools" --argjson f "$o_forms" \
 		'{glow:{users:$u,schools:$s},odk:{forms:$f}}' >"$DUMPS/meta.json"
-	restic backup --tag glow --host glow --exclude '.tmp-*' \
+	restic backup --json --tag glow --host glow --exclude '.tmp-*' \
 		"$DUMPS" "$STATE/odk-secrets" "$STATE/secrets.env" "$RELEASE_ENV" \
 		"$STATE/api-audit-logs" "$STATE/vintages" \
-		"$STATE/odk-forms-state.json" "$STATE/deployment.json"
+		"$STATE/odk-forms-state.json" "$STATE/deployment.json" >"$RESTIC_OUT" ||
+		{ cat "$RESTIC_OUT"; return 1; }
+	# glowctl update reads this line: the exact pre-update snapshot.
+	id=$(jq -Rr 'fromjson? | select(.message_type == "summary") | .snapshot_id // empty' "$RESTIC_OUT" | tail -n 1)
+	[ -n "$id" ] || { echo "restic backup reported no snapshot id"; cat "$RESTIC_OUT"; return 1; }
+	echo "snapshot_id=$id"
 }
 
 do_prune() {
@@ -142,7 +158,7 @@ do_verify() {
 run_step() {
 	kind=$1 fn=$2
 	(
-		exec 9>/tmp/glow-backup.lock
+		exec 9>"$LOCK"
 		flock 9
 		log=$(mktemp)
 		# A fresh process: set -e is ignored in any subshell that inherits an
@@ -156,6 +172,7 @@ run_step() {
 			# run_step runs in an || context (set -e off): check explicitly.
 			if record "$kind" ok; then
 				echo "$(now) $kind ok"
+				grep '^snapshot_id=' "$log" || true
 			else
 				echo "$(now) $kind succeeded but the status file could not be written" >&2
 				rc=1
@@ -263,7 +280,7 @@ do_rollback_dbs() {
 		case $d in glow | odk) ;; *) echo "unknown database $d (want glow or odk)" >&2; exit 2 ;; esac
 	done
 	rm -rf "$ROLLBACK"
-	restic restore "$snap" --target "$ROLLBACK" --include "$DUMPS"
+	restic restore --retry-lock 10m "$snap" --target "$ROLLBACK" --include "$DUMPS"
 	for d in "$@"; do
 		[ -s "$ROLLBACK$DUMPS/$d.dump" ] || { echo "snapshot $snap has no $d.dump" >&2; exit 1; }
 	done
@@ -277,10 +294,10 @@ do_rollback_dbs() {
 }
 
 case "${1:-}" in
-	run-loop) run_loop ;;
-	backup) backup_cycle ;;
-	_step) "$2" ;;
-	verify) run_step verify do_verify ;;
+	run-loop) trap locked_cleanup EXIT; trap on_signal TERM INT; run_loop ;;
+	backup) trap on_signal TERM INT; backup_cycle ;;
+	_step) trap cleanup EXIT; trap 'cleanup; exit 143' TERM INT; "$2" ;; # $LOCK is held by run_step
+	verify) trap on_signal TERM INT; run_step verify do_verify ;;
 	check-key) [ $# -eq 2 ] || exit 2; read_key; do_check_key "$2" ;;
 	restore-files) [ $# -eq 3 ] || exit 2; read_key; do_restore_files "$2" "$3" ;;
 	restore-dbs) [ $# -eq 2 ] || exit 2; do_restore_dbs "$2" ;;

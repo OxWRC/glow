@@ -79,6 +79,18 @@ bk rollback-dbs "$snap" glow >/dev/null || fail "rollback-dbs failed"
 dc exec -T backup sh -c 'test ! -e /tmp/glow-rollback' || fail "rollback dumps left behind"
 if bk rollback-dbs "$snap" bogus 2>/dev/null; then fail "rollback-dbs accepted an unknown DB"; fi
 dc exec -T postgres14 psql -q -U odk -d odk -c "update t set v = 'odk-row'"
+# The backup prints its snapshot id (glowctl update rolls back to exactly that one).
+out=$(bk backup) || fail "backup for snapshot id failed"
+id=$(echo "$out" | sed -n 's/^snapshot_id=//p' | tail -n 1)
+latest=$(dc exec -T backup restic snapshots --json --tag glow | jq -r 'max_by(.time).id')
+[ -n "$id" ] && [ "$id" = "$latest" ] || fail "printed snapshot id '$id' is not the new snapshot '$latest': $out"
+# A one-shot command must not clean the shared dump/verify dirs outside the
+# lock (they may belong to a step running concurrently).
+dc exec -T backup sh -c 'mkdir -p /tmp/glow-dumps /tmp/glow-verify && touch /tmp/glow-dumps/m /tmp/glow-verify/m'
+bk bogus 2>/dev/null || true
+bk rollback-dbs "$snap" bogus 2>/dev/null || true
+dc exec -T backup sh -c 'test -e /tmp/glow-dumps/m && test -e /tmp/glow-verify/m' || fail "a one-shot command removed another step's dirs"
+dc exec -T backup rm -rf /tmp/glow-dumps /tmp/glow-verify
 # Valid snapshot whose restored users table is empty while meta.json claims rows:
 # pg_restore --list and the restore both succeed; only the row-count check fails.
 dc exec -T api-db psql -q -U glow -d glow -c "drop database if exists scratch" -c "create database scratch"
