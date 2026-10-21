@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -51,20 +52,44 @@ var stateItems = []string{"secrets.env", "odk-secrets", "api-audit-logs", "vinta
 var dbDirs = []string{"glow-postgres", "odk-postgres"}
 
 type snapshot struct {
-	ID   string `json:"id"`
-	Time string `json:"time"`
+	ID      string `json:"id"`
+	Time    string `json:"time"`
+	Version string `json:"version"` // of the snapshot's deployment.json; "" if absent
+}
+
+// releaseVersion is the version this release runs as (GLOW_VERSION or VERSION).
+func releaseVersion(cfg *config.Config, releaseDir string) string {
+	if cfg.Version != "" {
+		return cfg.Version
+	}
+	return state.ReleaseVersion(releaseDir)
+}
+
+var semverRe = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
+
+// newer reports whether a > b; ok is false unless both are vX.Y.Z.
+func newer(a, b string) (isNewer, ok bool) {
+	ma, mb := semverRe.FindStringSubmatch(a), semverRe.FindStringSubmatch(b)
+	if ma == nil || mb == nil {
+		return false, false
+	}
+	for i := 1; i <= 3; i++ {
+		x, _ := strconv.Atoi(ma[i])
+		y, _ := strconv.Atoi(mb[i])
+		if x != y {
+			return x > y, true
+		}
+	}
+	return false, true
 }
 
 // BackupImage is the backup image of this release, as compose names it.
 func BackupImage(cfg *config.Config, releaseDir string) string {
-	reg, v := cfg.Registry, cfg.Version
+	reg := cfg.Registry
 	if reg == "" {
 		reg = "ghcr.io/oxwrc"
 	}
-	if v == "" {
-		v = state.ReleaseVersion(releaseDir)
-	}
-	return reg + "/glow-backup:" + v
+	return reg + "/glow-backup:" + releaseVersion(cfg, releaseDir)
 }
 
 // Run restores the snapshot over the deployment of o.ReleaseDir.
@@ -79,11 +104,12 @@ func Run(ctx context.Context, o Options) (err error) {
 		d = bundle.Docker{}
 	}
 	img := BackupImage(cfg, o.ReleaseDir)
-	restic := func(mounts []string, args ...string) (string, error) {
-		a := append([]string{"run", "--rm", "-i", "--network", "none", "-v", o.From + ":/repo:ro"}, mounts...)
+	resticIn := func(repo, key string, mounts []string, args ...string) (string, error) {
+		a := append([]string{"run", "--rm", "-i", "--network", "none", "-v", repo + ":/repo:ro"}, mounts...)
 		a = append(append(a, "-e", "RESTIC_REPOSITORY=/repo", img, "glow-backup.sh"), args...)
-		return d.Run(ctx, a, strings.NewReader(o.Key+"\n"))
+		return d.Run(ctx, a, strings.NewReader(key+"\n"))
 	}
+	restic := func(mounts []string, args ...string) (string, error) { return resticIn(o.From, o.Key, mounts, args...) }
 	dc := func(args ...string) error { _, err := o.Compose.Run(ctx, args, nil); return err }
 
 	// 1. Key first: a wrong key fails here, before anything is touched.
@@ -98,6 +124,12 @@ func Run(ctx context.Context, o Options) (err error) {
 		return fmt.Errorf("unexpected check-key output: %q", out)
 	}
 	step("snapshot %s taken %s", snap.ID, snap.Time)
+	rv := releaseVersion(cfg, o.ReleaseDir)
+	if isNewer, ok := newer(snap.Version, rv); !ok {
+		step("WARNING: cannot compare the snapshot's version %q with this release's %q; continuing", snap.Version, rv)
+	} else if isNewer {
+		return fmt.Errorf("the snapshot is from %s, newer than this release (%s); nothing was changed. Restore with the %s release (unpack it and run its glowctl)", snap.Version, rv, snap.Version)
+	}
 
 	release, err := lock.Acquire(st)
 	if err != nil {
@@ -168,27 +200,46 @@ func Run(ctx context.Context, o Options) (err error) {
 	}
 
 	// 4. Swap the state items in; set the old DB dirs aside so the DBs start
-	// fresh with the restored passwords.
+	// fresh with the restored passwords. From here on a failure leaves a
+	// partly restored server: say what was replaced and how to recover.
+	var aside []string
+	swapping, healthFailed := false, false
+	defer func() {
+		if err != nil && swapping {
+			err = partial(err, aside, healthFailed)
+		}
+	}()
+	swapping = true
 	for _, n := range stateItems {
 		p := filepath.Join(src, n)
 		if _, err := os.Lstat(p); os.IsNotExist(err) {
 			step("snapshot has no %s; keeping the current one", n)
 			continue
 		}
-		if err := swap(p, filepath.Join(st, n)); err != nil {
+		to, err := swap(p, filepath.Join(st, n))
+		if to != "" {
+			aside = append(aside, to)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	for _, n := range fullDBs {
-		if err := setAside(filepath.Join(st, n)); err != nil {
+		to, err := setAside(filepath.Join(st, n))
+		if to != "" {
+			aside = append(aside, to)
+		}
+		if err != nil {
 			return err
 		}
 		if err := os.Mkdir(filepath.Join(st, n), 0o755); err != nil {
 			return err
 		}
 	}
+	envRestored := ""
 	if b, err := os.ReadFile(filepath.Join(staging, "release", "glow.env")); err == nil {
-		if err := state.WriteFileAtomic(filepath.Join(o.ReleaseDir, "glow.env.restored"), b, 0o600); err != nil {
+		envRestored = filepath.Join(o.ReleaseDir, "glow.env.restored")
+		if err := state.WriteFileAtomic(envRestored, b, 0o600); err != nil {
 			return err
 		}
 	}
@@ -229,33 +280,76 @@ func Run(ctx context.Context, o Options) (err error) {
 	step("verifying through the proxy")
 	if err := install.Verify(ctx, func(ctx context.Context, h, p string) (int, error) { return get(ctx, cfg, h, p) },
 		proxy.Targets(cfg), 60, iv, o.Out, 30*time.Second, "the stack through the proxy"); err != nil {
+		healthFailed = true
 		return err
 	}
-	if err := state.WriteDeployment(st, state.Deployment{Version: state.ReleaseVersion(o.ReleaseDir), DeployedAt: time.Now()}); err != nil {
+	if err := state.WriteDeployment(st, state.Deployment{Version: rv, DeployedAt: time.Now()}); err != nil {
 		return err
 	}
 	step("restored snapshot %s (taken %s)", snap.ID, snap.Time)
-	step("the snapshot's glow.env is in %s: compare it with glow.env and merge by hand", filepath.Join(o.ReleaseDir, "glow.env.restored"))
-	step("replaced files and dirs are kept as *.pre-restore in %s; delete them once satisfied", st)
+	if envRestored != "" {
+		step("the snapshot's glow.env is in %s: compare it with glow.env and merge by hand", envRestored)
+	}
+	if len(aside) > 0 {
+		step("replaced files and dirs are kept as:\n  %s\n[glowctl] delete them once satisfied", strings.Join(aside, "\n  "))
+	}
+	checkBackupPath(o, sec.BackupKey, resticIn, step)
 	return nil
 }
 
-// swap moves the staged src into dst's place, keeping any existing dst as
-// dst.pre-restore. Both are on the state fs, so each step is a rename.
-func swap(src, dst string) error {
-	if err := setAside(dst); err != nil {
-		return err
+// checkBackupPath warns when GLOW_BACKUP_PATH holds a repository (other than
+// --from) that the restored backup key cannot open: every backup would fail.
+func checkBackupPath(o Options, key string, resticIn func(repo, key string, mounts []string, args ...string) (string, error), step func(string, ...any)) {
+	bp := o.Cfg.BackupPath
+	if bp == "" || filepath.Clean(bp) == filepath.Clean(o.From) {
+		return
 	}
-	if err := os.Rename(src, dst); err != nil {
-		return err
+	if _, err := os.Stat(filepath.Join(bp, "config")); err != nil {
+		return // empty: the backup service creates a repository for this key
 	}
-	return syncDir(filepath.Dir(dst))
+	if _, err := resticIn(bp, key, nil, "check-key", "--key-only"); err != nil {
+		step("WARNING: backups will fail: GLOW_BACKUP_PATH %s holds a backup repository the restored backup key cannot open. "+
+			"Point GLOW_BACKUP_PATH at a repository for this key (such as %s) or empty it, then restart the backup service", bp, o.From)
+	}
 }
 
-// setAside renames p to p.pre-restore (or .pre-restore.N if taken); missing p is fine.
-func setAside(p string) error {
+// partial explains a failure after the first swap: what was replaced, how
+// to retry and how to roll back by hand.
+func partial(err error, aside []string, healthFailed bool) error {
+	kept := "  (none: nothing existed to replace)"
+	if len(aside) > 0 {
+		kept = "  " + strings.Join(aside, "\n  ")
+	}
+	note := ""
+	if healthFailed {
+		note = "The restored stack is left running; deployment.json was not written.\n"
+	}
+	return fmt.Errorf("%w\n\nThe restore stopped after state files and DB dirs were replaced.\n%s"+
+		"The originals are kept at:\n%s\n"+
+		"To retry: rerun `glowctl restore --force` with the same --from/--snapshot "+
+		"(the partly restored data moves to *.pre-restore.N; the originals above are kept).\n"+
+		"To roll back by hand: stop the stack (docker compose -p glow down), move each *.pre-restore item "+
+		"above back over its original name, then run `glowctl install` (it regenerates runtime.env)", err, note, kept)
+}
+
+// swap moves the staged src into dst's place, keeping any existing dst as
+// dst.pre-restore (returned). Both are on the state fs: each step is a rename.
+func swap(src, dst string) (string, error) {
+	to, err := setAside(dst)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return to, err
+	}
+	return to, syncDir(filepath.Dir(dst))
+}
+
+// setAside renames p to p.pre-restore (or .pre-restore.N if taken) and
+// returns the new name; a missing p is fine ("").
+func setAside(p string) (string, error) {
 	if _, err := os.Lstat(p); os.IsNotExist(err) {
-		return nil
+		return "", nil
 	}
 	to := p + ".pre-restore"
 	for i := 2; ; i++ {
@@ -264,7 +358,10 @@ func setAside(p string) error {
 		}
 		to = p + ".pre-restore." + strconv.Itoa(i)
 	}
-	return os.Rename(p, to)
+	if err := os.Rename(p, to); err != nil {
+		return "", err
+	}
+	return to, nil
 }
 
 func syncDir(dir string) error {

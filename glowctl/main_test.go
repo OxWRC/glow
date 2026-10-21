@@ -123,8 +123,15 @@ func TestRestoreUsageAndKeyFile(t *testing.T) {
 	if got := run([]string{"restore"}); got != 2 {
 		t.Fatalf("restore without --from: %d", got)
 	}
-	if got := run([]string{"restore", "--from", t.TempDir()}); got != 1 {
-		t.Fatalf("restore from a non-repo: %d", got)
+	r, w, _ := os.Pipe()
+	stderr := os.Stderr
+	os.Stderr = w
+	got := run([]string{"restore", "--from", t.TempDir()})
+	os.Stderr = stderr
+	w.Close()
+	msg, _ := io.ReadAll(r)
+	if got != 1 || !strings.Contains(string(msg), "not a restic repository") {
+		t.Fatalf("restore from a non-repo: %d %q", got, msg)
 	}
 	f := filepath.Join(t.TempDir(), "k")
 	os.WriteFile(f, []byte("abc123\n"), 0o600)

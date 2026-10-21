@@ -209,8 +209,10 @@ read_key() {
 	export RESTIC_PASSWORD
 }
 
-# check-key SNAPSHOT: open the repo with the key (nothing is written to it),
-# then print SNAPSHOT (an ID or "latest") as {"id","time"} on the last line.
+# check-key SNAPSHOT|--key-only: open the repo with the key (nothing is
+# written to it), then print SNAPSHOT (an ID or "latest") as
+# {"id","time","version"} on the last line; version is from the snapshot's
+# deployment.json ("" if absent).
 do_check_key() {
 	rc=0
 	restic --no-lock --no-cache cat config >/dev/null || rc=$?
@@ -220,8 +222,12 @@ do_check_key() {
 		10) echo "no restic repository at $RESTIC_REPOSITORY" >&2; exit 1 ;;
 		*) echo "cannot open $RESTIC_REPOSITORY (restic exit $rc)" >&2; exit 1 ;;
 	esac
-	restic --no-lock --no-cache snapshots --json --tag glow "$1" |
-		jq -ce --arg s "$1" 'if length == 1 then .[0] | {id, time} else error("no GLOW snapshot " + $s) end'
+	[ "$1" != --key-only ] || return 0
+	snap=$(restic --no-lock --no-cache snapshots --json --tag glow "$1" |
+		jq -ce --arg s "$1" 'if length == 1 then .[0] | {id, time} else error("no GLOW snapshot " + $s) end')
+	ver=$(restic --no-lock --no-cache dump "$(echo "$snap" | jq -r .id)" "$STATE/deployment.json" 2>/dev/null |
+		jq -r '.version // ""' 2>/dev/null) || ver=
+	echo "$snap" | jq -c --arg v "$ver" '. + {version: $v}'
 }
 
 # restore-files SNAPSHOT TARGET: the whole snapshot (dumps, state files,

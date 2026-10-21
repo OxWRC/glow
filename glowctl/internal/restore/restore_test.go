@@ -26,6 +26,8 @@ type fake struct {
 	failOn  string // a call containing this fails
 	running string // `docker ps` output
 	noSnap  []string
+	version string // deployment.json version in the snapshot ("" = v1.2.3)
+	secrets string // restored secrets.env ("" = restoredSecrets)
 }
 
 func (f *fake) Run(_ context.Context, args []string, stdin io.Reader) (string, error) {
@@ -40,7 +42,11 @@ func (f *fake) Run(_ context.Context, args []string, stdin io.Reader) (string, e
 	}
 	switch {
 	case strings.Contains(s, "check-key"):
-		return "restic output\n{\"id\":\"abc123full\",\"time\":\"2026-10-19T10:00:00Z\"}\n", nil
+		v := f.version
+		if v == "" {
+			v = "v1.2.3"
+		}
+		return "restic output\n{\"id\":\"abc123full\",\"time\":\"2026-10-19T10:00:00Z\",\"version\":\"" + v + "\"}\n", nil
 	case strings.HasPrefix(s, "docker ps"):
 		return f.running, nil
 	case strings.Contains(s, "restore-files"):
@@ -54,8 +60,12 @@ func (f *fake) Run(_ context.Context, args []string, stdin io.Reader) (string, e
 }
 
 func (f *fake) writeSnapshot(dir string) {
+	sec := f.secrets
+	if sec == "" {
+		sec = restoredSecrets
+	}
 	files := map[string]string{
-		"state/secrets.env":                      restoredSecrets,
+		"state/secrets.env":                      sec,
 		"state/odk-secrets/enketo-secret":        "restored-enketo",
 		"state/api-audit-logs/audit.jsonl":       "restored-audit",
 		"state/vintages/20260101T000000Z/m.json": "restored-vintage",
@@ -348,7 +358,8 @@ func TestEveryStepFailureStops(t *testing.T) {
 			} else {
 				e.docker.failOn = s
 			}
-			if err := Run(context.Background(), e.o); err == nil {
+			err := Run(context.Background(), e.o)
+			if err == nil {
 				t.Fatal("want error")
 			}
 			last := e.log[len(e.log)-1]
@@ -363,15 +374,145 @@ func TestEveryStepFailureStops(t *testing.T) {
 					t.Fatal("staging (database dumps) left behind")
 				}
 			}
+			postSwap := i >= 4
+			if got := strings.Contains(err.Error(), ".pre-restore"); got != postSwap {
+				t.Fatalf("post-swap guidance %v, want %v: %v", got, postSwap, err)
+			}
+			if postSwap {
+				assertGuidance(t, e, err)
+			}
 		})
+	}
+}
+
+// assertGuidance: a failure after the swap names the kept originals, the
+// retry and the manual rollback.
+func assertGuidance(t *testing.T, e *env, err error) {
+	t.Helper()
+	m := err.Error()
+	for _, want := range []string{
+		filepath.Join(e.st, "secrets.env.pre-restore"), filepath.Join(e.st, "vintages.pre-restore"),
+		"glowctl restore --force", ".pre-restore.N", "glowctl install", "move each",
+	} {
+		if !strings.Contains(m, want) {
+			t.Fatalf("guidance lacks %q:\n%s", want, m)
+		}
+	}
+}
+
+func TestSecretsFailureAfterSwapGuides(t *testing.T) {
+	e := setup(t)
+	e.docker.secrets = "GLOW_SECRET_KEY=only\n" // missing required keys
+	err := Run(context.Background(), e.o)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	assertGuidance(t, e, err)
+	for _, c := range e.log {
+		if strings.HasPrefix(c, "compose up") {
+			t.Fatalf("started DBs after a secrets failure: %s", c)
+		}
 	}
 }
 
 func TestHealthFailure(t *testing.T) {
 	e := setup(t)
 	e.o.Get = func(context.Context, *config.Config, string, string) (int, error) { return 502, nil }
-	if err := Run(context.Background(), e.o); err == nil || !strings.Contains(err.Error(), "502") {
+	err := Run(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), "502") {
 		t.Fatalf("want health error, got %v", err)
+	}
+	assertGuidance(t, e, err)
+	if !strings.Contains(err.Error(), "left running") || !strings.Contains(err.Error(), "deployment.json was not written") {
+		t.Fatalf("health failure lacks stack/deployment note: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(e.st, "deployment.json")); strings.Contains(string(b), "v1.2.3") {
+		t.Fatal("deployment.json written after a failed health check")
+	}
+}
+
+func TestSnapshotFromNewerReleaseRefused(t *testing.T) {
+	e := setup(t)
+	e.docker.version = "v1.3.0"
+	before := ls(t, e.st)
+	err := Run(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), "v1.3.0") || !strings.Contains(err.Error(), "v1.2.3") {
+		t.Fatalf("want newer-snapshot refusal naming both versions, got %v", err)
+	}
+	if len(e.log) != 1 || strings.Join(ls(t, e.st), ",") != strings.Join(before, ",") {
+		t.Fatalf("touched something: calls %q", e.log)
+	}
+}
+
+func TestSnapshotVersionOlderOrDevAllowed(t *testing.T) {
+	for v, warn := range map[string]bool{"v1.2.3": false, "v1.0.9": false, "dev": true} {
+		e := setup(t)
+		e.docker.version = v
+		if err := Run(context.Background(), e.o); err != nil {
+			t.Fatalf("%s: %v", v, err)
+		}
+		if got := strings.Contains(e.out.String(), "cannot compare"); got != warn {
+			t.Fatalf("%s: version warning %v, want %v\n%s", v, got, warn, e.out.String())
+		}
+	}
+}
+
+func TestGlowEnvLineOnlyWhenWritten(t *testing.T) {
+	e := setup(t)
+	e.docker.noSnap = []string{"release/glow.env"}
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(e.out.String(), "glow.env.restored") {
+		t.Fatalf("mentions glow.env.restored though none was written:\n%s", e.out.String())
+	}
+}
+
+func TestBackupPathKeyMismatchWarns(t *testing.T) {
+	e := setup(t)
+	bp := t.TempDir()
+	os.WriteFile(filepath.Join(bp, "config"), []byte("x"), 0o600)
+	e.o.Cfg.BackupPath = bp
+	e.docker.failOn = bp + ":/repo:ro"
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatal(err)
+	}
+	last := e.log[len(e.log)-1]
+	if !strings.Contains(last, bp+":/repo:ro") || !strings.Contains(last, "check-key --key-only") {
+		t.Fatalf("backup path not checked last: %q", last)
+	}
+	if in := e.docker.stdins[last]; in != strings.Repeat("ab", 32)+"\n" {
+		t.Fatalf("backup path checked with %q, want the restored GLOW_BACKUP_KEY", in)
+	}
+	if !strings.Contains(e.out.String(), "WARNING: backups will fail") {
+		t.Fatalf("no backup-path warning:\n%s", e.out.String())
+	}
+}
+
+func TestBackupPathSameOrEmptyNotChecked(t *testing.T) {
+	for name, set := range map[string]func(*env){
+		"same as --from": func(e *env) {
+			os.WriteFile(filepath.Join(e.from, "config"), []byte("x"), 0o600)
+			e.o.Cfg.BackupPath = e.from + "/"
+		},
+		"empty": func(e *env) { e.o.Cfg.BackupPath = t.TempDir() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := setup(t)
+			set(e)
+			if err := Run(context.Background(), e.o); err != nil {
+				t.Fatal(err)
+			}
+			n := 0
+			for _, c := range e.log {
+				if strings.Contains(c, "check-key") {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Fatalf("check-key ran %d times", n)
+			}
+		})
 	}
 }
 

@@ -188,17 +188,17 @@ func restoreCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, restoreUsage)
 		return 2
 	}
-	// restic restores files with their original owners and the staging dir
-	// holds root-owned dumps: only root can swap them in and clean up.
-	if os.Geteuid() != 0 {
-		return fail("restore", errors.New("must run as root (sudo): restored files keep their original owners"))
-	}
 	repo, err := filepath.Abs(*from)
 	if err == nil {
 		_, err = os.Stat(filepath.Join(repo, "config"))
 	}
 	if err != nil {
 		return fail("restore", fmt.Errorf("--from is not a restic repository: %w", err))
+	}
+	// restic restores files with their original owners and the staging dir
+	// holds root-owned dumps: only root can swap them in and clean up.
+	if os.Geteuid() != 0 {
+		return fail("restore", errors.New("must run as root (sudo): restored files keep their original owners"))
 	}
 	cfg, err := loadValid(dir)
 	if err != nil {
@@ -231,6 +231,21 @@ func readKey(file string) (string, error) {
 			return "", errors.New("no backup key: pass --key-file FILE or run on a terminal to be prompted")
 		}
 		stty := func(a string) error { c := exec.Command("stty", a); c.Stdin = os.Stdin; return c.Run() }
+		// Ctrl-C at the prompt must not leave the terminal without echo.
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+		done := make(chan struct{})
+		defer signal.Stop(sig)
+		defer close(done)
+		go func() {
+			select {
+			case <-sig:
+				stty("echo") //nolint:errcheck
+				fmt.Fprintln(os.Stderr)
+				os.Exit(130)
+			case <-done:
+			}
+		}()
 		if err := stty("-echo"); err != nil {
 			return "", fmt.Errorf("cannot turn off terminal echo: %w", err)
 		}
