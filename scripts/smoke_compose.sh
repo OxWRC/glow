@@ -125,7 +125,7 @@ status=$(via_proxy odk.glow.test -o /dev/null -w '%{http_code}' -X POST https://
 [ "$status" = 204 ] || { echo "POST /csp-report: HTTP $status (want 204)" >&2; exit 1; }
 
 # `files` mode must never try to obtain certificates from an ACME CA.
-if "${COMPOSE[@]}" logs --no-color proxy 2>&1 | grep -i acme; then
+if "${COMPOSE[@]}" logs --no-color proxy 2>/dev/null | grep -i acme; then
   echo "proxy attempted ACME in files mode" >&2
   exit 1
 fi
