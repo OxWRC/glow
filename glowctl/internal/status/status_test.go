@@ -236,3 +236,17 @@ func TestBackupInFutureFails(t *testing.T) {
 		t.Fatalf("small skew tolerated: %+v", cs)
 	}
 }
+
+// A container in its first health interval (e.g. just restarted) is a
+// warning, not a failure: status still exits 0.
+func TestHealthStartingWarns(t *testing.T) {
+	ps := `{"Service":"dashboard","State":"running","Health":"starting"}`
+	cs, err := Run(context.Background(), Options{Cfg: &config.Config{Domain: "d.org", Demo: true}, Runner: fake{out: ps}, Get: get(200, nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := find(cs, "dashboard")
+	if !AllOK(cs) || !c.OK || !c.Warn || c.Detail != "running (starting)" {
+		t.Fatalf("%+v", cs)
+	}
+}

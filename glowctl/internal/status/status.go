@@ -163,6 +163,9 @@ func Run(ctx context.Context, o Options) ([]Check, error) {
 			if e.Health != "" {
 				c.Detail += " (" + e.Health + ")"
 			}
+		case e.State == "running" && e.Health == "starting":
+			// First health interval (just (re)started): not yet known bad.
+			c.OK, c.Warn, c.Detail = true, true, c.Detail+" (starting)"
 		case e.State == "exited" && e.ExitCode == 0:
 			c.OK, c.Detail = true, "completed"
 		default:
