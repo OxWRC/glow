@@ -132,7 +132,12 @@ services:
       ODK_POSTGRES_PASSWORD: ${ODK_POSTGRES_PASSWORD:-odk}
     volumes:
       - backup_cache:/cache
-      - ${GLOW_BACKUP_PATH:-${GLOW_STATE_DIR:-./docker-mount-data}/backups}:/backup
+      # Long syntax: some compose versions split the nested default on ':' under --no-interpolate.
+      - type: bind
+        source: ${GLOW_BACKUP_PATH:-${GLOW_STATE_DIR:-./docker-mount-data}/backups}
+        target: /backup
+        bind:
+          create_host_path: true
       - ${GLOW_STATE_DIR:-./docker-mount-data}:/state:ro
       - ${GLOW_STATE_DIR:-./docker-mount-data}/backup-status:/state/backup-status
       - ${GLOW_ENV_FILE:-./glow.env}:/release/glow.env:ro
