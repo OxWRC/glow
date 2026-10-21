@@ -7,7 +7,10 @@
 # Usage (repo root or anywhere): scripts/e2e_lifecycle.sh
 # Needs docker (compose v2), go, uv, openssl, curl, jq, root or passwordless
 # sudo (glowctl restore must run as root), and host ports 80/443 free.
-# Uses the fixed compose project "glow": it refuses to run if one exists.
+# Runs as GLOW_INSTANCE=e2e (compose project glow-e2e): it refuses to run if
+# that project exists, and checks that containers of project glow (a real
+# stack on this host, if any) are left untouched. A real stack holding ports
+# 80/443 still blocks this run.
 #
 # Releases are staged locally with fake digests: every bundle's digests.json
 # maps tag refs to digest refs that are never in the image store, so
@@ -35,9 +38,16 @@ die() { echo "[e2e] FAIL [$CURRENT]: $*" >&2; exit 1; }
 docker image inspect busybox:1.36 >/dev/null 2>&1 || docker pull -q busybox:1.36 >/dev/null ||
   die "cannot get busybox:1.36"
 
-if [ -n "$(docker ps -aq --filter label=com.docker.compose.project=glow)" ]; then
-  die "a compose project named glow already exists on this host; refusing to touch it"
+PROJECT=glow-e2e
+if [ -n "$(docker ps -aq --filter label=com.docker.compose.project=$PROJECT)" ]; then
+  die "a compose project named $PROJECT already exists on this host; refusing to touch it"
 fi
+# Containers of the default project glow must come through untouched.
+glow_snapshot() {
+  docker ps -aq --filter label=com.docker.compose.project=glow |
+    xargs -r docker inspect --format '{{.Id}} {{.Created}} {{.State.StartedAt}} {{.State.Status}}' | sort
+}
+GLOW_BEFORE=$(glow_snapshot)
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/glow-e2e.XXXXXX")
 # Anonymous volumes (postgres/redis VOLUMEs) outlive recreated containers:
@@ -53,13 +63,13 @@ cleanup() {
   set +e
   if [ "$status" -ne 0 ]; then
     echo "[e2e] FAILED in step: $CURRENT (exit $status) -- container logs follow" >&2
-    for c in $(docker ps -aq --filter label=com.docker.compose.project=glow); do
+    for c in $(docker ps -aq --filter label=com.docker.compose.project=$PROJECT); do
       echo "----- $(docker inspect --format '{{.Name}} {{.Config.Image}} {{.State.Status}}' "$c") -----" >&2
       docker logs --tail 60 "$c" 2>&1 | sed 's/^/    /' >&2
     done
   fi
   echo "[e2e] cleaning up"
-  local f=label=com.docker.compose.project=glow
+  local f=label=com.docker.compose.project=$PROJECT
   docker ps -aq --filter "$f" | xargs -r docker rm -f -v >/dev/null
   docker volume ls -q --filter "$f" | xargs -r docker volume rm >/dev/null
   docker network ls -q --filter "$f" | xargs -r docker network rm >/dev/null
@@ -94,7 +104,7 @@ users_list() { gc "$1" users list | grep -o '[[:alnum:]._+-]*@[[:alnum:].-]*' | 
 
 # ODK's own data (projects, forms, users) as one comparable line.
 odk_counts() {
-  docker exec "$(docker ps -q --filter label=com.docker.compose.project=glow --filter label=com.docker.compose.service=postgres14)" \
+  docker exec "$(docker ps -q --filter label=com.docker.compose.project=$PROJECT --filter label=com.docker.compose.service=postgres14)" \
     sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select (select count(*) from projects), (select count(*) from forms), (select count(*) from users)"'
 }
 
@@ -102,7 +112,7 @@ odk_counts() {
 # on a glow container is left behind on every recreate.
 no_anon_volumes() {
   local c
-  for c in $(docker ps -aq --filter label=com.docker.compose.project=glow); do
+  for c in $(docker ps -aq --filter label=com.docker.compose.project=$PROJECT); do
     docker inspect --format '{{.Name}}{{range .Mounts}}{{if eq .Type "volume"}}{{if not (eq (len .Name) 64)}}{{else}} anonymous:{{.Destination}}{{end}}{{end}}{{end}}' "$c"
   done | grep anonymous: && die "containers with anonymous volumes (uncovered image VOLUMEs) above"
   echo "[e2e] ok no anonymous volumes"
@@ -197,6 +207,7 @@ GLOW_DEMO_MODE=false
 GLOW_STATE_DIR=$STATE
 GLOW_BACKUP_PATH=$BACKUPS
 GLOW_REGISTRY=$REG
+GLOW_INSTANCE=e2e
 EOF
 
 # ---------------------------------------------------------------- 1 install
@@ -231,7 +242,7 @@ gc "$REL0" status || die "glowctl status failed after install + backup"
 
 # ---------------------------------------------------------------- 5 wipe
 step "5 stop the stack and wipe the state dir (fresh server)"
-$SUDO docker compose --project-name glow --project-directory "$REL0" --env-file "$STATE/runtime.env" \
+$SUDO docker compose --project-name "$PROJECT" --project-directory "$REL0" --env-file "$STATE/runtime.env" \
   -f "$REL0/compose.yml" down -v
 docker run --rm -v "$STATE:/d" busybox:1.36 sh -c 'rm -rf /d/* /d/.[!.]*'
 [ -z "$(ls -A "$STATE")" ] || die "state dir not empty after wipe"
@@ -239,6 +250,8 @@ docker run --rm -v "$STATE:/d" busybox:1.36 sh -c 'rm -rf /d/* /d/.[!.]*'
 # ---------------------------------------------------------------- 6 restore
 step "6 restore from $BACKUPS with the key file"
 gc "$REL0" restore --from "$BACKUPS" --key-file "$KEY"
+[ "$(cat "$STATE/.glow-instance")" = "$PROJECT" ] || die "restore did not claim the fresh state dir for $PROJECT"
+$SUDO test -f "$STATE/.backup-key-shown" || die "restore did not write the backup-key marker"
 
 # ---------------------------------------------------------------- 7 data
 step "7 restored data present"
@@ -266,7 +279,7 @@ set -e
 grep -q "changed services: api" "$WORK/update2.log" || die "expected only the api service to change"
 grep -q "rolled back to $V1" "$WORK/update2.log" || die "no successful rollback reported"
 [ "$(deployed version)" = "$V1" ] || die "deployment.json version is $(deployed version), want $V1"
-api_img=$(docker inspect --format '{{.Config.Image}}' "$(docker ps -q --filter label=com.docker.compose.project=glow --filter label=com.docker.compose.service=api)")
+api_img=$(docker inspect --format '{{.Config.Image}}' "$(docker ps -q --filter label=com.docker.compose.project=$PROJECT --filter label=com.docker.compose.service=api)")
 [ "$api_img" = "$REG/glow-api:$V0" ] || die "api runs $api_img after rollback, want $REG/glow-api:$V0"
 proxy_checks
 [ -f "$STATE/api-audit-logs/e2e-broken-ran" ] || die "the broken API never ran, so the DB restore is unproven"
@@ -274,4 +287,9 @@ users_list "$REL1" | diff "$WORK/users.before" - || die "users differ after roll
 odk_counts | diff "$WORK/odk.before" - || die "ODK data differs after rollback"
 no_anon_volumes
 gc "$REL1" status || die "glowctl status failed after rollback"
+
+# ---------------------------------------------------------------- 10 isolation
+step "10 project glow untouched"
+[ "$(glow_snapshot)" = "$GLOW_BEFORE" ] || die "containers of compose project glow changed during the run"
+[ -n "$GLOW_BEFORE" ] || echo "[e2e] (no project glow on this host)"
 CURRENT="done"
