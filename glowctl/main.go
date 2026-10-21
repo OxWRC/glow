@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/oxwrc/glow/glowctl/internal/doctor"
 	"github.com/oxwrc/glow/glowctl/internal/install"
 	"github.com/oxwrc/glow/glowctl/internal/lock"
+	"github.com/oxwrc/glow/glowctl/internal/restore"
 	"github.com/oxwrc/glow/glowctl/internal/state"
 	"github.com/oxwrc/glow/glowctl/internal/status"
 	"github.com/oxwrc/glow/glowctl/internal/users"
@@ -27,12 +29,13 @@ import (
 // version is set at release time with -ldflags "-X main.version=<tag>".
 var version = "dev"
 
-const usage = "usage: glowctl <install|status|backup|doctor|users|version> [--dir DIR] [args...]"
+const usage = "usage: glowctl <install|status|backup|restore|doctor|users|version> [--dir DIR] [args...]"
 
 var commands = map[string]func(args []string) int{
 	"install": installCmd,
 	"status":  statusCmd,
 	"backup":  backupCmd,
+	"restore": restoreCmd,
 	"doctor":  doctorCmd,
 	"users":   usersCmd,
 	"version": func([]string) int { fmt.Println("glowctl " + version); return 0 },
@@ -167,6 +170,85 @@ func runBackup(ctx context.Context, stateDir string, r compose.Runner, verify bo
 		return backup.Verify(ctx, r, out)
 	}
 	return backup.Now(ctx, r, out)
+}
+
+const restoreUsage = "usage: glowctl restore --from REPO [--snapshot ID|latest] [--key-file FILE] [--force] [--dir DIR]"
+
+func restoreCmd(args []string) int {
+	dir, rest, err := splitDir(args)
+	if err != nil {
+		return fail("restore", err)
+	}
+	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
+	from := fs.String("from", "", "restic repository path (a copy of the backup path)")
+	snap := fs.String("snapshot", "latest", "snapshot ID")
+	keyFile := fs.String("key-file", "", "file holding the backup key (else prompted on a TTY)")
+	force := fs.Bool("force", false, "replace live data (originals kept as *.pre-restore)")
+	if err := fs.Parse(rest); err != nil || fs.NArg() > 0 || *from == "" {
+		fmt.Fprintln(os.Stderr, restoreUsage)
+		return 2
+	}
+	// restic restores files with their original owners and the staging dir
+	// holds root-owned dumps: only root can swap them in and clean up.
+	if os.Geteuid() != 0 {
+		return fail("restore", errors.New("must run as root (sudo): restored files keep their original owners"))
+	}
+	repo, err := filepath.Abs(*from)
+	if err == nil {
+		_, err = os.Stat(filepath.Join(repo, "config"))
+	}
+	if err != nil {
+		return fail("restore", fmt.Errorf("--from is not a restic repository: %w", err))
+	}
+	cfg, err := loadValid(dir)
+	if err != nil {
+		return fail("restore", err)
+	}
+	key, err := readKey(*keyFile)
+	if err != nil {
+		return fail("restore", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	err = restore.Run(ctx, restore.Options{
+		ReleaseDir: dir, Cfg: cfg, From: repo, Snapshot: *snap, Key: key, Force: *force,
+		Compose: compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)}, Out: os.Stdout,
+	})
+	if err != nil {
+		return fail("restore", err)
+	}
+	return 0
+}
+
+// readKey reads the backup key from file, or from the TTY without echo.
+func readKey(file string) (string, error) {
+	var b []byte
+	var err error
+	if file != "" {
+		b, err = os.ReadFile(file)
+	} else {
+		if fi, serr := os.Stdin.Stat(); serr != nil || fi.Mode()&os.ModeCharDevice == 0 {
+			return "", errors.New("no backup key: pass --key-file FILE or run on a terminal to be prompted")
+		}
+		stty := func(a string) error { c := exec.Command("stty", a); c.Stdin = os.Stdin; return c.Run() }
+		if err := stty("-echo"); err != nil {
+			return "", fmt.Errorf("cannot turn off terminal echo: %w", err)
+		}
+		fmt.Fprint(os.Stderr, "Backup key: ")
+		var line string
+		_, err = fmt.Fscanln(os.Stdin, &line)
+		stty("echo") //nolint:errcheck
+		fmt.Fprintln(os.Stderr)
+		b = []byte(line)
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading backup key: %w", err)
+	}
+	k := strings.TrimSpace(string(b))
+	if k == "" || strings.ContainsAny(k, "\n\r") {
+		return "", errors.New("backup key must be one non-empty line")
+	}
+	return k, nil
 }
 
 func doctorCmd(args []string) int {

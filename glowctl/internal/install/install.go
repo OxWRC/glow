@@ -207,7 +207,7 @@ func Run(ctx context.Context, o Options) (err error) {
 			return err
 		}
 		step("waiting for the API (migrations)")
-		if err := verify(ctx, get, proxy.Targets(cfg)[1:2], 60, wait(5*time.Second), o.Out, every, "the API (migrations)"); err != nil {
+		if err := Verify(ctx, get, proxy.Targets(cfg)[1:2], 60, wait(5*time.Second), o.Out, every, "the API (migrations)"); err != nil {
 			return withHint(cfg, err)
 		}
 		step("ensuring GLOW admin " + adminEmail)
@@ -247,7 +247,7 @@ func Run(ctx context.Context, o Options) (err error) {
 	}
 
 	step("verifying through the proxy")
-	if err := verify(ctx, get, proxy.Targets(cfg), 30, wait(5*time.Second), o.Out, every, "the stack through the proxy"); err != nil {
+	if err := Verify(ctx, get, proxy.Targets(cfg), 30, wait(5*time.Second), o.Out, every, "the stack through the proxy"); err != nil {
 		return withHint(cfg, err)
 	}
 
@@ -352,8 +352,8 @@ func ensureGlowAdmin(run runFn, email string) error {
 	return nil
 }
 
-// verify polls the targets via the proxy until all answer 200.
-func verify(ctx context.Context, get func(context.Context, string, string) (int, error), targets [][2]string, attempts int, interval time.Duration, out io.Writer, every time.Duration, what string) error {
+// Verify polls the targets via the proxy until all answer 200.
+func Verify(ctx context.Context, get func(context.Context, string, string) (int, error), targets [][2]string, attempts int, interval time.Duration, out io.Writer, every time.Duration, what string) error {
 	var last error
 	start := time.Now()
 	lastLine := start

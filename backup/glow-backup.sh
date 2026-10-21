@@ -1,5 +1,5 @@
 #!/bin/sh
-# glow-backup.sh run-loop | backup | verify
+# glow-backup.sh run-loop | backup | verify | check-key | restore-files | restore-dbs
 #
 # One restic snapshot (tag "glow") per run holding: pg_dump -Fc of the GLOW DB
 # and the ODK DB, odk-secrets, secrets.env, glow.env, audit logs, vintages
@@ -201,10 +201,58 @@ run_loop() {
 	done
 }
 
+# --- Restore (glowctl restore). The key arrives on stdin, never in argv/env.
+read_key() {
+	RESTIC_PASSWORD=
+	IFS= read -r RESTIC_PASSWORD || true
+	[ -n "$RESTIC_PASSWORD" ] || { echo "no backup key on stdin" >&2; exit 2; }
+	export RESTIC_PASSWORD
+}
+
+# check-key SNAPSHOT: open the repo with the key (nothing is written to it),
+# then print SNAPSHOT (an ID or "latest") as {"id","time"} on the last line.
+do_check_key() {
+	rc=0
+	restic --no-lock --no-cache cat config >/dev/null || rc=$?
+	case $rc in
+		0) ;;
+		12) echo "wrong backup key for $RESTIC_REPOSITORY" >&2; exit 1 ;;
+		10) echo "no restic repository at $RESTIC_REPOSITORY" >&2; exit 1 ;;
+		*) echo "cannot open $RESTIC_REPOSITORY (restic exit $rc)" >&2; exit 1 ;;
+	esac
+	restic --no-lock --no-cache snapshots --json --tag glow "$1" |
+		jq -ce --arg s "$1" 'if length == 1 then .[0] | {id, time} else error("no GLOW snapshot " + $s) end'
+}
+
+# restore-files SNAPSHOT TARGET: the whole snapshot (dumps, state files,
+# glow.env) under TARGET, at their backup paths.
+do_restore_files() {
+	restic --no-lock --no-cache restore "$1" --target "$2"
+}
+
+# restore_db PASSWORD HOST USER DB DUMP: drop, recreate and pg_restore DB.
+restore_db() {
+	export PGPASSWORD="$1"
+	psql -v ON_ERROR_STOP=1 -q -h "$2" -U "$3" -d postgres \
+		-c "drop database if exists \"$4\" with (force)" -c "create database \"$4\""
+	pg_restore --exit-on-error -h "$2" -U "$3" -d "$4" "$5"
+	echo "restored $4 on $2"
+}
+
+# restore-dbs DIR: both DBs from DIR/glow.dump and DIR/odk.dump (pg_restore 16
+# for both: the dumps were made with pg_dump 16).
+do_restore_dbs() {
+	restore_db "$POSTGRES_PASSWORD" "${POSTGRES_HOST:-api-db}" "$POSTGRES_USER" "$POSTGRES_DB" "$1/glow.dump"
+	restore_db "$ODK_POSTGRES_PASSWORD" "${ODK_POSTGRES_HOST:-postgres14}" "$ODK_POSTGRES_USER" "$ODK_POSTGRES_DB" "$1/odk.dump"
+}
+
 case "${1:-}" in
 	run-loop) run_loop ;;
 	backup) backup_cycle ;;
 	_step) "$2" ;;
 	verify) run_step verify do_verify ;;
-	*) echo "usage: $0 run-loop|backup|verify" >&2; exit 2 ;;
+	check-key) [ $# -eq 2 ] || exit 2; read_key; do_check_key "$2" ;;
+	restore-files) [ $# -eq 3 ] || exit 2; read_key; do_restore_files "$2" "$3" ;;
+	restore-dbs) [ $# -eq 2 ] || exit 2; do_restore_dbs "$2" ;;
+	*) echo "usage: $0 run-loop|backup|verify|check-key SNAP|restore-files SNAP DIR|restore-dbs DIR" >&2; exit 2 ;;
 esac

@@ -118,3 +118,21 @@ func TestRunBackupLocksAndMapsArgv(t *testing.T) {
 		t.Fatalf("%v %v", err, r.calls)
 	}
 }
+
+func TestRestoreUsageAndKeyFile(t *testing.T) {
+	if got := run([]string{"restore"}); got != 2 {
+		t.Fatalf("restore without --from: %d", got)
+	}
+	if got := run([]string{"restore", "--from", t.TempDir()}); got != 1 {
+		t.Fatalf("restore from a non-repo: %d", got)
+	}
+	f := filepath.Join(t.TempDir(), "k")
+	os.WriteFile(f, []byte("abc123\n"), 0o600)
+	if k, err := readKey(f); err != nil || k != "abc123" {
+		t.Fatalf("%q %v", k, err)
+	}
+	os.WriteFile(f, []byte("\n"), 0o600)
+	if _, err := readKey(f); err == nil {
+		t.Fatal("empty key accepted")
+	}
+}
