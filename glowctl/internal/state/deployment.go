@@ -14,6 +14,9 @@ type Deployment struct {
 	Version    string    `json:"version"`
 	DeployedAt time.Time `json:"deployed_at"`
 	Demo       bool      `json:"demo"`
+	// ReleaseDir is the release dir the stack runs from ("" before update
+	// recorded it): update refuses to run from any other dir.
+	ReleaseDir string `json:"release_dir,omitempty"`
 }
 
 // WriteDeployment writes deployment.json atomically; deployed_at is UTC "Z".

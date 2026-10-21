@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/oxwrc/glow/glowctl/internal/lock"
@@ -154,4 +155,13 @@ func TestUpdateUsage(t *testing.T) {
 	if got := run([]string{"update", "v1.2.3", "--yes", "--dir", t.TempDir()}); got != 1 {
 		t.Errorf("update without glow.env = %d want 1", got)
 	}
+}
+
+func TestUpdateSignalsIncludeHangup(t *testing.T) {
+	for _, s := range updateSignals {
+		if s == syscall.SIGHUP {
+			return
+		}
+	}
+	t.Fatal("update does not handle SIGHUP: a dropped SSH session would kill it mid-swap")
 }

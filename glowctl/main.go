@@ -268,6 +268,10 @@ func readKey(file string) (string, error) {
 	return k, nil
 }
 
+// updateSignals cancel an update; after the swap that triggers the rollback
+// (SIGHUP: a dropped SSH session must not kill it half way).
+var updateSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+
 const updateUsage = "usage: glowctl update vX.Y.Z [--bundle FILE] [--yes] [--dir DIR]"
 
 func updateCmd(args []string) int {
@@ -314,7 +318,9 @@ func updateCmd(args []string) int {
 		return fail("update", err)
 	}
 	fi, _ := os.Stdin.Stat()
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// After a hangup stdout may be a dead pipe: a write must not kill us mid-swap.
+	signal.Ignore(syscall.SIGPIPE)
+	ctx, stop := signal.NotifyContext(context.Background(), updateSignals...)
 	defer stop()
 	err = update.Run(ctx, update.Options{
 		ReleaseDir: dir, Cfg: cfg, Version: ver, Bundle: bundleFile, Yes: yes,

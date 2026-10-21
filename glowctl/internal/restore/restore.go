@@ -283,7 +283,7 @@ func Run(ctx context.Context, o Options) (err error) {
 		healthFailed = true
 		return err
 	}
-	if err := state.WriteDeployment(st, state.Deployment{Version: rv, DeployedAt: time.Now()}); err != nil {
+	if err := state.WriteDeployment(st, state.Deployment{Version: rv, DeployedAt: time.Now(), ReleaseDir: o.ReleaseDir}); err != nil {
 		return err
 	}
 	step("restored snapshot %s (taken %s)", snap.ID, snap.Time)

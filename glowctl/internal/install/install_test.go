@@ -249,11 +249,12 @@ func TestProductionHappyPathOrder(t *testing.T) {
 		Version    string `json:"version"`
 		DeployedAt string `json:"deployed_at"`
 		Demo       *bool  `json:"demo"`
+		ReleaseDir string `json:"release_dir"`
 	}
 	b, err := os.ReadFile(filepath.Join(e.st, "deployment.json"))
 	must(t, err)
 	must(t, json.Unmarshal(b, &dep))
-	if _, perr := time.Parse(time.RFC3339, dep.DeployedAt); dep.Version != "v1.2.3" || dep.Demo == nil || *dep.Demo ||
+	if _, perr := time.Parse(time.RFC3339, dep.DeployedAt); dep.Version != "v1.2.3" || dep.Demo == nil || *dep.Demo || dep.ReleaseDir == "" ||
 		perr != nil || !strings.HasSuffix(dep.DeployedAt, "Z") {
 		t.Fatalf("deployment.json %s", b)
 	}

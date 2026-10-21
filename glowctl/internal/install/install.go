@@ -252,7 +252,7 @@ func Run(ctx context.Context, o Options) (err error) {
 	}
 
 	step("writing deployment.json")
-	if err := state.WriteDeployment(cfg.StateDir, state.Deployment{Version: version, DeployedAt: time.Now(), Demo: cfg.Demo}); err != nil {
+	if err := state.WriteDeployment(cfg.StateDir, state.Deployment{Version: version, DeployedAt: time.Now(), Demo: cfg.Demo, ReleaseDir: o.ReleaseDir}); err != nil {
 		return err
 	}
 	if !cfg.Demo {

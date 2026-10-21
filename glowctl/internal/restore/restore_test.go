@@ -327,7 +327,7 @@ func TestFilesSwappedAndGlowEnvSideBySide(t *testing.T) {
 	if !strings.Contains(rt, "POSTGRES_PASSWORD=restoredpg\n") || !strings.Contains(rt, "ODK_POSTGRES_PASSWORD=restoredodk\n") {
 		t.Fatalf("runtime.env not regenerated from restored secrets:\n%s", rt)
 	}
-	if !strings.Contains(read(t, filepath.Join(e.st, "deployment.json")), "v1.2.3") {
+	if d := read(t, filepath.Join(e.st, "deployment.json")); !strings.Contains(d, "v1.2.3") || !strings.Contains(d, `"release_dir":"`+e.rel+`"`) {
 		t.Fatal("deployment.json not written for this release")
 	}
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/oxwrc/glow/glowctl/internal/config"
 	"github.com/oxwrc/glow/glowctl/internal/install"
 	"github.com/oxwrc/glow/glowctl/internal/lock"
+	"github.com/oxwrc/glow/glowctl/internal/odk"
 	"github.com/oxwrc/glow/glowctl/internal/proxy"
 	"github.com/oxwrc/glow/glowctl/internal/state"
 )
@@ -51,12 +52,14 @@ type Options struct {
 	BaseURL    string // default ReleaseURL
 	HTTP       *http.Client
 	// Compose runs compose for a release dir with the given env file.
-	Compose  func(releaseDir, envFile string) compose.Runner
-	Docker   bundle.Runner
-	Get      func(ctx context.Context, cfg *config.Config, host, path string) (int, error)
-	Out      io.Writer
-	Interval time.Duration // health poll interval; 0 = 5s
-	Attempts int           // health polls; 0 = 60
+	Compose func(releaseDir, envFile string) compose.Runner
+	Docker  bundle.Runner
+	Get     func(ctx context.Context, cfg *config.Config, host, path string) (int, error)
+	// SyncForms publishes the new release's ODK forms; nil = the real sync.
+	SyncForms func(ctx context.Context, releaseDir string) error
+	Out       io.Writer
+	Interval  time.Duration // health poll interval; 0 = 5s
+	Attempts  int           // health polls; 0 = 60
 }
 
 // dbOf maps DB-backed services to the database a rollback restores.
@@ -91,6 +94,10 @@ func Run(ctx context.Context, o Options) (err error) {
 		return err
 	}
 	defer release()
+	// A rollback restarts o.ReleaseDir: it must be the release actually running.
+	if err := runningHere(st, o.ReleaseDir); err != nil {
+		return err
+	}
 
 	newDir := freeDir(filepath.Dir(o.ReleaseDir), v)
 	swapped := false
@@ -168,11 +175,8 @@ func Run(ctx context.Context, o Options) (err error) {
 		step("demo mode: no backup (a failed update restores images only)")
 	} else {
 		step("taking a backup")
-		if err := backup.Now(ctx, oldC, o.Out); err != nil {
-			return fmt.Errorf("backup failed; nothing was changed: %w", err)
-		}
-		if snap, err = latestSnapshot(ctx, oldC); err != nil {
-			return fmt.Errorf("cannot identify the pre-update backup; nothing was changed: %w", err)
+		if snap, err = backup.NowSnapshot(ctx, oldC, o.Out); err != nil {
+			return fmt.Errorf("pre-update backup failed (no snapshot id); nothing was changed: %w", err)
 		}
 		step("pre-update backup: snapshot %s", snap)
 	}
@@ -194,6 +198,9 @@ func Run(ctx context.Context, o Options) (err error) {
 		_, cause = dc(newC, "up", "-d")
 	}
 	if cause == nil {
+		cause = ctx.Err() // interrupted (or the SSH session hung up): roll back
+	}
+	if cause == nil {
 		step("checking health")
 		cause = health(ctx, o, "the new release")
 	}
@@ -205,13 +212,97 @@ func Run(ctx context.Context, o Options) (err error) {
 		})
 	}
 
-	if err := state.WriteDeployment(st, state.Deployment{Version: v, DeployedAt: time.Now(), Demo: cfg.Demo}); err != nil {
+	if err := state.WriteDeployment(st, state.Deployment{Version: v, DeployedAt: time.Now(), Demo: cfg.Demo, ReleaseDir: newDir}); err != nil {
 		return err
 	}
 	step("updated %s -> %s", running, v)
+	// Published forms cannot be undone by a rollback, so they go last and a
+	// failure only warns: the stack is healthy on the new release.
+	step("syncing ODK forms")
+	sync := o.SyncForms
+	if sync == nil {
+		sync = func(ctx context.Context, dir string) error { return syncForms(ctx, cfg, sec, dir, o.Out, step) }
+	}
+	if err := sync(ctx, newDir); err != nil {
+		step("WARNING: publishing the new release's ODK forms failed: %v\n"+
+			"[glowctl] the update itself succeeded; rerun `glowctl install --admin-email <an existing GLOW admin>` from %s to publish them", err, newDir)
+	}
 	step("new release dir: %s (run glowctl from there from now on)", newDir)
 	step("previous release dir, kept for rollback: %s", o.ReleaseDir)
 	return nil
+}
+
+// syncForms publishes releaseDir's odk-forms like install does.
+func syncForms(ctx context.Context, cfg *config.Config, sec state.Secrets, releaseDir string, out io.Writer, step func(string, ...any)) error {
+	kv, err := state.RuntimeEnv(cfg, sec, releaseDir)
+	if err != nil {
+		return err
+	}
+	admin := ""
+	for _, p := range kv {
+		if p[0] == "ODK_SYSADMIN_EMAIL" {
+			admin = p[1]
+		}
+	}
+	c := odk.NewClient(cfg)
+	tok, err := c.Login(ctx, admin, sec.ODKAdminPassword)
+	if err != nil {
+		return err
+	}
+	defer c.Logout(context.WithoutCancel(ctx), tok) //nolint:errcheck // best effort
+	uploaded, err := odk.SyncForms(ctx, c, tok, odk.RequiredProjectID, filepath.Join(releaseDir, "odk-forms"),
+		filepath.Join(cfg.StateDir, "odk-forms-state.json"), out)
+	if err != nil {
+		return err
+	}
+	if len(uploaded) == 0 {
+		step("forms unchanged")
+	} else {
+		step("published forms: %s", strings.Join(uploaded, ", "))
+	}
+	return nil
+}
+
+// runningHere refuses a release dir other than the running one: deployment.json
+// records the running dir (and version); a rollback restarts releaseDir.
+func runningHere(stateDir, releaseDir string) error {
+	d, err := state.ReadDeployment(stateDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // never recorded: RunningVersion fell back to this dir's VERSION
+		}
+		return err
+	}
+	same := func(a, b string) bool {
+		if ra, err := filepath.EvalSymlinks(a); err == nil {
+			a = ra
+		}
+		if rb, err := filepath.EvalSymlinks(b); err == nil {
+			b = rb
+		}
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	here := state.ReleaseVersion(releaseDir)
+	if d.ReleaseDir != "" && !same(d.ReleaseDir, releaseDir) {
+		return fmt.Errorf("%s is not the running release (%s runs from %s); run that release's glowctl", releaseDir, d.Version, d.ReleaseDir)
+	}
+	if d.Version == "" || here == d.Version {
+		return nil
+	}
+	var cands []string
+	if es, err := os.ReadDir(filepath.Dir(releaseDir)); err == nil {
+		for _, e := range es {
+			p := filepath.Join(filepath.Dir(releaseDir), e.Name())
+			if e.IsDir() && !same(p, releaseDir) && state.ReleaseVersion(p) == d.Version {
+				cands = append(cands, p)
+			}
+		}
+	}
+	where := "find the release dir holding VERSION " + d.Version
+	if len(cands) > 0 {
+		where = "it is in " + strings.Join(cands, " or ")
+	}
+	return fmt.Errorf("%s holds %s but %s is running (%s); run that release's glowctl", releaseDir, here, d.Version, where)
 }
 
 type rollbackPlan struct {
@@ -223,6 +314,44 @@ type rollbackPlan struct {
 	changed       []string
 	snap          string
 	step          func(string, ...any)
+}
+
+// manual is the by-hand recovery for a failed rollback: exact commands.
+func manual(o Options, p rollbackPlan, names, clients []string) string {
+	dc := func(args ...string) string {
+		return "  " + strings.Join(compose.WithEnvFile(o.ReleaseDir, p.rtEnv, o.Cfg.Demo).Argv(args...), " ")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Previous release dir: %s; new release dir (kept): %s\n", o.ReleaseDir, p.newDir)
+	fmt.Fprintf(&b, "Recover by hand: make sure %s is the previous release's (it was rewritten for the rollback; "+
+		"if not, rerun `glowctl install` from %s), then run:\n", p.rtEnv, o.ReleaseDir)
+	b.WriteString(dc("up", "-d", "--remove-orphans") + "\n")
+	if len(names) > 0 && p.snap != "" {
+		b.WriteString(dc(append([]string{"stop"}, clients...)...) + "\n")
+		b.WriteString(dc(append([]string{"exec", "-T", "backup", "glow-backup.sh", "rollback-dbs", p.snap}, names...)...) + "\n")
+		b.WriteString(dc("up", "-d") + "\n")
+	}
+	fmt.Fprintf(&b, "  %s status\n", filepath.Join(o.ReleaseDir, "glowctl"))
+	switch {
+	case len(names) > 0 && p.snap != "":
+		fmt.Fprintf(&b, "The pre-update backup is snapshot %s. Backup images of releases that lack rollback-dbs "+
+			"(older than this glowctl) cannot run that step: instead run `sudo %s restore --from %s --snapshot %s --force` "+
+			"from %s (restores both databases and the state files)",
+			p.snap, filepath.Join(o.ReleaseDir, "glowctl"), backupPath(o.Cfg), p.snap, o.ReleaseDir)
+	case p.snap != "":
+		fmt.Fprintf(&b, "No database needs restoring; the pre-update backup is snapshot %s", p.snap)
+	default:
+		b.WriteString("There is no pre-update backup (demo mode)")
+	}
+	return b.String()
+}
+
+// backupPath is the restic repository on this host (compose's default).
+func backupPath(cfg *config.Config) string {
+	if cfg.BackupPath != "" {
+		return cfg.BackupPath
+	}
+	return filepath.Join(cfg.StateDir, "backups")
 }
 
 // rollback brings the previous release back, restores the databases of
@@ -247,7 +376,7 @@ func rollback(ctx context.Context, o Options, p rollbackPlan) error {
 	err := state.WriteFileAtomic(p.rtEnv, p.oldEnv, 0o600)
 	if err == nil {
 		p.step("starting the previous release")
-		err = dc("up", "-d")
+		err = dc("up", "-d", "--remove-orphans")
 	}
 	if err == nil && len(names) > 0 {
 		if p.snap == "" {
@@ -270,12 +399,8 @@ func rollback(ctx context.Context, o Options, p rollbackPlan) error {
 		err = health(ctx, o, "the previous release")
 	}
 	if err != nil {
-		snapNote := "there is no pre-update backup (demo mode)"
-		if p.snap != "" {
-			snapNote = "the pre-update backup is snapshot " + p.snap
-		}
-		return fmt.Errorf("update to %s failed: %w\nthe rollback to %s ALSO FAILED: %v\n%s; previous release dir: %s; new release dir: %s",
-			o.Version, p.cause, p.running, err, snapNote, o.ReleaseDir, p.newDir)
+		return fmt.Errorf("update to %s failed: %w\nthe rollback to %s ALSO FAILED: %v\n%s",
+			o.Version, p.cause, p.running, err, manual(o, p, names, clients))
 	}
 	return fmt.Errorf("update to %s failed: %w\nrolled back to %s (%s); databases restored: %s\nthe new release dir %s is kept for inspection",
 		o.Version, p.cause, p.running, o.ReleaseDir, restored, p.newDir)
@@ -297,15 +422,16 @@ func health(ctx context.Context, o Options, what string) error {
 		proxy.Targets(o.Cfg), n, iv, o.Out, 30*time.Second, what)
 }
 
-// freeDir is <parent>/<version>, or <parent>/<version>.N if that exists
+// freeDir is <parent>/glow-<version> (the archive's own top dir), or
+// <parent>/glow-<version>.N if that exists
 // (re-applying the running version, or a dir left by an earlier attempt).
 func freeDir(parent, v string) string {
-	p := filepath.Join(parent, v)
+	p := filepath.Join(parent, "glow-"+v)
 	for i := 2; ; i++ {
 		if _, err := os.Lstat(p); os.IsNotExist(err) {
 			return p
 		}
-		p = filepath.Join(parent, fmt.Sprintf("%s.%d", v, i))
+		p = filepath.Join(parent, fmt.Sprintf("glow-%s.%d", v, i))
 	}
 }
 
@@ -595,31 +721,4 @@ func confirm(o Options, running string, changed []string) error {
 		return errors.New("cancelled; nothing was changed")
 	}
 	return nil
-}
-
-// latestSnapshot is the newest GLOW snapshot, read right after the backup and
-// before the swap, so a scheduled backup taken later can never be mistaken
-// for the pre-update one.
-func latestSnapshot(ctx context.Context, r compose.Runner) (string, error) {
-	out, err := r.Run(ctx, []string{"exec", "-T", "backup", "restic", "snapshots", "--json", "--tag", "glow", "--host", "glow", "--latest", "1"}, nil)
-	if err != nil {
-		return "", err
-	}
-	var snaps []struct {
-		ID   string    `json:"id"`
-		Time time.Time `json:"time"`
-	}
-	if err := json.Unmarshal([]byte(out), &snaps); err != nil {
-		return "", fmt.Errorf("parsing restic snapshots: %w", err)
-	}
-	id, at := "", time.Time{}
-	for _, s := range snaps {
-		if s.ID != "" && !s.Time.Before(at) {
-			id, at = s.ID, s.Time
-		}
-	}
-	if id == "" {
-		return "", errors.New("no GLOW snapshot found")
-	}
-	return id, nil
 }

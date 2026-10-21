@@ -85,7 +85,7 @@ type fake struct {
 	failOn   map[string]error  // a call containing the key fails
 	images   map[string]string // release dir base -> compose config json
 	hashes   map[string]string // api image -> suppression hash
-	snapshot string            // restic snapshots output
+	snapshot string            // glow-backup.sh backup output
 	onCall   func(string)      // observes each call
 }
 
@@ -118,7 +118,7 @@ func (c fakeCompose) Run(_ context.Context, args []string, _ io.Reader) (string,
 	switch {
 	case strings.Join(args, " ") == "config --format json":
 		return c.f.images[filepath.Base(c.dir)], nil
-	case strings.Contains(s, "restic snapshots"):
+	case strings.HasSuffix(s, "glow-backup.sh backup"):
 		return c.f.snapshot, nil
 	}
 	return "", nil
@@ -155,6 +155,7 @@ type env struct {
 	o               Options
 	out             bytes.Buffer
 	healthy         func() bool
+	forms           func() error
 }
 
 func newEnv(t *testing.T, demo bool) *env {
@@ -162,7 +163,7 @@ func newEnv(t *testing.T, demo bool) *env {
 	e := &env{}
 	root := t.TempDir()
 	e.parent, e.st = filepath.Join(root, "releases"), filepath.Join(root, "state")
-	e.rel = filepath.Join(e.parent, "v1.0.0")
+	e.rel = filepath.Join(e.parent, "glow-v1.0.0")
 	for _, d := range []string{e.rel, e.st} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -176,7 +177,7 @@ func newEnv(t *testing.T, demo bool) *env {
 	if _, _, err := state.EnsureSecrets(e.st); err != nil {
 		t.Fatal(err)
 	}
-	if err := state.WriteDeployment(e.st, state.Deployment{Version: "v1.0.0", Demo: demo}); err != nil {
+	if err := state.WriteDeployment(e.st, state.Deployment{Version: "v1.0.0", Demo: demo, ReleaseDir: e.rel}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{Domain: "example.org", TLSMode: "acme", HTTPPort: 80, HTTPSPort: 443,
@@ -188,11 +189,11 @@ func newEnv(t *testing.T, demo bool) *env {
 	e.f = &fake{
 		failOn: map[string]error{},
 		images: map[string]string{
-			"v1.0.0": imagesJSON("reg/glow-api@sha256:a1", "odk/central-service@sha256:o1"),
-			"v1.1.0": imagesJSON("reg/glow-api@sha256:a2", "odk/central-service@sha256:o1"),
+			"glow-v1.0.0": imagesJSON("reg/glow-api@sha256:a1", "odk/central-service@sha256:o1"),
+			"glow-v1.1.0": imagesJSON("reg/glow-api@sha256:a2", "odk/central-service@sha256:o1"),
 		},
 		hashes:   map[string]string{"reg/glow-api@sha256:a1": "h1", "reg/glow-api@sha256:a2": "h1"},
-		snapshot: `[{"id":"snapold","time":"2026-10-21T09:00:00Z"},{"id":"snapnew","time":"2026-10-21T10:00:00Z"}]`,
+		snapshot: "2026-10-21T10:00:00Z backup ok\nsnapshot_id=snapnew\n2026-10-21T10:00:01Z prune ok\n",
 	}
 	arch := releaseArchive(t, "v1.1.0")
 	e.files = map[string][]byte{
@@ -210,6 +211,7 @@ func newEnv(t *testing.T, demo bool) *env {
 	}))
 	t.Cleanup(e.srv.Close)
 	e.healthy = func() bool { return true }
+	e.forms = func() error { return nil }
 	e.o = Options{
 		ReleaseDir: e.rel, Cfg: cfg, Version: "v1.1.0", Yes: true,
 		BaseURL: e.srv.URL, HTTP: e.srv.Client(),
@@ -220,6 +222,12 @@ func newEnv(t *testing.T, demo bool) *env {
 				return 200, nil
 			}
 			return 502, nil
+		},
+		SyncForms: func(_ context.Context, dir string) error {
+			if err := e.f.record("forms " + filepath.Base(dir)); err != nil {
+				return err
+			}
+			return e.forms()
 		},
 		Out: &e.out, Interval: 1, Attempts: 3,
 	}
@@ -268,21 +276,21 @@ func TestSuccessArgvOrder(t *testing.T) {
 		t.Fatalf("Run: %v\n%s", err, e.out.String())
 	}
 	want := []string{
-		"v1.1.0 runtime.env.next: pull",
-		"v1.1.0 runtime.env.next: run --rm --no-deps api glow-api config check",
-		"v1.0.0 runtime.env: config --format json",
-		"v1.1.0 runtime.env.next: config --format json",
+		"glow-v1.1.0 runtime.env.next: pull",
+		"glow-v1.1.0 runtime.env.next: run --rm --no-deps api glow-api config check",
+		"glow-v1.0.0 runtime.env: config --format json",
+		"glow-v1.1.0 runtime.env.next: config --format json",
 		"docker run --rm -e GLOW_DEMO_MODE=true reg/glow-api@sha256:a1 glow-api suppression-hash",
 		"docker run --rm -e GLOW_DEMO_MODE=true reg/glow-api@sha256:a2 glow-api suppression-hash",
-		"v1.0.0 runtime.env: exec -T backup glow-backup.sh backup",
-		"v1.0.0 runtime.env: exec -T backup restic snapshots --json --tag glow --host glow --latest 1",
-		"v1.1.0 runtime.env: up -d",
+		"glow-v1.0.0 runtime.env: exec -T backup glow-backup.sh backup",
+		"glow-v1.1.0 runtime.env: up -d",
+		"forms glow-v1.1.0",
 	}
 	if got := e.calls(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	newDir := filepath.Join(e.parent, "v1.1.0")
-	if d, err := state.ReadDeployment(e.st); err != nil || d.Version != "v1.1.0" {
+	newDir := filepath.Join(e.parent, "glow-v1.1.0")
+	if d, err := state.ReadDeployment(e.st); err != nil || d.Version != "v1.1.0" || d.ReleaseDir != newDir {
 		t.Fatalf("deployment.json = %+v, %v", d, err)
 	}
 	if v := e.runtimeVersion(t); v != "v1.1.0" {
@@ -373,11 +381,11 @@ func TestSameVersionReapplies(t *testing.T) {
 		}
 		http.NotFound(w, r)
 	})
-	e.f.images["v1.0.0.2"] = e.f.images["v1.0.0"]
+	e.f.images["glow-v1.0.0.2"] = e.f.images["glow-v1.0.0"]
 	if err := Run(context.Background(), e.o); err != nil {
 		t.Fatalf("Run: %v\n%s", err, e.out.String())
 	}
-	if _, err := os.Stat(filepath.Join(e.parent, "v1.0.0.2", "VERSION")); err != nil {
+	if _, err := os.Stat(filepath.Join(e.parent, "glow-v1.0.0.2", "VERSION")); err != nil {
 		t.Fatalf("re-apply did not unpack beside the running release: %v", err)
 	}
 }
@@ -392,7 +400,7 @@ func TestSuppressionChangeRefusedInProduction(t *testing.T) {
 	if e.has("backup") || e.has(": up") {
 		t.Fatalf("went on after the suppression guard: %v", e.calls())
 	}
-	if _, err := os.Stat(filepath.Join(e.parent, "v1.1.0")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(e.parent, "glow-v1.1.0")); !os.IsNotExist(err) {
 		t.Fatal("unused new release dir left behind")
 	}
 	if v := e.runtimeVersion(t); v != "v1.0.0" {
@@ -423,7 +431,7 @@ func TestSuppressionChangeAllowedInDemo(t *testing.T) {
 	if e.has("backup") {
 		t.Fatalf("demo took a backup: %v", e.calls())
 	}
-	if !e.has("v1.1.0 runtime.env: up -d") {
+	if !e.has("glow-v1.1.0 runtime.env: up -d") {
 		t.Fatal("no up")
 	}
 }
@@ -450,10 +458,10 @@ func TestHealthFailureRollsBackGlowDBOnly(t *testing.T) {
 	rolledBack := false
 	swapped := false
 	e.f.onCall = func(s string) {
-		if s == "v1.1.0 runtime.env: up -d" {
+		if s == "glow-v1.1.0 runtime.env: up -d" {
 			swapped = true
 		}
-		if swapped && s == "v1.0.0 runtime.env: up -d" {
+		if swapped && s == "glow-v1.0.0 runtime.env: up -d --remove-orphans" {
 			rolledBack = true
 		}
 	}
@@ -465,16 +473,16 @@ func TestHealthFailureRollsBackGlowDBOnly(t *testing.T) {
 	calls := e.calls()
 	i := 0
 	for ; i < len(calls); i++ {
-		if calls[i] == "v1.1.0 runtime.env: up -d" {
+		if calls[i] == "glow-v1.1.0 runtime.env: up -d" {
 			break
 		}
 	}
 	tail := strings.Join(calls[i+1:], "\n")
 	want := strings.Join([]string{
-		"v1.0.0 runtime.env: up -d",
-		"v1.0.0 runtime.env: stop api",
-		"v1.0.0 runtime.env: exec -T backup glow-backup.sh rollback-dbs snapnew glow",
-		"v1.0.0 runtime.env: up -d",
+		"glow-v1.0.0 runtime.env: up -d --remove-orphans",
+		"glow-v1.0.0 runtime.env: stop api",
+		"glow-v1.0.0 runtime.env: exec -T backup glow-backup.sh rollback-dbs snapnew glow",
+		"glow-v1.0.0 runtime.env: up -d",
 	}, "\n")
 	if tail != want {
 		t.Fatalf("rollback calls:\n%s\nwant:\n%s", tail, want)
@@ -485,15 +493,15 @@ func TestHealthFailureRollsBackGlowDBOnly(t *testing.T) {
 	if d, _ := state.ReadDeployment(e.st); d.Version != "v1.0.0" {
 		t.Fatalf("deployment.json changed: %+v", d)
 	}
-	if !strings.Contains(err.Error(), filepath.Join(e.parent, "v1.1.0")) {
+	if !strings.Contains(err.Error(), filepath.Join(e.parent, "glow-v1.1.0")) {
 		t.Errorf("error does not name the failed release dir: %v", err)
 	}
 }
 
 func TestUpFailureRollsBackBothDBsWhenODKChanged(t *testing.T) {
 	e := newEnv(t, false)
-	e.f.images["v1.1.0"] = imagesJSON("reg/glow-api@sha256:a2", "odk/central-service@sha256:o2")
-	e.f.failOn["v1.1.0 runtime.env: up -d"] = errors.New("container exited")
+	e.f.images["glow-v1.1.0"] = imagesJSON("reg/glow-api@sha256:a2", "odk/central-service@sha256:o2")
+	e.f.failOn["glow-v1.1.0 runtime.env: up -d"] = errors.New("container exited")
 	err := Run(context.Background(), e.o)
 	if err == nil || !strings.Contains(err.Error(), "rolled back") {
 		t.Fatalf("err = %v", err)
@@ -505,11 +513,38 @@ func TestUpFailureRollsBackBothDBsWhenODKChanged(t *testing.T) {
 
 func TestRollbackFailureIsReported(t *testing.T) {
 	e := newEnv(t, false)
-	e.f.failOn["v1.1.0 runtime.env: up -d"] = errors.New("container exited")
+	e.f.failOn["glow-v1.1.0 runtime.env: up -d"] = errors.New("container exited")
 	e.f.failOn["rollback-dbs"] = errors.New("pg_restore failed")
 	err := Run(context.Background(), e.o)
 	if err == nil || !strings.Contains(err.Error(), "rollback") || !strings.Contains(err.Error(), "pg_restore failed") {
 		t.Fatalf("err = %v", err)
+	}
+	msg := err.Error()
+	for _, w := range []string{
+		"docker compose --project-name glow --project-directory " + e.rel,
+		"--env-file " + filepath.Join(e.st, "runtime.env"),
+		"exec -T backup glow-backup.sh rollback-dbs snapnew glow",
+		"stop api",
+		"glowctl restore",
+		"lack rollback-dbs",
+	} {
+		if !strings.Contains(msg, w) {
+			t.Errorf("ALSO FAILED message lacks %q:\n%s", w, msg)
+		}
+	}
+	if strings.Contains(msg, mustSecrets(t, e.st).BackupKey) {
+		t.Fatal("message contains the backup key")
+	}
+}
+
+func TestNoSnapshotIDAbortsBeforeSwap(t *testing.T) {
+	e := newEnv(t, false)
+	e.f.snapshot = "2026-10-21T10:00:00Z backup ok\n"
+	if err := Run(context.Background(), e.o); err == nil || !strings.Contains(err.Error(), "snapshot") {
+		t.Fatalf("err = %v", err)
+	}
+	if e.has(": up") {
+		t.Fatal("up without a known pre-update snapshot")
 	}
 }
 
@@ -572,5 +607,106 @@ func TestUnpackStripsTopDir(t *testing.T) {
 	}
 	if b, err := os.ReadFile(filepath.Join(dst, "proxy", "Caddyfile.acme")); err != nil || string(b) != "x\n" {
 		t.Fatalf("%q %v", b, err)
+	}
+}
+
+func TestFormsSyncedAfterHealthyUpdate(t *testing.T) {
+	e := newEnv(t, true)
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if c := e.calls(); c[len(c)-1] != "forms glow-v1.1.0" {
+		t.Fatalf("forms not synced last: %v", c)
+	}
+}
+
+func TestFormsSyncFailureWarnsWithoutRollback(t *testing.T) {
+	e := newEnv(t, false)
+	e.forms = func() error { return errors.New("odk down") }
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if e.has("glow-v1.0.0 runtime.env: up") || e.has("rollback-dbs") {
+		t.Fatalf("rolled back on a forms failure: %v", e.calls())
+	}
+	if out := e.out.String(); !strings.Contains(out, "WARNING") || !strings.Contains(out, "odk down") {
+		t.Fatalf("no warning:\n%s", out)
+	}
+	if d, _ := state.ReadDeployment(e.st); d.Version != "v1.1.0" {
+		t.Fatalf("deployment.json = %+v", d)
+	}
+}
+
+func writeRelease(t *testing.T, dir, version string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for n, c := range map[string]string{"VERSION": version + "\n", "glow.env": "GLOW_DOMAIN=example.org\n"} {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte(c), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestStaleReleaseDirRefused(t *testing.T) {
+	e := newEnv(t, false)
+	stale := filepath.Join(e.parent, "glow-v0.9.0")
+	writeRelease(t, stale, "v0.9.0")
+	e.o.ReleaseDir = stale
+	err := Run(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), e.rel) {
+		t.Fatalf("err = %v", err)
+	}
+	if e.hits != 0 || len(e.calls()) != 0 {
+		t.Fatalf("stale dir did work: %d downloads, %v", e.hits, e.calls())
+	}
+}
+
+func TestStaleReleaseDirRefusedWithoutRecordedDir(t *testing.T) {
+	e := newEnv(t, false)
+	// deployment.json without release_dir (older install): the version check
+	// still refuses, and the sibling holding the running version is named.
+	if err := state.WriteDeployment(e.st, state.Deployment{Version: "v1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(e.parent, "glow-v0.9.0")
+	writeRelease(t, stale, "v0.9.0")
+	e.o.ReleaseDir = stale
+	err := Run(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), e.rel) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestOtherReleaseDirSameVersionRefused(t *testing.T) {
+	e := newEnv(t, false)
+	other := filepath.Join(e.parent, "glow-v1.0.0.2")
+	writeRelease(t, other, "v1.0.0")
+	e.o.ReleaseDir = other
+	err := Run(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), e.rel) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(e.calls()) != 0 {
+		t.Fatalf("calls: %v", e.calls())
+	}
+}
+
+func TestCancelAfterSwapStillRollsBack(t *testing.T) {
+	e := newEnv(t, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.f.onCall = func(s string) {
+		if s == "glow-v1.1.0 runtime.env: up -d" {
+			cancel() // e.g. SIGHUP from a dropped SSH session
+		}
+	}
+	err := Run(ctx, e.o)
+	if err == nil || !strings.Contains(err.Error(), "rolled back to v1.0.0") {
+		t.Fatalf("err = %v", err)
+	}
+	if !e.has("rollback-dbs snapnew glow") {
+		t.Fatalf("calls: %v", e.calls())
 	}
 }
