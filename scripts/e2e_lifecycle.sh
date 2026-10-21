@@ -120,6 +120,14 @@ no_anon_volumes() {
 
 deployed() { jq -r ".$1" "$STATE/deployment.json"; }
 
+# "service container-id created" for every container of the run, sorted.
+svc_ids() {
+  docker ps -aq --filter label=com.docker.compose.project=$PROJECT |
+    xargs -r docker inspect --format '{{index .Config.Labels "com.docker.compose.service"}} {{.Id}} {{.Created}}' | sort
+}
+# Services whose container (ID or creation time) differs between two svc_ids.
+recreated() { { diff <(echo "$1") <(echo "$2") || true; } | sed -n 's/^[<>] \([^ ]*\) .*/\1/p' | sort -u | tr '\n' ' ' | sed 's/ $//'; }
+
 # ---------------------------------------------------------------- build
 step "build images and glowctl"
 if [ "${E2E_SKIP_BUILD:-}" != 1 ]; then
@@ -250,7 +258,7 @@ docker run --rm -v "$STATE:/d" busybox:1.36 sh -c 'rm -rf /d/* /d/.[!.]*'
 # ---------------------------------------------------------------- 6 restore
 step "6 restore from $BACKUPS with the key file"
 gc "$REL0" restore --from "$BACKUPS" --key-file "$KEY"
-[ "$(cat "$STATE/.glow-instance")" = "$PROJECT" ] || die "restore did not claim the fresh state dir for $PROJECT"
+[ "$($SUDO cat "$STATE/.glow-instance")" = "$PROJECT" ] || die "restore did not claim the fresh state dir for $PROJECT"
 $SUDO test -f "$STATE/.backup-key-shown" || die "restore did not write the backup-key marker"
 
 # ---------------------------------------------------------------- 7 data
@@ -263,7 +271,20 @@ gc "$REL0" status || die "glowctl status failed after restore"
 
 # ---------------------------------------------------------------- 8 update
 step "8 update $V0 -> $V1 (--bundle, same images)"
-gc "$REL0" update "$V1" --bundle "$BUNDLES/$V1" --yes
+[ "$(readlink "$PARENT/current")" = "glow-$V0" ] || die "current does not point at glow-$V0"
+IDS_BEFORE=$(svc_ids)
+gc "$PARENT/current" update "$V1" --bundle "$BUNDLES/$V1" --yes 2>&1 | tee "$WORK/update1.log"
+[ "${PIPESTATUS[0]}" -eq 0 ] || die "update to $V1 failed"
+IDS_AFTER=$(svc_ids)
+echo "[e2e] recreated by the GLOW-only update: $(recreated "$IDS_BEFORE" "$IDS_AFTER")"
+# Collection continues: ODK and the proxy keep their containers.
+for s in odk-service nginx postgres14 proxy; do
+  b=$(grep "^$s " <<<"$IDS_BEFORE") a=$(grep "^$s " <<<"$IDS_AFTER")
+  [ -n "$b" ] && [ "$b" = "$a" ] || die "$s was recreated by a GLOW-only update: '$b' -> '$a'"
+  echo "[e2e] ok $s kept container ${b#* }"
+done
+grep -q "ODK Central and the proxy keep running" "$WORK/update1.log" || die "update did not say ODK keeps running"
+[ "$(readlink "$PARENT/current")" = "glow-$V1" ] || die "current does not point at glow-$V1 after the update"
 [ "$(deployed version)" = "$V1" ] || die "deployment.json version is $(deployed version), want $V1"
 [ "$(deployed release_dir)" = "$REL1" ] || die "deployment.json release_dir is $(deployed release_dir), want $REL1"
 proxy_checks
@@ -271,10 +292,16 @@ users_list "$REL1" | diff "$WORK/users.before" - || die "users differ after upda
 
 # ---------------------------------------------------------------- 9 rollback
 step "9 update $V1 -> $V2 (API never healthy) must roll back"
+IDS_BEFORE=$(svc_ids)
 set +e
 gc "$REL1" update "$V2" --bundle "$BUNDLES/$V2" --yes 2>&1 | tee "$WORK/update2.log"
 rc=${PIPESTATUS[0]}
 set -e
+IDS_AFTER=$(svc_ids)
+got=$(recreated "$IDS_BEFORE" "$IDS_AFTER")
+echo "[e2e] recreated by the failed update and its rollback: $got"
+[ "$got" = api ] || die "want only api recreated by the update + rollback, got: $got"
+[ "$(readlink "$PARENT/current")" = "glow-$V1" ] || die "current does not point back at glow-$V1 after the rollback"
 [ "$rc" -ne 0 ] || die "update to the broken release succeeded"
 grep -q "changed services: api" "$WORK/update2.log" || die "expected only the api service to change"
 grep -q "rolled back to $V1" "$WORK/update2.log" || die "no successful rollback reported"
