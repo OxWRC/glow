@@ -67,7 +67,7 @@ Added risks: SSM outages or IAM mistakes can lock you out (keep a break-glass pa
 
 ## 4. Demo and production on one host
 
-Each stack needs its own release directory, `glow.env`, `GLOW_STATE_DIR`, `GLOW_BACKUP_PATH` (production only), domain, ports and Compose project name. `GLOW_INSTANCE=demo` in the demo's `glow.env` gives it the project `glow-demo` and the default state dir `/var/lib/glow-demo`; `glowctl` then manages each stack from its own release directory.
+Each stack needs its own parent directory for its releases (it holds that stack's `current` link), `glow.env`, `GLOW_STATE_DIR`, `GLOW_BACKUP_PATH` (production only), domain, ports and Compose project name. `GLOW_INSTANCE=demo` in the demo's `glow.env` gives it the project `glow-demo` and the default state dir `/var/lib/glow-demo`; `glowctl` then manages each stack from its own release directory.
 
 ```
 users --> :80/:443  --> [ your front proxy (Caddy/nginx/HAProxy) ]

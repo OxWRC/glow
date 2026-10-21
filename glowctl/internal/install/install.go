@@ -150,6 +150,8 @@ func Run(ctx context.Context, o Options) (err error) {
 		return d
 	}
 
+	// Run from <parent>/current or the real dir alike: record the real one.
+	o.ReleaseDir = compose.Real(o.ReleaseDir)
 	step("loading glow.env")
 	cfg, err := config.Load(filepath.Join(o.ReleaseDir, "glow.env"))
 	if err != nil {
@@ -185,6 +187,12 @@ func Run(ctx context.Context, o Options) (err error) {
 	}
 	if err := CheckProject(ctx, d, cfg); err != nil {
 		return err
+	}
+	if dep, derr := state.ReadDeployment(cfg.StateDir); derr == nil && dep.Demo != cfg.Demo {
+		return fmt.Errorf("%s was installed with GLOW_DEMO_MODE=%t: deployment mode cannot change on an existing install; "+
+			"use a separate GLOW_INSTANCE and state dir", cfg.StateDir, dep.Demo)
+	} else if derr != nil && !os.IsNotExist(derr) {
+		return derr
 	}
 	if err := state.ClaimInstance(cfg.StateDir, cfg.Project()); err != nil {
 		return err
@@ -234,6 +242,10 @@ func Run(ctx context.Context, o Options) (err error) {
 		return proxy.Get(ctx, cfg, host, path)
 	}
 
+	// Compose runs through <parent>/current (see compose.ProjectDir).
+	if err := compose.SwitchCurrent(o.ReleaseDir); err != nil {
+		return err
+	}
 	r := o.Runner
 	if r == nil {
 		r = compose.Exec{C: compose.New(o.ReleaseDir, cfg.StateDir, cfg.Project(), cfg.Demo)}

@@ -14,7 +14,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -70,6 +69,8 @@ var clientsOf = map[string]string{"glow": "api", "odk": "odk-service"}
 
 // Run updates the deployment of o.ReleaseDir to o.Version.
 func Run(ctx context.Context, o Options) (err error) {
+	// Run from <parent>/current or the real dir alike: work on the real one.
+	o.ReleaseDir = compose.Real(o.ReleaseDir)
 	cfg, st, v := o.Cfg, o.Cfg.StateDir, o.Version
 	step := func(f string, a ...any) { fmt.Fprintf(o.Out, "[glowctl] "+f+"\n", a...) }
 	if !tagRe.MatchString(v) {
@@ -154,24 +155,38 @@ func Run(ctx context.Context, o Options) (err error) {
 		fmt.Fprint(o.Out, out)
 		return fmt.Errorf("the new release rejects this configuration; nothing was changed: %w", err)
 	}
-	oldImgs, err := images(ctx, oldC)
+	// The running stack is compared through <parent>/current when that is
+	// where it runs from; the new release through its own dir.
+	curPath := compose.CurrentPath(o.ReleaseDir)
+	hadCurrent := compose.ProjectDir(o.ReleaseDir) == curPath
+	oldSvcs, err := services(ctx, oldC, o.ReleaseDir, curPath)
 	if err != nil {
 		return err
 	}
-	newImgs, err := images(ctx, nextC)
+	newSvcs, err := services(ctx, nextC, newDir, curPath)
 	if err != nil {
 		return err
 	}
+	oldImgs, newImgs := imagesOf(oldSvcs), imagesOf(newSvcs)
 	if err := suppressionGuard(ctx, docker, oldImgs["api"], newImgs["api"], cfg.Demo, step); err != nil {
 		return err
 	}
+	// changed: images (a rollback restores their DBs); recreate: everything
+	// whose container must be replaced (images, config, release files).
 	changed := diff(oldImgs, newImgs)
-	if len(changed) == 0 {
+	recreate, err := recreateSet(oldSvcs, newSvcs, o.ReleaseDir, newDir, hadCurrent)
+	if err != nil {
+		return err
+	}
+	if !hadCurrent {
+		step("note: compose now runs from %s; services with release files are recreated once to move onto it", curPath)
+	}
+	if len(recreate) == 0 {
 		step("changed services: none (re-applying %s)", v)
 	} else {
-		step("changed services: %s", strings.Join(changed, ", "))
+		step("changed services: %s (%s)", strings.Join(recreate, ", "), impact(recreate))
 	}
-	if err := confirm(o, running, changed); err != nil {
+	if err := confirm(o, running, recreate); err != nil {
 		return err
 	}
 
@@ -200,8 +215,11 @@ func Run(ctx context.Context, o Options) (err error) {
 	swapped = true
 	cause := state.WriteFileAtomic(rtEnv, newEnvB, 0o600)
 	if cause == nil {
+		cause = compose.SwitchCurrent(newDir)
+	}
+	if cause == nil {
 		step("recreating changed containers")
-		_, cause = dc(newC, "up", "-d")
+		cause = up(ctx, newC, recreate)
 	}
 	if cause == nil {
 		cause = ctx.Err() // interrupted (or the SSH session hung up): roll back
@@ -214,7 +232,7 @@ func Run(ctx context.Context, o Options) (err error) {
 		// 7. Rollback. Ctrl-C must not interrupt it half way.
 		return rollback(context.WithoutCancel(ctx), o, rollbackPlan{
 			cause: cause, running: running, newDir: newDir, rtEnv: rtEnv, oldEnv: oldEnvB,
-			oldC: oldC, changed: changed, snap: snap, step: step,
+			oldC: oldC, changed: changed, recreate: existing(recreate, oldSvcs), snap: snap, step: step,
 		})
 	}
 
@@ -233,7 +251,7 @@ func Run(ctx context.Context, o Options) (err error) {
 		step("WARNING: publishing the new release's ODK forms failed: %v\n"+
 			"[glowctl] the update itself succeeded; rerun `glowctl install --admin-email <an existing GLOW admin>` from %s to publish them", err, newDir)
 	}
-	step("new release dir: %s (run glowctl from there from now on)", newDir)
+	step("new release dir: %s; %s now points to it (run glowctl from there from now on)", newDir, curPath)
 	step("previous release dir, kept for rollback: %s", o.ReleaseDir)
 	return nil
 }
@@ -317,7 +335,8 @@ type rollbackPlan struct {
 	newDir, rtEnv string
 	oldEnv        []byte
 	oldC          compose.Runner
-	changed       []string
+	changed       []string // image changed
+	recreate      []string // recreated by the update and present in the previous release
 	snap          string
 	step          func(string, ...any)
 }
@@ -330,7 +349,11 @@ func manual(o Options, p rollbackPlan, names, clients []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Previous release dir: %s; new release dir (kept): %s\n", o.ReleaseDir, p.newDir)
 	fmt.Fprintf(&b, "Recover by hand: make sure %s is the previous release's (it was rewritten for the rollback; "+
-		"if not, rerun `glowctl install` from %s), then run:\n", p.rtEnv, o.ReleaseDir)
+		"if not, rerun `glowctl install` from %s) and that %s is a symlink to %s, then run:\n",
+		p.rtEnv, o.ReleaseDir, compose.CurrentPath(o.ReleaseDir), filepath.Base(o.ReleaseDir))
+	if len(p.recreate) > 0 {
+		b.WriteString(dc(append([]string{"up", "-d", "--no-deps", "--force-recreate"}, p.recreate...)...) + "\n")
+	}
 	b.WriteString(dc("up", "-d", "--remove-orphans") + "\n")
 	if len(names) > 0 && p.snap != "" {
 		b.WriteString(dc(append([]string{"stop"}, clients...)...) + "\n")
@@ -381,7 +404,15 @@ func rollback(ctx context.Context, o Options, p rollbackPlan) error {
 	restored := "none (no changed service uses a database)"
 	err := state.WriteFileAtomic(p.rtEnv, p.oldEnv, 0o600)
 	if err == nil {
+		err = compose.SwitchCurrent(o.ReleaseDir)
+	}
+	if err == nil {
 		p.step("starting the previous release")
+	}
+	if err == nil && len(p.recreate) > 0 {
+		err = dc(append([]string{"up", "-d", "--no-deps", "--force-recreate"}, p.recreate...)...)
+	}
+	if err == nil {
 		err = dc("up", "-d", "--remove-orphans")
 	}
 	if err == nil && len(names) > 0 {
@@ -510,11 +541,22 @@ func fetch(ctx context.Context, o Options, newDir string, step func(string, ...a
 	if rv := state.ReleaseVersion(rel); rv != o.Version {
 		return fmt.Errorf("%s holds release %q, not %s", filepath.Base(archive), rv, o.Version)
 	}
-	env, err := os.ReadFile(filepath.Join(o.ReleaseDir, "glow.env"))
+	src := filepath.Join(o.ReleaseDir, "glow.env")
+	env, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(rel, "glow.env"), env, 0o600); err != nil {
+	fi, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	// Same bytes and mode: the backup service mounts it (through current),
+	// so a difference would recreate that container.
+	dst := filepath.Join(rel, "glow.env")
+	if err := os.WriteFile(dst, env, 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(dst, fi.Mode().Perm()); err != nil {
 		return err
 	}
 	if err := os.Rename(rel, newDir); err != nil {
@@ -634,25 +676,60 @@ func unpack(r io.Reader, dst string) error {
 	}
 }
 
-// images maps each service to its image ref in `compose config`.
-func images(ctx context.Context, r compose.Runner) (map[string]string, error) {
+// services parses r's `compose config`; dirs are the release dir's paths.
+func services(ctx context.Context, r compose.Runner, dirs ...string) (map[string]service, error) {
 	out, err := r.Run(ctx, []string{"config", "--format", "json"}, nil)
 	if err != nil {
 		return nil, err
 	}
-	var c struct {
-		Services map[string]struct {
-			Image string `json:"image"`
-		} `json:"services"`
+	return parseServices(out, dirs...)
+}
+
+// existing keeps the names that are services of svcs.
+func existing(names []string, svcs map[string]service) []string {
+	var out []string
+	for _, n := range names {
+		if _, ok := svcs[n]; ok {
+			out = append(out, n)
+		}
 	}
-	if err := json.Unmarshal([]byte(out), &c); err != nil {
-		return nil, fmt.Errorf("parsing compose config: %w", err)
-	}
+	return out
+}
+
+// imagesOf maps each service to its image ref.
+func imagesOf(svcs map[string]service) map[string]string {
 	m := map[string]string{}
-	for s, v := range c.Services {
-		m[s] = v.Image
+	for n, s := range svcs {
+		m[n] = s.Image
 	}
-	return m, nil
+	return m
+}
+
+// up recreates exactly the services in recreate (--no-deps: their running
+// dependencies are left alone), then brings the rest up, which leaves
+// containers whose config is unchanged running: with the stable project
+// dir, ODK and the proxy keep running through a GLOW-only update.
+func up(ctx context.Context, r compose.Runner, recreate []string) error {
+	if len(recreate) > 0 {
+		if _, err := r.Run(ctx, append([]string{"up", "-d", "--no-deps", "--force-recreate"}, recreate...), nil); err != nil {
+			return err
+		}
+	}
+	_, err := r.Run(ctx, []string{"up", "-d"}, nil)
+	return err
+}
+
+// glowServices are GLOW's own; recreating any other service (ODK Central,
+// its databases and helpers, the proxy) interrupts collection briefly.
+var glowServices = map[string]bool{"api": true, "api-db": true, "backup": true, "dashboard": true, "glow-init": true}
+
+func impact(recreate []string) string {
+	for _, s := range recreate {
+		if !glowServices[s] {
+			return "ODK Central or the proxy restarts: collection is interrupted briefly"
+		}
+	}
+	return "ODK Central and the proxy keep running"
 }
 
 // diff lists services whose image ref differs (or that exist on one side only).
@@ -717,9 +794,9 @@ func confirm(o Options, running string, changed []string) error {
 	if !o.IsTTY || o.Stdin == nil {
 		return errors.New("not a terminal: pass --yes to update without a prompt; nothing was changed")
 	}
-	what := "no service images change"
+	what := "no service changes"
 	if len(changed) > 0 {
-		what = strings.Join(changed, ", ") + " will be recreated (brief downtime)"
+		what = strings.Join(changed, ", ") + " will be recreated (" + impact(changed) + ")"
 	}
 	fmt.Fprintf(o.Out, "Update %s -> %s: %s. Continue? [y/N] ", running, o.Version, what)
 	line, _ := bufio.NewReader(o.Stdin).ReadString('\n')

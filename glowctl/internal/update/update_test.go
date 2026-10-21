@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -175,7 +176,13 @@ func newEnv(t *testing.T, demo bool) *env {
 			t.Fatal(err)
 		}
 	}
+	if err := os.Chmod(filepath.Join(e.rel, "glow.env"), 0o640); err != nil { // the operator's choice
+		t.Fatal(err)
+	}
 	if _, _, err := state.EnsureSecrets(e.st); err != nil {
+		t.Fatal(err)
+	}
+	if err := compose.SwitchCurrent(e.rel); err != nil { // as install does
 		t.Fatal(err)
 	}
 	if err := state.WriteDeployment(e.st, state.Deployment{Version: "v1.0.0", Demo: demo, ReleaseDir: e.rel}); err != nil {
@@ -284,6 +291,7 @@ func TestSuccessArgvOrder(t *testing.T) {
 		"docker run --rm -e GLOW_DEMO_MODE=true reg/glow-api@sha256:a1 glow-api suppression-hash",
 		"docker run --rm -e GLOW_DEMO_MODE=true reg/glow-api@sha256:a2 glow-api suppression-hash",
 		"glow-v1.0.0 runtime.env: exec -T backup glow-backup.sh backup",
+		"glow-v1.1.0 runtime.env: up -d --no-deps --force-recreate api",
 		"glow-v1.1.0 runtime.env: up -d",
 		"forms glow-v1.1.0",
 	}
@@ -300,18 +308,26 @@ func TestSuccessArgvOrder(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(newDir, "glow.env")); err != nil || string(b) != "GLOW_DOMAIN=example.org\n" {
 		t.Fatalf("glow.env not copied: %q %v", b, err)
 	}
+	// Same mode as the running release's: the backup service mounts it, and a
+	// mode change alone would recreate that container.
+	if a, b := modeOf(t, filepath.Join(e.rel, "glow.env")), modeOf(t, filepath.Join(newDir, "glow.env")); a != b {
+		t.Fatalf("glow.env mode %v, want %v", b, a)
+	}
 	if fi, err := os.Stat(filepath.Join(newDir, "glowctl")); err != nil || fi.Mode().Perm()&0o100 == 0 {
 		t.Fatalf("glowctl not executable: %v %v", fi, err)
 	}
 	if _, err := os.Stat(filepath.Join(e.rel, "compose.yml")); err != nil {
 		t.Fatal("old release dir was not kept")
 	}
+	if l, err := os.Readlink(filepath.Join(e.parent, "current")); err != nil || l != "glow-v1.1.0" {
+		t.Fatalf("current -> %q, %v; want glow-v1.1.0", l, err)
+	}
 	if _, err := os.Stat(filepath.Join(e.st, "runtime.env.next")); !os.IsNotExist(err) {
 		t.Fatal("runtime.env.next left behind (holds secrets)")
 	}
 	es, _ := os.ReadDir(e.parent)
-	if len(es) != 2 {
-		t.Fatalf("parent holds %d entries, want 2 (old + new)", len(es))
+	if len(es) != 3 {
+		t.Fatalf("parent holds %d entries, want 3 (old + new + current)", len(es))
 	}
 	out := e.out.String()
 	for _, w := range []string{newDir, e.rel, "changed services: api"} {
@@ -331,8 +347,8 @@ func TestChecksumMismatchAbortsBeforeUnpack(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "checksum") {
 		t.Fatalf("err = %v", err)
 	}
-	if es, _ := os.ReadDir(e.parent); len(es) != 1 {
-		t.Fatalf("parent holds %d entries, want only the running release", len(es))
+	if es, _ := os.ReadDir(e.parent); len(es) != 2 {
+		t.Fatalf("parent holds %d entries, want only the running release and current", len(es))
 	}
 	if len(e.calls()) != 0 {
 		t.Fatalf("calls after checksum mismatch: %v", e.calls())
@@ -345,7 +361,7 @@ func TestMissingFromSHA256SUMSAborts(t *testing.T) {
 	if err := Run(context.Background(), e.o); err == nil || !strings.Contains(err.Error(), "SHA256SUMS") {
 		t.Fatalf("err = %v", err)
 	}
-	if es, _ := os.ReadDir(e.parent); len(es) != 1 {
+	if es, _ := os.ReadDir(e.parent); len(es) != 2 {
 		t.Fatalf("parent holds %d entries", len(es))
 	}
 }
@@ -480,6 +496,7 @@ func TestHealthFailureRollsBackGlowDBOnly(t *testing.T) {
 	}
 	tail := strings.Join(calls[i+1:], "\n")
 	want := strings.Join([]string{
+		"glow-v1.0.0 runtime.env: up -d --no-deps --force-recreate api",
 		"glow-v1.0.0 runtime.env: up -d --remove-orphans",
 		"glow-v1.0.0 runtime.env: stop api",
 		"glow-v1.0.0 runtime.env: exec -T backup glow-backup.sh rollback-dbs snapnew glow",
@@ -493,6 +510,9 @@ func TestHealthFailureRollsBackGlowDBOnly(t *testing.T) {
 	}
 	if d, _ := state.ReadDeployment(e.st); d.Version != "v1.0.0" {
 		t.Fatalf("deployment.json changed: %+v", d)
+	}
+	if l, _ := os.Readlink(filepath.Join(e.parent, "current")); l != "glow-v1.0.0" {
+		t.Fatalf("current -> %q after rollback, want glow-v1.0.0", l)
 	}
 	if !strings.Contains(err.Error(), filepath.Join(e.parent, "glow-v1.1.0")) {
 		t.Errorf("error does not name the failed release dir: %v", err)
@@ -522,7 +542,8 @@ func TestRollbackFailureIsReported(t *testing.T) {
 	}
 	msg := err.Error()
 	for _, w := range []string{
-		"docker compose --project-name glow --project-directory " + e.rel,
+		"docker compose --project-name glow --project-directory " + filepath.Join(e.parent, "current"),
+		"up -d --no-deps --force-recreate api",
 		"--env-file " + filepath.Join(e.st, "runtime.env"),
 		"exec -T backup glow-backup.sh rollback-dbs snapnew glow",
 		"stop api",
@@ -731,4 +752,174 @@ func TestManualHintUsesProject(t *testing.T) {
 	if !strings.Contains(msg, "--project-name glow-demo ") {
 		t.Fatalf("%s", msg)
 	}
+}
+
+func writeFiles(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+	for n, c := range files {
+		p := filepath.Join(root, n)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// svcJSON is a compose config with one bind per service (source "" = none).
+func svcJSON(t *testing.T, svcs map[string][3]string) string {
+	t.Helper()
+	m := map[string]any{}
+	for n, v := range svcs { // image, bind source, env X
+		s := map[string]any{"image": v[0], "environment": map[string]string{"X": v[2]}}
+		if v[1] != "" {
+			s["volumes"] = []map[string]any{{"type": "bind", "source": v[1], "target": "/t", "read_only": true}}
+		}
+		m[n] = s
+	}
+	b, err := json.Marshal(map[string]any{"name": "glow", "services": m})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestRecreateSetFromConfigAndReleaseFiles(t *testing.T) {
+	parent := t.TempDir()
+	a, b := filepath.Join(parent, "glow-v1.0.0"), filepath.Join(parent, "glow-v1.1.0")
+	same := map[string]string{"proxy/Caddyfile": "x", "redis/d/a.conf": "1", "redis/d/sub/b.conf": "2"}
+	writeFiles(t, a, same)
+	writeFiles(t, b, same)
+	writeFiles(t, a, map[string]string{"nginx/odk.conf": "old", "enk/d/c.conf": "1"})
+	writeFiles(t, b, map[string]string{"nginx/odk.conf": "new", "enk/d/c.conf": "1", "enk/d/extra.conf": "1"})
+	if err := compose.SwitchCurrent(a); err != nil {
+		t.Fatal(err)
+	}
+	cur := filepath.Join(parent, "current")
+	// The running stack's config goes through current; the new one's through its real dir.
+	oldJ := svcJSON(t, map[string][3]string{
+		"api": {"api@a1", "/st/logs", "1"}, "postgres14": {"pg@p1", "", "1"}, "dashboard": {"d@1", "/st/x", "1"},
+		"proxy": {"caddy@1", cur + "/proxy/Caddyfile", "1"}, "nginx": {"n@1", cur + "/nginx/odk.conf", "1"},
+		"redis": {"r@1", cur + "/redis/d", "1"}, "enketo": {"e@1", cur + "/enk/d", "1"}, "gone": {"g@1", "", "1"},
+	})
+	newJ := svcJSON(t, map[string][3]string{
+		"api": {"api@a2", "/st/logs", "1"}, "postgres14": {"pg@p1", "", "2"}, "dashboard": {"d@1", "/st/x", "1"},
+		"proxy": {"caddy@1", b + "/proxy/Caddyfile", "1"}, "nginx": {"n@1", b + "/nginx/odk.conf", "1"},
+		"redis": {"r@1", b + "/redis/d", "1"}, "enketo": {"e@1", b + "/enk/d", "1"}, "extra": {"x@1", "", "1"},
+	})
+	oldS, err := parseServices(oldJ, a, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newS, err := parseServices(newJ, b, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := recreateSet(oldS, newS, a, b, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// api: image; postgres14: config; nginx: file content; enketo: dir tree;
+	// extra: new service. gone is not running in the new release (no recreate).
+	if want := "api enketo extra nginx postgres14"; strings.Join(got, " ") != want {
+		t.Fatalf("recreate = %v, want %s", got, want)
+	}
+	// First update from a deployment without current: every service with
+	// release-dir binds moves to the stable path once.
+	got, err = recreateSet(oldS, newS, a, b, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "api enketo extra nginx postgres14 proxy redis"; strings.Join(got, " ") != want {
+		t.Fatalf("recreate without current = %v, want %s", got, want)
+	}
+}
+
+func TestSameTreeModeAndKind(t *testing.T) {
+	d := t.TempDir()
+	writeFiles(t, d, map[string]string{"a/f": "1", "b/f": "1", "c/f": "1"})
+	os.Chmod(filepath.Join(d, "c/f"), 0o600)
+	if ok, err := sameTree(filepath.Join(d, "a"), filepath.Join(d, "b")); !ok || err != nil {
+		t.Fatalf("equal trees differ: %v", err)
+	}
+	if ok, _ := sameTree(filepath.Join(d, "a"), filepath.Join(d, "c")); ok {
+		t.Fatal("mode change not seen")
+	}
+	if ok, _ := sameTree(filepath.Join(d, "a"), filepath.Join(d, "a/f")); ok {
+		t.Fatal("dir vs file not seen")
+	}
+	if ok, _ := sameTree(filepath.Join(d, "a"), filepath.Join(d, "missing")); ok {
+		t.Fatal("missing not seen")
+	}
+}
+
+// A release whose only change is a bind-mounted ODK/proxy file recreates
+// just that service (and says ODK is interrupted); a GLOW-only one says not.
+func TestUpdateRecreatesServiceWhoseReleaseFileChanged(t *testing.T) {
+	e := newEnv(t, false)
+	newDir := filepath.Join(e.parent, "glow-v1.1.0")
+	writeFiles(t, e.rel, map[string]string{"proxy/Caddyfile.acme": "old\n"})
+	cur := filepath.Join(e.parent, "current")
+	e.f.images["glow-v1.0.0"] = svcJSON(t, map[string][3]string{"api": {"reg/glow-api@sha256:a1", "", "1"},
+		"proxy": {"caddy@1", cur + "/proxy/Caddyfile.acme", "1"}})
+	e.f.images["glow-v1.1.0"] = svcJSON(t, map[string][3]string{"api": {"reg/glow-api@sha256:a1", "", "1"},
+		"proxy": {"caddy@1", newDir + "/proxy/Caddyfile.acme", "1"}})
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatalf("Run: %v\n%s", err, e.out.String())
+	}
+	if !e.has("glow-v1.1.0 runtime.env: up -d --no-deps --force-recreate proxy") || e.has("--force-recreate api") {
+		t.Fatalf("calls: %v", e.calls())
+	}
+	if out := e.out.String(); !strings.Contains(out, "changed services: proxy") || !strings.Contains(out, "interrupt") {
+		t.Fatalf("output: %s", out)
+	}
+}
+
+func TestGlowOnlyUpdateSaysODKKeepsRunning(t *testing.T) {
+	e := newEnv(t, false)
+	e.o.Yes, e.o.IsTTY, e.o.Stdin = false, true, strings.NewReader("n\n")
+	Run(context.Background(), e.o) //nolint:errcheck // cancelled at the prompt
+	if out := e.out.String(); !strings.Contains(out, "api will be recreated") || !strings.Contains(out, "ODK Central and the proxy keep running") {
+		t.Fatalf("prompt: %s", out)
+	}
+}
+
+func TestUpdateRunFromCurrentLink(t *testing.T) {
+	e := newEnv(t, false)
+	e.o.ReleaseDir = filepath.Join(e.parent, "current")
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatalf("Run: %v\n%s", err, e.out.String())
+	}
+	newDir := filepath.Join(e.parent, "glow-v1.1.0")
+	if d, _ := state.ReadDeployment(e.st); d.ReleaseDir != newDir {
+		t.Fatalf("deployment.json release_dir = %q, want the real dir %s", d.ReleaseDir, newDir)
+	}
+	if !e.has("glow-v1.0.0 runtime.env: exec -T backup glow-backup.sh backup") {
+		t.Fatalf("old release not addressed by its real dir: %v", e.calls())
+	}
+}
+
+// A service new in the failed release is not recreated by the rollback (the
+// previous release lacks it; --remove-orphans removes it).
+func TestRollbackRecreatesOnlyPreviousServices(t *testing.T) {
+	e := newEnv(t, false)
+	e.f.images["glow-v1.1.0"] = svcJSON(t, map[string][3]string{"api": {"reg/glow-api@sha256:a2", "", "1"}, "extra": {"x@1", "", "1"}})
+	e.f.images["glow-v1.0.0"] = svcJSON(t, map[string][3]string{"api": {"reg/glow-api@sha256:a1", "", "1"}})
+	e.f.failOn["glow-v1.1.0 runtime.env: up -d"] = errors.New("container exited")
+	if err := Run(context.Background(), e.o); err == nil || !strings.Contains(err.Error(), "rolled back") {
+		t.Fatalf("err = %v", err)
+	}
+	if !e.has("glow-v1.0.0 runtime.env: up -d --no-deps --force-recreate api") || e.has("glow-v1.0.0 runtime.env: up -d --no-deps --force-recreate api extra") {
+		t.Fatalf("calls: %v", e.calls())
+	}
+}
+
+func modeOf(t *testing.T, p string) os.FileMode {
+	t.Helper()
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Mode()
 }

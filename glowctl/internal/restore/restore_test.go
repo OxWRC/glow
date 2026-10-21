@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/oxwrc/glow/glowctl/internal/config"
+	"github.com/oxwrc/glow/glowctl/internal/state"
 )
 
 const key = "k3y-0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab"
@@ -622,5 +623,19 @@ func TestBundleLoadedBeforeKeyCheck(t *testing.T) {
 	}
 	if len(e.log) < 2 || e.log[0] != "docker load" || !strings.Contains(e.log[1], "check-key") {
 		t.Fatalf("calls %q", e.log)
+	}
+}
+
+func TestRestorePointsCurrentAtRelease(t *testing.T) {
+	e := setup(t)
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatal(err)
+	}
+	cur := filepath.Join(filepath.Dir(e.rel), "current")
+	if l, err := os.Readlink(cur); err != nil || l != filepath.Base(e.rel) {
+		t.Fatalf("current -> %q, %v", l, err)
+	}
+	if d, err := state.ReadDeployment(e.st); err != nil || d.ReleaseDir != e.rel {
+		t.Fatalf("release_dir %q, %v; want the real dir %s", d.ReleaseDir, err, e.rel)
 	}
 }

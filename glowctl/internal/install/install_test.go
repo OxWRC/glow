@@ -19,6 +19,7 @@ import (
 	"github.com/oxwrc/glow/glowctl/internal/config"
 	"github.com/oxwrc/glow/glowctl/internal/lock"
 	"github.com/oxwrc/glow/glowctl/internal/odk"
+	"github.com/oxwrc/glow/glowctl/internal/state"
 )
 
 // fakeRunner records compose args; `glow-api users` state is kept so reruns
@@ -656,34 +657,47 @@ func TestDemoDoesNotPrintBackupKey(t *testing.T) {
 	}
 }
 
-// A demo state dir switched to production shows its (demo-created) key on the
-// first production install, then never again.
-func TestDemoThenProductionShowsKeyOnce(t *testing.T) {
-	e := setup(t, true)
-	var out0 strings.Builder
-	must(t, Run(context.Background(), e.opts(&out0)))
-	key := secret(t, e.st, "GLOW_BACKUP_KEY")
-	if strings.Contains(out0.String(), key) {
-		t.Fatal("demo printed key")
+// The deployment mode is fixed per state dir, both ways round, and the
+// refusal comes before anything is written or run.
+func TestModeCannotChangeOnExistingInstall(t *testing.T) {
+	for _, demo := range []bool{true, false} {
+		e := setup(t, demo)
+		must(t, Run(context.Background(), e.opts(io.Discard)))
+		other := "GLOW_DOMAIN=example.org\nGLOW_STATE_DIR=" + e.st + "\n"
+		if demo {
+			other += "GLOW_OIDC_ISSUER=https://idp.example.org\nGLOW_OIDC_CLIENT_ID=glow\nGLOW_BACKUP_PATH=" + t.TempDir() + "\n"
+		} else {
+			other += "GLOW_DEMO_MODE=true\n"
+		}
+		must(t, os.WriteFile(filepath.Join(e.rel, "glow.env"), []byte(other), 0o644))
+		rt, _ := os.ReadFile(filepath.Join(e.st, "runtime.env"))
+		n := len(e.run.calls)
+		err := Run(context.Background(), e.opts(io.Discard))
+		if err == nil || !strings.Contains(err.Error(), "deployment mode cannot change on an existing install; use a separate GLOW_INSTANCE and state dir") {
+			t.Fatalf("demo=%v: err %v", demo, err)
+		}
+		if len(e.run.calls) != n {
+			t.Fatalf("demo=%v: compose ran: %v", demo, e.run.calls[n:])
+		}
+		if rt2, _ := os.ReadFile(filepath.Join(e.st, "runtime.env")); string(rt2) != string(rt) {
+			t.Fatalf("demo=%v: runtime.env rewritten", demo)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(e.st, ".backup-key-shown")); err == nil {
-		t.Fatal("demo created the marker")
+}
+
+func TestInstallPointsCurrentAtRelease(t *testing.T) {
+	e := setup(t, false)
+	must(t, Run(context.Background(), e.opts(io.Discard)))
+	cur := filepath.Join(filepath.Dir(e.rel), "current")
+	if l, err := os.Readlink(cur); err != nil || l != filepath.Base(e.rel) {
+		t.Fatalf("current -> %q, %v", l, err)
 	}
-	prod := "GLOW_DOMAIN=example.org\nGLOW_STATE_DIR=" + e.st + "\nGLOW_OIDC_ISSUER=https://idp.example.org\nGLOW_OIDC_CLIENT_ID=glow\nGLOW_BACKUP_PATH=" + t.TempDir() + "\n"
-	must(t, os.WriteFile(filepath.Join(e.rel, "glow.env"), []byte(prod), 0o644))
-	e.odk.projects = nil // fake ODK: the demo seed's project is not production's
-	var out1, out2 strings.Builder
-	must(t, Run(context.Background(), e.opts(&out1)))
-	o1 := strings.TrimRight(out1.String(), "\n")
-	if strings.Count(o1, key) != 1 || !strings.HasSuffix(o1, key) {
-		t.Fatalf("first production run must print key last:\n%s", o1)
-	}
-	if fi, err := os.Stat(filepath.Join(e.st, ".backup-key-shown")); err != nil || fi.Mode().Perm() != 0o600 {
-		t.Fatalf("marker: %v", err)
-	}
-	must(t, Run(context.Background(), e.opts(&out2)))
-	if strings.Contains(out2.String(), key) || strings.Contains(out2.String(), keyMsg) {
-		t.Fatal("reprinted on second production run")
+	// Rerun via the link: deployment.json keeps the real dir.
+	o := e.opts(io.Discard)
+	o.ReleaseDir = cur
+	must(t, Run(context.Background(), o))
+	if d, err := state.ReadDeployment(e.st); err != nil || d.ReleaseDir != e.rel {
+		t.Fatalf("release_dir %q, %v; want %s", d.ReleaseDir, err, e.rel)
 	}
 }
 

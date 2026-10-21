@@ -45,7 +45,7 @@ tar xzf glow-<tag>.tar.gz
 cd glow-<tag>
 ```
 
-`--ignore-missing` skips assets you did not download. The unpacked `glow-<tag>/` is the release directory. Keep release directories side by side in one parent directory (for example `/opt/glow/glow-v0.2.0`): updates create siblings of the current one.
+`--ignore-missing` skips assets you did not download. The unpacked `glow-<tag>/` is the release directory. Keep release directories side by side in one parent directory (for example `/opt/glow/glow-v0.2.0`): updates create siblings of the current one, and `install` adds a symlink `/opt/glow/current` to the running release. Use one parent directory per stack.
 
 Checksums catch corrupt downloads. They do not prove who published the files, because they come from the same place. Download from the project's official GitHub release page only.
 
@@ -222,10 +222,10 @@ If `GLOW_BACKUP_PATH` on the restored server holds a different repository from t
 
 Each release's notes say whether it is a security release and which services change: GLOW-only releases leave ODK Central running; releases touching ODK interrupt collection briefly. Read the notes, and time ODK-touching or form-changing releases outside collection waves.
 
-From the current release directory:
+From the running release, through the `current` link (or its real directory):
 
 ```bash
-cd /opt/glow/glow-v0.2.0
+cd /opt/glow/current
 sudo ./glowctl update v0.3.0
 ```
 
@@ -233,8 +233,9 @@ Offline: `sudo ./glowctl update v0.3.0 --bundle /path/to/glow-v0.3.0.tar.gz` (th
 
 How it works:
 
-- The new release is unpacked into a **sibling directory** `glow-<tag>` next to the current one, and your `glow.env` is copied in. The old directory is kept for rollback. **Run `glowctl` from the current release directory** (an update from another directory is refused). After a successful update, run it from the new one.
-- Order: download or load images, check `glow.env` against the new API image, check suppression rules, take a backup, recreate only the containers whose images changed, run migrations on API start, health-check. Anything that fails before the backup changes nothing and leaves no downtime.
+- The new release is unpacked into a **sibling directory** `glow-<tag>` next to the current one, and your `glow.env` is copied in. The old directory is kept for rollback. `install` keeps a symlink `current` beside the release directories pointing at the running release, and `glowctl` always runs compose through it, so file paths in the containers' config stay the same across releases. The update switches `current` to the new directory (atomically) and a rollback switches it back. **Run `glowctl` from `current`** (or the running release's real directory; an update from another directory is refused).
+- Order: download or load images, check `glow.env` against the new API image, check suppression rules, take a backup, recreate only the containers that changed (new image, changed compose config, or a changed release file they mount, such as a Caddyfile or ODK nginx template), run migrations on API start, health-check. Anything that fails before the backup changes nothing and leaves no downtime.
+- **GLOW-only releases do not restart ODK Central or the proxy**, so collection continues during the update. Releases that change ODK or proxy images or files restart those services, briefly interrupting collection; the prompt and the "changed services" line say which kind of update it is. The first update of a deployment installed before `current` existed recreates every service that mounts release files once, to move it onto the stable path.
 - **Downgrades are refused**, as is an update from an unknown running version (demo excepted).
 - **Suppression rule changes are refused in production.** If the new release's suppression rules differ from the running ones, the update stops: the same dataset must never be releasable under two coarsenings. A rule change needs a fresh deployment. Demo mode continues with a note.
 - **Rollback is automatic.** If the swap or health check fails, `glowctl` restores the previous images and, from the pre-update snapshot, the databases of the services that changed. A GLOW-only release restores only the GLOW database, so ODK submissions taken during the update survive. A release that touches ODK restores the ODK database, losing submissions from before the swap started. Demo mode has no backup, so a failed demo update restores images only.
@@ -265,7 +266,7 @@ A service that is still starting, and a failed prune, are warnings only (exit 0)
 
 `doctor` checks the host and `glow.env`. It exits 1 on errors (Docker or Compose v2 missing, invalid `glow.env`) and prints warnings for: backups on the same filesystem as the state directory, `GLOW_TLS_MODE=off` (and an unreachable `https://odk.<domain>`), default ports already in use (before install), another GLOW stack's proxy running on this host (ACME needs 80/443 to itself), and missing SMTP. Run it before the first install and after config changes.
 
-Logs: run compose the way `glowctl` does, from the release directory:
+Logs: run compose the way `glowctl` does, from the release directory (`/opt/glow/current`):
 
 ```bash
 docker compose --project-name glow --env-file /var/lib/glow/runtime.env logs backup

@@ -95,6 +95,7 @@ func BackupImage(cfg *config.Config, releaseDir string) string {
 
 // Run restores the snapshot over the deployment of o.ReleaseDir.
 func Run(ctx context.Context, o Options) (err error) {
+	o.ReleaseDir = compose.Real(o.ReleaseDir) // run via <parent>/current or not
 	cfg, st := o.Cfg, o.Cfg.StateDir
 	if cfg.Demo {
 		return errors.New("demo mode has no backups to restore")
@@ -271,7 +272,10 @@ func Run(ctx context.Context, o Options) (err error) {
 		return err
 	}
 
-	// 6. Databases.
+	// 6. Databases. Compose runs through <parent>/current (see compose.ProjectDir).
+	if err := compose.SwitchCurrent(o.ReleaseDir); err != nil {
+		return err
+	}
 	step("starting the databases")
 	if err := dc("up", "-d", "--wait", "--pull", "missing", "api-db", "postgres14"); err != nil {
 		return err
