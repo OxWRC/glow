@@ -113,6 +113,9 @@ services:
     # (a compose-level override only; not a glow.env key).
     tmpfs:
       - /tmp:size=${GLOW_BACKUP_TMPFS_SIZE:-2g},mode=1777
+      # The postgres base image declares this VOLUME; unused here. Covering
+      # it stops Docker leaving an anonymous volume behind per container.
+      - /var/lib/postgresql/data:size=1m
     environment:
       GLOW_BACKUP_FIRST_DELAY: ${GLOW_BACKUP_FIRST_DELAY:-300}
       GLOW_BACKUP_INTERVAL: ${GLOW_BACKUP_INTERVAL:-3600}
@@ -400,6 +403,11 @@ services:
       - ./odk-central/nginx/odk.conf.template:/usr/share/odk/nginx/odk.conf.template:ro
       - ./odk-central/nginx/redirector.conf:/usr/share/odk/nginx/redirector.conf:ro
       - ./odk-central/nginx/client-config.json.template:/usr/share/odk/nginx/client-config.json.template:ro
+      # The image declares these VOLUMEs; bound so no anonymous volumes pile
+      # up, and the dhparam (slow to generate) survives container recreation.
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-dh:/etc/dh
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-letsencrypt:/etc/letsencrypt
+      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-selfsign:/etc/selfsign
     networks:
       - public
       - odk_internal
