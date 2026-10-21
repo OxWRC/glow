@@ -31,6 +31,10 @@ CURRENT="setup"
 step() { CURRENT="$*"; printf '\n[e2e] ===== %s =====\n' "$*"; }
 die() { echo "[e2e] FAIL [$CURRENT]: $*" >&2; exit 1; }
 
+# Cleanup and the bundles need busybox: have it before anything else.
+docker image inspect busybox:1.36 >/dev/null 2>&1 || docker pull -q busybox:1.36 >/dev/null ||
+  die "cannot get busybox:1.36"
+
 if [ -n "$(docker ps -aq --filter label=com.docker.compose.project=glow)" ]; then
   die "a compose project named glow already exists on this host; refusing to touch it"
 fi
@@ -88,18 +92,20 @@ proxy_checks() {
 
 users_list() { gc "$1" users list | grep -o '[[:alnum:]._+-]*@[[:alnum:].-]*' | sort -u; }
 
-# status must exit 0; containers still in their first health interval
-# ("starting", e.g. right after a restart) get up to 2 minutes to settle.
-status_ok() { # <release dir>
-  local out i
-  for i in $(seq 12); do
-    if out=$(gc "$1" status); then echo "$out"; return 0; fi
-    grep -q '(starting)' <<<"$out" || break
-    echo "[e2e] status: containers still starting (try $i), retrying in 10s"
-    sleep 10
-  done
-  echo "$out"
-  return 1
+# ODK's own data (projects, forms, users) as one comparable line.
+odk_counts() {
+  docker exec "$(docker ps -q --filter label=com.docker.compose.project=glow --filter label=com.docker.compose.service=postgres14)" \
+    sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select (select count(*) from projects), (select count(*) from forms), (select count(*) from users)"'
+}
+
+# Image VOLUMEs must all be covered by compose mounts: an anonymous volume
+# on a glow container is left behind on every recreate.
+no_anon_volumes() {
+  local c
+  for c in $(docker ps -aq --filter label=com.docker.compose.project=glow); do
+    docker inspect --format '{{.Name}}{{range .Mounts}}{{if eq .Type "volume"}}{{if not (eq (len .Name) 64)}}{{else}} anonymous:{{.Destination}}{{end}}{{end}}{{end}}' "$c"
+  done | grep anonymous: && die "containers with anonymous volumes (uncovered image VOLUMEs) above"
+  echo "[e2e] ok no anonymous volumes"
 }
 
 deployed() { jq -r ".$1" "$STATE/deployment.json"; }
@@ -122,8 +128,11 @@ for i in api dashboard odk-postgres enketo backup; do
   docker image inspect "$REG/glow-$i:$V0" >/dev/null || die "image $REG/glow-$i:$V0 missing"
 done
 # The broken release: same API image, but it never serves (health fails).
-printf 'FROM %s\nCMD ["sleep", "infinity"]\n' "$REG/glow-api:$V0" | docker build -q -t "$REG/glow-api:$V2" - >/dev/null
-docker image inspect busybox:1.36 >/dev/null 2>&1 || docker pull -q busybox:1.36 >/dev/null
+# Before idling it writes to the GLOW DB (a user the rollback's DB restore
+# must remove) and then a file in the audit-log state dir (proof it ran).
+MARKER=rollback-marker@example.org
+printf 'FROM %s\nCMD ["sh", "-c", "glow-api users create %s && touch /var/log/glow-api/e2e-broken-ran && exec sleep infinity"]\n' \
+  "$REG/glow-api:$V0" "$MARKER" | docker build -q -t "$REG/glow-api:$V2" - >/dev/null
 (cd glowctl && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=e2e" -o "$WORK/glowctl" .)
 
 # ---------------------------------------------------------------- stage
@@ -202,6 +211,7 @@ chmod 0600 "$KEY"
 # ---------------------------------------------------------------- 2 proxy
 step "2 checks through the proxy"
 proxy_checks
+no_anon_volumes
 
 # ---------------------------------------------------------------- 3 backup
 step "3 add a user, then backup"
@@ -210,12 +220,14 @@ users_list "$REL0" >"$WORK/users.before"
 cat "$WORK/users.before"
 grep -qx "$ADMIN" "$WORK/users.before" || die "admin $ADMIN missing from users list"
 grep -qx "$EXTRA_USER" "$WORK/users.before" || die "$EXTRA_USER missing from users list"
+odk_counts >"$WORK/odk.before"
+echo "[e2e] ODK projects|forms|users: $(cat "$WORK/odk.before")"
 gc "$REL0" backup
 [ -f "$BACKUPS/config" ] || die "no restic repository in $BACKUPS"
 
 # ---------------------------------------------------------------- 4 status
 step "4 status exits 0"
-status_ok "$REL0" || die "glowctl status failed after install + backup"
+gc "$REL0" status || die "glowctl status failed after install + backup"
 
 # ---------------------------------------------------------------- 5 wipe
 step "5 stop the stack and wipe the state dir (fresh server)"
@@ -232,8 +244,9 @@ gc "$REL0" restore --from "$BACKUPS" --key-file "$KEY"
 step "7 restored data present"
 users_list "$REL0" >"$WORK/users.after"
 diff "$WORK/users.before" "$WORK/users.after" || die "users differ after restore"
+odk_counts | diff "$WORK/odk.before" - || die "ODK data differs after restore"
 proxy_checks
-status_ok "$REL0" || die "glowctl status failed after restore"
+gc "$REL0" status || die "glowctl status failed after restore"
 
 # ---------------------------------------------------------------- 8 update
 step "8 update $V0 -> $V1 (--bundle, same images)"
@@ -256,6 +269,9 @@ grep -q "rolled back to $V1" "$WORK/update2.log" || die "no successful rollback 
 api_img=$(docker inspect --format '{{.Config.Image}}' "$(docker ps -q --filter label=com.docker.compose.project=glow --filter label=com.docker.compose.service=api)")
 [ "$api_img" = "$REG/glow-api:$V0" ] || die "api runs $api_img after rollback, want $REG/glow-api:$V0"
 proxy_checks
-users_list "$REL1" | diff "$WORK/users.before" - || die "users differ after rollback"
-status_ok "$REL1" || die "glowctl status failed after rollback"
+[ -f "$STATE/api-audit-logs/e2e-broken-ran" ] || die "the broken API never ran, so the DB restore is unproven"
+users_list "$REL1" | diff "$WORK/users.before" - || die "users differ after rollback (marker $MARKER not removed?)"
+odk_counts | diff "$WORK/odk.before" - || die "ODK data differs after rollback"
+no_anon_volumes
+gc "$REL1" status || die "glowctl status failed after rollback"
 CURRENT="done"
