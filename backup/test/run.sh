@@ -134,4 +134,11 @@ fi
 grep -q "status file" "$T/err" || fail "status write failure not logged: $(cat "$T/err")"
 # Bounded tmpfs, restic cache off tmpfs.
 dc exec -T backup sh -c 'grep " /tmp tmpfs" /proc/mounts | grep -q size=2097152k && ! echo "$RESTIC_CACHE_DIR" | grep -q ^/tmp' || fail "/tmp tmpfs unbounded or cache on tmpfs"
+# Unmounted backup disk (empty mountpoint) after a successful backup: fail
+# loudly instead of starting a new repository there.
+dc exec -T backup sh -c 'rm -rf /backup/* /backup/.[!.]*'
+if bk backup 2>"$T/err"; then fail "backup into an emptied repository dir exited 0"; fi
+status | jq -e '.last_backup_ok == false and (.last_backup_error | contains("no restic repository at /backup (backup disk unmounted?)"))' >/dev/null ||
+  fail "unmounted-disk failure not recorded: $(status)"
+dc exec -T backup sh -c 'test -z "$(ls -A /backup)"' || fail "a new repository was created in the emptied backup dir"
 echo "backup/test: OK"

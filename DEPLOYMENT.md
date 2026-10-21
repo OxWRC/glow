@@ -187,6 +187,8 @@ sudo ./glowctl backup
 
 **Off-site copy (required).** `GLOW_BACKUP_PATH` is on the same server (ideally another disk). It does not survive losing the server, the site, or ransomware. Copying it elsewhere is your job, and a deployment without that copy is not backed up. Sync the whole directory on a schedule (rclone to object storage, rsync to another host, your cloud's sync tool). The repository is encrypted, so an untrusted store is acceptable. `glowctl doctor` warns when the backup path shares a filesystem with the state directory. See [docs/hosting.md](docs/hosting.md) for provider options.
 
+**Backup disk not mounted.** The first backup creates the repository. After that, a missing repository at `GLOW_BACKUP_PATH` (for example a backup disk that did not mount after a reboot, leaving an empty mountpoint) fails the backup with "no restic repository at /backup (backup disk unmounted?)" and `status` fails, rather than silently starting a new repository on the root disk. Mount the disk and run `sudo ./glowctl backup`. To move backups to a new, empty path on purpose, set `GLOW_BACKUP_PATH`, delete `GLOW_STATE_DIR/backup-status/backup-status.json`, then run `sudo ./glowctl backup`.
+
 **Backup key custody.** See [Install](#install). Store it off the server, in at least two places held by different people. Without it, an off-site copy is useless after the disk is gone.
 
 **Restore test.** Weekly, the backup service restores the latest snapshot into a throwaway Postgres and checks that it loads and the row counts match. Run it on demand:
@@ -252,7 +254,7 @@ sudo ./glowctl status
 `status` prints one line per check: version, each service, each hostname through the proxy, the last backup, the restore test and pruning. Wire it into your monitoring (cron plus alerting, a Nagios-style check). It exits **1** when any of these holds:
 
 - the last successful backup is more than 2 hours old (or the last backup failed);
-- the last restore test failed;
+- the last restore test failed, or last passed more than 15 days ago (it runs weekly; more than 8 days is a warning);
 - a service is unhealthy, exited with an error, or a hostname does not answer HTTP 200.
 
 A service that is still starting, and a failed prune, are warnings only (exit 0). A fresh install gets 2 hours for the first backup. Demo has no backup checks.

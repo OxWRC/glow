@@ -65,7 +65,8 @@ write_status() {
 	tmp=$(mktemp "$STATUS_DIR/.backup-status.XXXXXX") || return 1
 	echo "$cur" | jq -S '{last_backup_at:"",last_backup_ok:false,last_backup_error:"",
 		last_verify_at:"",last_verify_ok:false,last_verify_error:"",
-		last_prune_at:"",last_prune_ok:false,last_prune_error:""} + .
+		last_prune_at:"",last_prune_ok:false,last_prune_error:"",
+		last_backup_success_at:""} + .
 		| . + ($ARGS.named | with_entries(.value |= (if . == "true" then true elif . == "false" then false else . end)))' \
 		"$@" >"$tmp" || { rm -f "$tmp"; return 1; }
 	chmod 0644 "$tmp" && mv "$tmp" "$STATUS" || { rm -f "$tmp"; return 1; }
@@ -74,18 +75,50 @@ write_status() {
 record() { # record backup|verify|prune ok|fail [error]
 	kind=$1 ok=$2 err=${3:-}
 	[ "$ok" = ok ] && flag=true || flag=false
-	write_status --arg "last_${kind}_at" "$(now)" --arg "last_${kind}_ok" "$flag" \
-		--arg "last_${kind}_error" "$err"
+	t=$(now)
+	if [ "$kind$ok" = backupok ]; then
+		write_status --arg last_backup_at "$t" --arg last_backup_ok true --arg last_backup_error "" \
+			--arg last_backup_success_at "$t"
+	else
+		write_status --arg "last_${kind}_at" "$t" --arg "last_${kind}_ok" "$flag" \
+			--arg "last_${kind}_error" "$err"
+	fi
 }
 
 count_rows() { # PASSWORD HOST USER DB TABLE -> row count, or -1 if unreadable
 	PGPASSWORD=$1 psql -At -h "$2" -U "$3" -d "$4" -c "select count(*) from $5" 2>/dev/null || echo -1
 }
 
+# ever_backed_up: the status file records a successful backup at some point
+# (last_backup_success_at; older status files only have last_backup_ok).
+ever_backed_up() {
+	[ -s "$STATUS" ] && jq -e '(.last_backup_success_at // "") != "" or .last_backup_ok == true' "$STATUS" >/dev/null 2>&1
+}
+
+# ensure_repo: open the repository, creating it only on the very first backup.
+# Once a backup has succeeded, a missing repository means the backup disk is
+# not mounted (an empty mountpoint): creating a new repo there would fork the
+# history onto the root disk while status looked healthy, so fail instead.
+ensure_repo() {
+	rc=0
+	restic cat config >/dev/null 2>&1 || rc=$?
+	[ "$rc" -ne 0 ] || return 0
+	if [ "$rc" -eq 10 ] && ! ever_backed_up; then
+		restic init
+		return
+	fi
+	if [ "$rc" -eq 10 ]; then
+		echo "no restic repository at $RESTIC_REPOSITORY (backup disk unmounted?)"
+	else
+		echo "cannot open restic repository at $RESTIC_REPOSITORY (restic exit $rc)"
+	fi
+	return 1
+}
+
 do_backup() {
 	: "${RESTIC_PASSWORD:?GLOW_BACKUP_KEY is not set}"
 	cleanup; mkdir -p "$DUMPS"
-	restic cat config >/dev/null 2>&1 || restic init
+	ensure_repo
 	restic unlock # removes stale locks only
 	PGPASSWORD=$POSTGRES_PASSWORD pg_dump -Fc -h "${POSTGRES_HOST:-api-db}" \
 		-U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$DUMPS/glow.dump"
@@ -201,8 +234,8 @@ verify_due() {
 	last=$(jq -r '.last_verify_at // ""' "$STATUS" 2>/dev/null || true)
 	[ -n "$last" ] || return 0
 	if ! e=$(epoch "$last") || [ -z "$e" ]; then
-		echo "$(now) unparseable last_verify_at '$last'; skipping verify" >&2
-		return 1
+		echo "$(now) unparseable last_verify_at '$last'; running the restore test now" >&2
+		return 0
 	fi
 	[ $(( $(date -u +%s) - e )) -ge 604800 ]
 }
