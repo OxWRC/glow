@@ -82,12 +82,13 @@ func loadValid(dir string) (*config.Config, error) {
 	return cfg, nil
 }
 
-// requireInstalled fails with a plain message when install has not run yet.
+// requireInstalled fails with a plain message when install has not run yet,
+// or when the state dir belongs to another GLOW_INSTANCE.
 func requireInstalled(cfg *config.Config) error {
 	if _, err := os.Stat(filepath.Join(cfg.StateDir, "runtime.env")); err != nil {
 		return fmt.Errorf("not installed; run glowctl install")
 	}
-	return nil
+	return state.CheckInstance(cfg.StateDir, cfg.Project())
 }
 
 func statusCmd(args []string) int {
@@ -106,7 +107,7 @@ func statusCmd(args []string) int {
 	defer stop()
 	cs, err := status.Run(ctx, status.Options{
 		Cfg: cfg, Version: state.RunningVersion(cfg.StateDir, dir),
-		Runner: compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)},
+		Runner: compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Project(), cfg.Demo)},
 	})
 	if err != nil {
 		return fail("status", err)
@@ -153,7 +154,7 @@ func backupCmd(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	r := compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)}
+	r := compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Project(), cfg.Demo)}
 	if err := runBackup(ctx, cfg.StateDir, r, verify, os.Stdout); err != nil {
 		return fail("backup", err)
 	}
@@ -174,7 +175,7 @@ func runBackup(ctx context.Context, stateDir string, r compose.Runner, verify bo
 	return backup.Now(ctx, r, out)
 }
 
-const restoreUsage = "usage: glowctl restore --from REPO [--snapshot ID|latest] [--key-file FILE] [--force] [--dir DIR]"
+const restoreUsage = "usage: glowctl restore --from REPO [--snapshot ID|latest] [--key-file FILE] [--bundle DIR] [--force] [--dir DIR]"
 
 func restoreCmd(args []string) int {
 	dir, rest, err := splitDir(args)
@@ -186,6 +187,7 @@ func restoreCmd(args []string) int {
 	snap := fs.String("snapshot", "latest", "snapshot ID")
 	keyFile := fs.String("key-file", "", "file holding the backup key (else prompted on a TTY)")
 	force := fs.Bool("force", false, "replace live data (originals kept as *.pre-restore)")
+	bundleDir := fs.String("bundle", "", "offline bundle directory (images loaded instead of pulled)")
 	if err := fs.Parse(rest); err != nil || fs.NArg() > 0 || *from == "" {
 		fmt.Fprintln(os.Stderr, restoreUsage)
 		return 2
@@ -206,6 +208,11 @@ func restoreCmd(args []string) int {
 	if err != nil {
 		return fail("restore", err)
 	}
+	if *bundleDir != "" {
+		if *bundleDir, err = filepath.Abs(*bundleDir); err != nil {
+			return fail("restore", err)
+		}
+	}
 	key, err := readKey(*keyFile)
 	if err != nil {
 		return fail("restore", err)
@@ -213,8 +220,8 @@ func restoreCmd(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	err = restore.Run(ctx, restore.Options{
-		ReleaseDir: dir, Cfg: cfg, From: repo, Snapshot: *snap, Key: key, Force: *force,
-		Compose: compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)}, Out: os.Stdout,
+		ReleaseDir: dir, Cfg: cfg, From: repo, Snapshot: *snap, Key: key, Force: *force, Bundle: *bundleDir,
+		Compose: compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Project(), cfg.Demo)}, Out: os.Stdout,
 	})
 	if err != nil {
 		return fail("restore", err)
@@ -376,7 +383,7 @@ func usersCmd(args []string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	r := compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Demo)}
+	r := compose.Exec{C: compose.New(dir, cfg.StateDir, cfg.Project(), cfg.Demo)}
 	if err := users.Run(ctx, r, rest, os.Stdout); err != nil {
 		return fail("users", err)
 	}

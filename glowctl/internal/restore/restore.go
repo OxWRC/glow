@@ -38,6 +38,7 @@ type Options struct {
 	Snapshot   string         // snapshot ID or "latest"
 	Key        string         // backup key; only ever sent on stdin
 	Force      bool           // replace live data (originals kept as *.pre-restore)
+	Bundle     string         // offline bundle dir: images loaded before anything else
 	Compose    compose.Runner
 	Docker     bundle.Runner
 	Get        func(ctx context.Context, cfg *config.Config, host, path string) (int, error)
@@ -98,6 +99,10 @@ func Run(ctx context.Context, o Options) (err error) {
 	if cfg.Demo {
 		return errors.New("demo mode has no backups to restore")
 	}
+	// A state dir of another instance is refused before anything runs.
+	if err := state.CheckInstance(st, cfg.Project()); err != nil {
+		return err
+	}
 	step := func(f string, a ...any) { fmt.Fprintf(o.Out, "[glowctl] "+f+"\n", a...) }
 	d := o.Docker
 	if d == nil {
@@ -111,6 +116,14 @@ func Run(ctx context.Context, o Options) (err error) {
 	}
 	restic := func(mounts []string, args ...string) (string, error) { return resticIn(o.From, o.Key, mounts, args...) }
 	dc := func(args ...string) error { _, err := o.Compose.Run(ctx, args, nil); return err }
+
+	// Offline (no registry): the backup image itself comes from the bundle.
+	if o.Bundle != "" {
+		step("loading offline bundle %s", o.Bundle)
+		if err := bundle.Load(ctx, d, o.Bundle, o.ReleaseDir, o.Out); err != nil {
+			return err
+		}
+	}
 
 	// 1. Key first: a wrong key fails here, before anything is touched.
 	step("checking the backup key against %s", o.From)
@@ -136,9 +149,16 @@ func Run(ctx context.Context, o Options) (err error) {
 		return err
 	}
 	defer release()
+	// Never stop or replace another GLOW stack's containers.
+	if err := install.CheckProject(ctx, d, cfg); err != nil {
+		return err
+	}
+	if err := state.ClaimInstance(st, cfg.Project()); err != nil {
+		return err
+	}
 
 	// 2. Live data: running containers or non-empty DB dirs.
-	ps, err := d.Run(ctx, []string{"ps", "-q", "--filter", "label=com.docker.compose.project=glow"}, nil)
+	ps, err := d.Run(ctx, []string{"ps", "-q", "--filter", "label=com.docker.compose.project=" + cfg.Project()}, nil)
 	if err != nil {
 		return err
 	}
@@ -170,10 +190,8 @@ func Run(ctx context.Context, o Options) (err error) {
 	}
 
 	// 3. Restore the snapshot's files into a staging dir on the state fs.
-	for _, n := range append(append([]string{}, install.StateDirs...), "") {
-		if err := os.MkdirAll(filepath.Join(st, n), 0o755); err != nil {
-			return err
-		}
+	if err := install.EnsureStateDirs(cfg); err != nil {
+		return err
 	}
 	staging, err := os.MkdirTemp(st, ".restore-staging-")
 	if err != nil {
@@ -206,7 +224,7 @@ func Run(ctx context.Context, o Options) (err error) {
 	swapping, healthFailed := false, false
 	defer func() {
 		if err != nil && swapping {
-			err = partial(err, aside, healthFailed)
+			err = partial(err, cfg.Project(), aside, healthFailed)
 		}
 	}()
 	swapping = true
@@ -286,6 +304,11 @@ func Run(ctx context.Context, o Options) (err error) {
 	if err := state.WriteDeployment(st, state.Deployment{Version: rv, DeployedAt: time.Now(), ReleaseDir: o.ReleaseDir}); err != nil {
 		return err
 	}
+	// The restored key is the one the operator already holds: a later
+	// install must not print it again.
+	if err := state.WriteFileAtomic(filepath.Join(st, install.BackupKeyShownMarker), nil, 0o600); err != nil {
+		return err
+	}
 	step("restored snapshot %s (taken %s)", snap.ID, snap.Time)
 	if envRestored != "" {
 		step("the snapshot's glow.env is in %s: compare it with glow.env and merge by hand", envRestored)
@@ -315,7 +338,7 @@ func checkBackupPath(o Options, key string, resticIn func(repo, key string, moun
 
 // partial explains a failure after the first swap: what was replaced, how
 // to retry and how to roll back by hand.
-func partial(err error, aside []string, healthFailed bool) error {
+func partial(err error, project string, aside []string, healthFailed bool) error {
 	kept := "  (none: nothing existed to replace)"
 	if len(aside) > 0 {
 		kept = "  " + strings.Join(aside, "\n  ")
@@ -328,8 +351,8 @@ func partial(err error, aside []string, healthFailed bool) error {
 		"The originals are kept at:\n%s\n"+
 		"To retry: rerun `glowctl restore --force` with the same --from/--snapshot "+
 		"(the partly restored data moves to *.pre-restore.N; the originals above are kept).\n"+
-		"To roll back by hand: stop the stack (docker compose -p glow down), move each *.pre-restore item "+
-		"above back over its original name, then run `glowctl install` (it regenerates runtime.env)", err, note, kept)
+		"To roll back by hand: stop the stack (docker compose -p %s down), move each *.pre-restore item "+
+		"above back over its original name, then run `glowctl install` (it regenerates runtime.env)", err, note, kept, project)
 }
 
 // swap moves the staged src into dst's place, keeping any existing dst as

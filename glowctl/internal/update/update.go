@@ -125,12 +125,18 @@ func Run(ctx context.Context, o Options) (err error) {
 	if err != nil {
 		return err
 	}
+	// A release may add state dirs: create them before Docker would, root-owned.
+	if err := install.EnsureStateDirs(cfg); err != nil {
+		return err
+	}
 	if err := state.WriteRuntimeEnv(cfg, sec, newDir, nextEnv); err != nil {
 		return err
 	}
 	mk := o.Compose
 	if mk == nil {
-		mk = func(dir, env string) compose.Runner { return compose.Exec{C: compose.WithEnvFile(dir, env, cfg.Demo)} }
+		mk = func(dir, env string) compose.Runner {
+			return compose.Exec{C: compose.WithEnvFile(dir, env, cfg.Project(), cfg.Demo)}
+		}
 	}
 	oldC, nextC, newC := mk(o.ReleaseDir, rtEnv), mk(newDir, nextEnv), mk(newDir, rtEnv)
 	dc := func(r compose.Runner, args ...string) (string, error) { return r.Run(ctx, args, nil) }
@@ -319,7 +325,7 @@ type rollbackPlan struct {
 // manual is the by-hand recovery for a failed rollback: exact commands.
 func manual(o Options, p rollbackPlan, names, clients []string) string {
 	dc := func(args ...string) string {
-		return "  " + strings.Join(compose.WithEnvFile(o.ReleaseDir, p.rtEnv, o.Cfg.Demo).Argv(args...), " ")
+		return "  " + strings.Join(compose.WithEnvFile(o.ReleaseDir, p.rtEnv, o.Cfg.Project(), o.Cfg.Demo).Argv(args...), " ")
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Previous release dir: %s; new release dir (kept): %s\n", o.ReleaseDir, p.newDir)

@@ -156,3 +156,24 @@ func TestDeviceWalksToExistingAncestor(t *testing.T) {
 		t.Fatal("device mismatch")
 	}
 }
+
+func TestOtherGlowProxy(t *testing.T) {
+	cfg, env := good()
+	env.Proxies = func() ([]string, error) { return []string{"glow", "unrelated"}, nil }
+	if fs := Run(cfg, nil, env); len(fs) != 0 {
+		t.Fatalf("own proxy / non-GLOW project warned: %+v", fs)
+	}
+	cfg.Instance = "demo"
+	fs := Run(cfg, nil, env)
+	if !has(fs, Warn, "another GLOW stack (project glow) runs a proxy") || !has(fs, Warn, "ACME needs ports 80/443") {
+		t.Fatalf("%+v", fs)
+	}
+	cfg.TLSMode, cfg.HTTPPort, cfg.HTTPSPort = "off", 8080, 8443
+	if fs := Run(cfg, nil, env); len(fs) != 1 || !has(fs, Warn, "GLOW_TLS_MODE=off") {
+		t.Fatalf("off mode on other ports should only get the off-mode note: %+v", fs)
+	}
+	cfg.TLSMode, cfg.HTTPPort = "files", 80
+	if fs := Run(cfg, nil, env); !has(fs, Warn, "GLOW_HTTP_PORT/GLOW_HTTPS_PORT") {
+		t.Fatalf("port 80 shared with another stack not flagged: %+v", fs)
+	}
+}

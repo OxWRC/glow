@@ -4,6 +4,7 @@ package install
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +48,70 @@ type Options struct {
 var StateDirs = []string{"glow-postgres", "odk-postgres", "odk-secrets", "odk-transfer",
 	"odk-enketo-redis-main", "odk-enketo-redis-cache", "api-audit-logs", "vintages", "caddy-data", "backup-status",
 	"odk-nginx-dh", "odk-nginx-letsencrypt", "odk-nginx-selfsign"}
+
+// EnsureStateDirs creates StateDirs (and certs unless GLOW_TLS_MODE=files)
+// under GLOW_STATE_DIR; install, update and restore all call it.
+func EnsureStateDirs(cfg *config.Config) error {
+	dirs := append(append([]string{}, StateDirs...), "")
+	if cfg.TLSMode != "files" {
+		dirs = append(dirs, "certs") // runtime.env points GLOW_TLS_CERT_DIR here
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(filepath.Join(cfg.StateDir, d), 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CheckProject refuses to act on compose project cfg.Project() when its
+// containers belong to another GLOW stack: a container with bind mounts, none
+// of them under GLOW_STATE_DIR (bind-less services such as pyxform say nothing).
+func CheckProject(ctx context.Context, d bundle.Runner, cfg *config.Config) error {
+	p := cfg.Project()
+	ids, err := d.Run(ctx, []string{"ps", "-a", "--filter", "label=com.docker.compose.project=" + p, "--format", "{{.ID}}"}, nil)
+	if err != nil {
+		return fmt.Errorf("listing containers of project %s: %w", p, err)
+	}
+	if len(strings.Fields(ids)) == 0 {
+		return nil
+	}
+	out, err := d.Run(ctx, append([]string{"inspect", "--format", "{{.Name}} {{json .Mounts}}"}, strings.Fields(ids)...), nil)
+	if err != nil {
+		return fmt.Errorf("inspecting containers of project %s: %w", p, err)
+	}
+	roots := []string{filepath.Clean(cfg.StateDir)}
+	if r, err := filepath.EvalSymlinks(cfg.StateDir); err == nil {
+		roots = append(roots, r)
+	}
+	under := func(src string) bool {
+		for _, r := range roots {
+			if src == r || strings.HasPrefix(src, r+string(filepath.Separator)) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		name, js, _ := strings.Cut(strings.TrimSpace(line), " ")
+		var mounts []struct{ Type, Source string }
+		if json.Unmarshal([]byte(js), &mounts) != nil {
+			continue
+		}
+		binds, ours := 0, false
+		for _, m := range mounts {
+			if m.Type == "bind" {
+				binds++
+				ours = ours || under(filepath.Clean(m.Source))
+			}
+		}
+		if binds > 0 && !ours {
+			return fmt.Errorf("compose project %s belongs to another GLOW stack; set GLOW_INSTANCE in glow.env to run this stack beside it "+
+				"(container %s uses no files under %s)", p, strings.TrimPrefix(name, "/"), cfg.StateDir)
+		}
+	}
+	return nil
+}
 
 // BackupKeyShownMarker in the state dir records that the key was printed.
 const BackupKeyShownMarker = ".backup-key-shown"
@@ -109,15 +174,24 @@ func Run(ctx context.Context, o Options) (err error) {
 	}
 	defer release()
 
-	step("creating state directories in " + cfg.StateDir)
-	dirs := append(append([]string{}, StateDirs...), "")
-	if cfg.TLSMode != "files" {
-		dirs = append(dirs, "certs") // runtime.env points GLOW_TLS_CERT_DIR here
+	// The state dir and the compose project must both be this stack's before
+	// anything is written; only then is the state dir claimed.
+	if err := state.CheckInstance(cfg.StateDir, cfg.Project()); err != nil {
+		return err
 	}
-	for _, d := range dirs {
-		if err := os.MkdirAll(filepath.Join(cfg.StateDir, d), 0o755); err != nil {
-			return err
-		}
+	d := o.Docker
+	if d == nil {
+		d = bundle.Docker{}
+	}
+	if err := CheckProject(ctx, d, cfg); err != nil {
+		return err
+	}
+	if err := state.ClaimInstance(cfg.StateDir, cfg.Project()); err != nil {
+		return err
+	}
+	step("creating state directories in " + cfg.StateDir)
+	if err := EnsureStateDirs(cfg); err != nil {
+		return err
 	}
 
 	step("ensuring generated secrets")
@@ -148,10 +222,6 @@ func Run(ctx context.Context, o Options) (err error) {
 
 	if o.Bundle != "" {
 		step("loading offline bundle " + o.Bundle)
-		d := o.Docker
-		if d == nil {
-			d = bundle.Docker{}
-		}
 		if err := bundle.Load(ctx, d, o.Bundle, o.ReleaseDir, o.Out); err != nil {
 			return err
 		}
@@ -166,7 +236,7 @@ func Run(ctx context.Context, o Options) (err error) {
 
 	r := o.Runner
 	if r == nil {
-		r = compose.Exec{C: compose.New(o.ReleaseDir, cfg.StateDir, cfg.Demo)}
+		r = compose.Exec{C: compose.New(o.ReleaseDir, cfg.StateDir, cfg.Project(), cfg.Demo)}
 	}
 	run := func(stdin io.Reader, args ...string) (string, error) { return r.Run(ctx, args, stdin) }
 

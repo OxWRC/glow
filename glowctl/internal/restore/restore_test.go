@@ -3,6 +3,8 @@ package restore
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -25,6 +27,7 @@ type fake struct {
 	prefix  string
 	failOn  string // a call containing this fails
 	running string // `docker ps` output
+	inspect string // `docker inspect` output (container name + mounts JSON per line)
 	noSnap  []string
 	version string // deployment.json version in the snapshot ("" = v1.2.3)
 	secrets string // restored secrets.env ("" = restoredSecrets)
@@ -49,6 +52,8 @@ func (f *fake) Run(_ context.Context, args []string, stdin io.Reader) (string, e
 		return "restic output\n{\"id\":\"abc123full\",\"time\":\"2026-10-19T10:00:00Z\",\"version\":\"" + v + "\"}\n", nil
 	case strings.HasPrefix(s, "docker ps"):
 		return f.running, nil
+	case strings.HasPrefix(s, "docker inspect"):
+		return f.inspect, nil
 	case strings.Contains(s, "restore-files"):
 		for i, a := range args {
 			if a == "-v" && strings.HasSuffix(args[i+1], ":/staging") {
@@ -247,6 +252,7 @@ func TestCommandOrderExact(t *testing.T) {
 	}
 	want := []string{
 		"docker run --rm -i --network none -v " + e.from + ":/repo:ro -e RESTIC_REPOSITORY=/repo " + img + " glow-backup.sh check-key latest",
+		"docker ps -a --filter label=com.docker.compose.project=glow --format {{.ID}}",
 		"docker ps -q --filter label=com.docker.compose.project=glow",
 		"compose down",
 		"docker run --rm -i --network none -v " + e.from + ":/repo:ro -v " + staging + ":/staging -e RESTIC_REPOSITORY=/repo " + img + " glow-backup.sh restore-files abc123full /staging",
@@ -521,5 +527,100 @@ func TestDemoRefused(t *testing.T) {
 	e.o.Cfg.Demo = true
 	if err := Run(context.Background(), e.o); err == nil || len(e.log) != 0 {
 		t.Fatalf("demo: err %v calls %q", err, e.log)
+	}
+}
+
+func TestInstanceProjectFilterAndHint(t *testing.T) {
+	e := setup(t)
+	e.o.Cfg.Instance = "demo"
+	e.comp.failOn = "compose run" // after the swap: the partial() hint
+	err := Run(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), "docker compose -p glow-demo down") {
+		t.Fatalf("hint lacks -p glow-demo: %v", err)
+	}
+	for _, w := range []string{"docker ps -a --filter label=com.docker.compose.project=glow-demo ",
+		"docker ps -q --filter label=com.docker.compose.project=glow-demo"} {
+		found := false
+		for _, c := range e.log {
+			found = found || strings.HasPrefix(c, w)
+		}
+		if !found {
+			t.Fatalf("no %q in %q", w, e.log)
+		}
+	}
+}
+
+func TestInstanceMismatchRefusedBeforeAnything(t *testing.T) {
+	e := setup(t)
+	os.WriteFile(filepath.Join(e.st, ".glow-instance"), []byte("glow-other\n"), 0o644)
+	err := Run(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), "belongs to project glow-other") || len(e.log) != 0 {
+		t.Fatalf("err %v calls %q", err, e.log)
+	}
+}
+
+func TestFreshStateDirClaimedAndMarkerWritten(t *testing.T) {
+	e := setup(t)
+	e.o.Cfg.Instance = "demo"
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(e.st, ".glow-instance")) != "glow-demo\n" {
+		t.Fatal(".glow-instance not written")
+	}
+	if _, err := os.Stat(filepath.Join(e.st, ".backup-key-shown")); err != nil {
+		t.Fatal("backup key marker not written: a later install would print the key again")
+	}
+	if fi, err := os.Stat(filepath.Join(e.st, "certs")); err != nil || !fi.IsDir() {
+		t.Fatal("certs dir not created (acme mode)")
+	}
+}
+
+func TestForeignProjectRefused(t *testing.T) {
+	e := setup(t)
+	e.o.Force = true
+	e.docker.running = "c1\nc2\n"
+	e.docker.inspect = "/glow-dashboard-1 []\n/glow-proxy-1 [{\"Type\":\"bind\",\"Source\":\"/var/lib/other/caddy-data\"}]\n"
+	err := Run(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), "project glow belongs to another GLOW stack; set GLOW_INSTANCE") {
+		t.Fatalf("err %v", err)
+	}
+	for _, c := range e.log {
+		if strings.HasPrefix(c, "compose") || strings.Contains(c, "restore-files") {
+			t.Fatalf("touched the other stack: %s", c)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.st, ".glow-instance")); err == nil {
+		t.Fatal("state dir claimed for project glow")
+	}
+}
+
+func TestOwnProjectAccepted(t *testing.T) {
+	e := setup(t)
+	e.o.Force = true
+	e.docker.running = "c1\nc2\n"
+	e.docker.inspect = "/glow-dashboard-1 []\n/glow-proxy-1 [{\"Type\":\"bind\",\"Source\":\"" + e.rel + "/proxy/Caddyfile\"},{\"Type\":\"bind\",\"Source\":\"" + e.st + "/caddy-data\"}]\n"
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBundleLoadedBeforeKeyCheck(t *testing.T) {
+	e := setup(t)
+	b := t.TempDir()
+	files := map[string]string{"glow-images-v1.2.3.tar.gz.part-aa": "img", "digests.json": "{}"}
+	sums := ""
+	for n, c := range files {
+		os.WriteFile(filepath.Join(b, n), []byte(c), 0o644)
+		h := sha256.Sum256([]byte(c))
+		sums += hex.EncodeToString(h[:]) + "  " + n + "\n"
+	}
+	os.WriteFile(filepath.Join(b, "SHA256SUMS"), []byte(sums), 0o644)
+	e.o.Bundle = b
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.log) < 2 || e.log[0] != "docker load" || !strings.Contains(e.log[1], "check-key") {
+		t.Fatalf("calls %q", e.log)
 	}
 }

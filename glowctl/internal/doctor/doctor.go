@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,6 +39,8 @@ type Env struct {
 	SelfGet func(url string) error
 	// Installed is true once runtime.env exists; our own stack then holds the ports.
 	Installed bool
+	// Proxies lists the compose projects running a proxy service; nil = skip.
+	Proxies func() ([]string, error)
 }
 
 // HostEnv probes the real host.
@@ -78,6 +81,11 @@ func HostEnv(installed bool) Env {
 			return nil
 		},
 		Installed: installed,
+		Proxies: func() ([]string, error) {
+			out, err := exec.Command("docker", "ps", "--filter", "label=com.docker.compose.service=proxy",
+				"--format", `{{.Label "com.docker.compose.project"}}`).Output()
+			return strings.Fields(string(out)), err
+		},
 	}
 }
 
@@ -128,6 +136,22 @@ func Run(cfg *config.Config, cfgErrs []error, env Env) []Finding {
 				add(Warn, "cannot check whether port %d is free (%v; binding low ports may need root)", p, err)
 			default:
 				add(Warn, "cannot check whether port %d is free (%v)", p, err)
+			}
+		}
+	}
+	if env.Proxies != nil {
+		ps, _ := env.Proxies() // docker not reachable: the docker checks above already said so
+		for _, p := range ps {
+			if p == cfg.Project() || (p != "glow" && !strings.HasPrefix(p, "glow-")) {
+				continue
+			}
+			switch {
+			case cfg.TLSMode == "acme":
+				add(Warn, "another GLOW stack (project %s) runs a proxy on this host; ACME needs ports 80/443 to itself, "+
+					"so this instance should use GLOW_TLS_MODE=off or files behind a front proxy, on its own GLOW_HTTP_PORT/GLOW_HTTPS_PORT", p)
+			case cfg.HTTPPort == 80 || cfg.HTTPPort == 443 || (cfg.TLSMode != "off" && (cfg.HTTPSPort == 80 || cfg.HTTPSPort == 443)):
+				add(Warn, "another GLOW stack (project %s) runs a proxy on this host, probably on ports 80/443; "+
+					"give this instance its own GLOW_HTTP_PORT/GLOW_HTTPS_PORT", p)
 			}
 		}
 	}

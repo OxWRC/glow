@@ -40,8 +40,21 @@ type Config struct {
 	SMTP           SMTPConfig
 	Registry       string
 	Version        string
+	// Instance names a second (third...) stack on one host: compose project
+	// glow-<instance>. Empty = the default project glow.
+	Instance string
 
 	errs []error // problems found while parsing (unknown keys, bad syntax, bad numbers)
+}
+
+var instanceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,30}$`)
+
+// Project is the compose project name: glow, or glow-<GLOW_INSTANCE>.
+func (c *Config) Project() string {
+	if c.Instance == "" {
+		return "glow"
+	}
+	return "glow-" + c.Instance
 }
 
 var hostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
@@ -97,6 +110,7 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	seen := map[string]int{}
+	stateSet := false
 	for i, line := range strings.Split(strings.TrimPrefix(string(data), "\xef\xbb\xbf"), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -137,6 +151,9 @@ func Load(path string) (*Config, error) {
 			boolean(k, v, &c.Demo)
 		case "GLOW_STATE_DIR":
 			c.StateDir = v
+			stateSet = true
+		case "GLOW_INSTANCE":
+			c.Instance = v
 		case "GLOW_BACKUP_PATH":
 			c.BackupPath = v
 		case "GLOW_PERIOD_TIMEZONE":
@@ -162,6 +179,9 @@ func Load(path string) (*Config, error) {
 		default:
 			c.errs = append(c.errs, fmt.Errorf("%s: unknown key (typo?)", k))
 		}
+	}
+	if !stateSet && c.Instance != "" {
+		c.StateDir = "/var/lib/glow-" + c.Instance
 	}
 	base := filepath.Dir(path)
 	if abs, err := filepath.Abs(path); err == nil {
@@ -198,6 +218,9 @@ func (c *Config) Validate() []error {
 	errs := append([]error(nil), c.errs...)
 	add := func(format string, a ...any) { errs = append(errs, fmt.Errorf(format, a...)) }
 
+	if c.Instance != "" && !instanceRe.MatchString(c.Instance) {
+		add("GLOW_INSTANCE: %q must be 1-31 lowercase letters, digits or '-', starting with a letter or digit", c.Instance)
+	}
 	if c.Domain == "" {
 		add("GLOW_DOMAIN: required")
 	} else if !hostRe.MatchString(c.Domain) {

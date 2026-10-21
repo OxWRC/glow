@@ -20,6 +20,7 @@ import (
 
 	"github.com/oxwrc/glow/glowctl/internal/compose"
 	"github.com/oxwrc/glow/glowctl/internal/config"
+	"github.com/oxwrc/glow/glowctl/internal/install"
 	"github.com/oxwrc/glow/glowctl/internal/state"
 )
 
@@ -708,5 +709,26 @@ func TestCancelAfterSwapStillRollsBack(t *testing.T) {
 	}
 	if !e.has("rollback-dbs snapnew glow") {
 		t.Fatalf("calls: %v", e.calls())
+	}
+}
+
+func TestStateDirsCreated(t *testing.T) {
+	e := newEnv(t, false)
+	if err := Run(context.Background(), e.o); err != nil {
+		t.Fatalf("Run: %v\n%s", err, e.out.String())
+	}
+	for _, d := range append(append([]string{}, install.StateDirs...), "certs") {
+		if fi, err := os.Stat(filepath.Join(e.st, d)); err != nil || !fi.IsDir() {
+			t.Errorf("state dir %s not created", d)
+		}
+	}
+}
+
+func TestManualHintUsesProject(t *testing.T) {
+	e := newEnv(t, false)
+	e.o.Cfg.Instance = "demo"
+	msg := manual(e.o, rollbackPlan{rtEnv: "/st/runtime.env"}, nil, nil)
+	if !strings.Contains(msg, "--project-name glow-demo ") {
+		t.Fatalf("%s", msg)
 	}
 }

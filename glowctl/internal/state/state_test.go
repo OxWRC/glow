@@ -363,3 +363,37 @@ func TestSecretsInvalidBackupKeyErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestInstanceGuard(t *testing.T) {
+	st := t.TempDir()
+	if err := CheckInstance(st, "glow-demo"); err != nil {
+		t.Fatalf("fresh state dir: %v", err)
+	}
+	if err := ClaimInstance(st, "glow-demo"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(st, InstanceFile)); string(b) != "glow-demo\n" {
+		t.Fatalf("instance file %q", b)
+	}
+	if err := ClaimInstance(st, "glow-demo"); err != nil {
+		t.Fatal(err)
+	}
+	err := CheckInstance(st, "glow")
+	if err == nil || !strings.Contains(err.Error(), "belongs to project glow-demo; GLOW_INSTANCE cannot change after install") {
+		t.Fatalf("mismatch: %v", err)
+	}
+	if ClaimInstance(st, "glow") == nil {
+		t.Fatal("claim over another project")
+	}
+	// An install that predates the file is project glow.
+	old := t.TempDir()
+	if err := WriteDeployment(old, Deployment{Version: "v1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckInstance(old, "glow"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckInstance(old, "glow-x"); err == nil || !strings.Contains(err.Error(), "belongs to project glow;") {
+		t.Fatalf("legacy mismatch: %v", err)
+	}
+}

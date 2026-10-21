@@ -157,12 +157,32 @@ type env struct {
 	odk     *fakeODK
 	srv     *httptest.Server
 	run     *fakeRunner
+	docker  *fakeDocker
 	gets    []string
+}
+
+// fakeDocker answers the project-ownership check: ps lists ids, inspect
+// returns "<name> <mounts JSON>" lines.
+type fakeDocker struct {
+	calls       []string
+	ps, inspect string
+}
+
+func (f *fakeDocker) Run(_ context.Context, args []string, _ io.Reader) (string, error) {
+	s := strings.Join(args, " ")
+	f.calls = append(f.calls, s)
+	switch {
+	case strings.HasPrefix(s, "ps "):
+		return f.ps, nil
+	case strings.HasPrefix(s, "inspect "):
+		return f.inspect, nil
+	}
+	return "", nil
 }
 
 func setup(t *testing.T, demo bool) *env {
 	t.Helper()
-	e := &env{rel: t.TempDir(), st: t.TempDir(), run: &fakeRunner{}}
+	e := &env{rel: t.TempDir(), st: t.TempDir(), run: &fakeRunner{}, docker: &fakeDocker{}}
 	backup := t.TempDir()
 	glowEnv := "GLOW_DOMAIN=example.org\nGLOW_STATE_DIR=" + e.st + "\n"
 	if demo {
@@ -195,6 +215,7 @@ func (e *env) opts(out io.Writer) Options {
 		ReleaseDir: e.rel,
 		AdminEmail: "boss@example.org",
 		Runner:     e.run,
+		Docker:     e.docker,
 		ODK:        func(*config.Config) *odk.Client { return odk.NewClientForBase(e.srv.URL, "odk.example.org") },
 		Get: func(_ context.Context, _ *config.Config, host, path string) (int, error) {
 			e.gets = append(e.gets, host+path)
@@ -680,4 +701,48 @@ func TestFailureLineBeforeKey(t *testing.T) {
 	if f < 0 || k < 0 || f > k || !strings.HasSuffix(strings.TrimRight(s, "\n"), secret(t, e.st, "GLOW_BACKUP_KEY")) {
 		t.Fatalf("want failure line then key last:\n%s", s)
 	}
+}
+
+func TestInstanceFileWrittenAndMismatchRefused(t *testing.T) {
+	e := setup(t, false)
+	must(t, Run(context.Background(), e.opts(io.Discard)))
+	if b, _ := os.ReadFile(filepath.Join(e.st, ".glow-instance")); string(b) != "glow\n" {
+		t.Fatalf(".glow-instance %q", b)
+	}
+	e2 := setup(t, false)
+	must(t, os.WriteFile(filepath.Join(e2.st, ".glow-instance"), []byte("glow-demo\n"), 0o644))
+	err := Run(context.Background(), e2.opts(io.Discard))
+	if err == nil || !strings.Contains(err.Error(), "belongs to project glow-demo; GLOW_INSTANCE cannot change after install") {
+		t.Fatalf("err %v", err)
+	}
+	if len(e2.run.calls) != 0 {
+		t.Fatalf("compose ran: %v", e2.run.calls)
+	}
+}
+
+func TestForeignProjectRefusedBeforeCompose(t *testing.T) {
+	e := setup(t, false)
+	e.docker.ps = "c1\n"
+	e.docker.inspect = "/glow-api-db-1 [{\"Type\":\"bind\",\"Source\":\"/var/lib/glow/glow-postgres\"}]\n"
+	err := Run(context.Background(), e.opts(io.Discard))
+	if err == nil || !strings.Contains(err.Error(), "project glow belongs to another GLOW stack; set GLOW_INSTANCE") {
+		t.Fatalf("err %v", err)
+	}
+	if len(e.run.calls) != 0 {
+		t.Fatalf("compose ran: %v", e.run.calls)
+	}
+	if _, err := os.Stat(filepath.Join(e.st, ".glow-instance")); err == nil {
+		t.Fatal("state dir claimed for project glow: setting GLOW_INSTANCE now would be refused")
+	}
+	if e.docker.calls[0] != "ps -a --filter label=com.docker.compose.project=glow --format {{.ID}}" ||
+		!strings.HasPrefix(e.docker.calls[1], "inspect --format ") || !strings.HasSuffix(e.docker.calls[1], " c1") {
+		t.Fatalf("docker calls %q", e.docker.calls)
+	}
+}
+
+func TestOwnProjectRerunAccepted(t *testing.T) {
+	e := setup(t, false)
+	e.docker.ps = "c1\nc2\n"
+	e.docker.inspect = "/glow-pyxform-1 []\n/glow-api-db-1 [{\"Type\":\"bind\",\"Source\":\"" + e.st + "/glow-postgres\"}]\n"
+	must(t, Run(context.Background(), e.opts(io.Discard)))
 }

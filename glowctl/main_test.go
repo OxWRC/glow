@@ -165,3 +165,28 @@ func TestUpdateSignalsIncludeHangup(t *testing.T) {
 	}
 	t.Fatal("update does not handle SIGHUP: a dropped SSH session would kill it mid-swap")
 }
+
+// stderrOf runs args with stderr captured.
+func stderrOf(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	r, w, _ := os.Pipe()
+	saved := os.Stderr
+	os.Stderr = w
+	got := run(args)
+	os.Stderr = saved
+	w.Close()
+	msg, _ := io.ReadAll(r)
+	return got, string(msg)
+}
+
+func TestInstanceMismatchRefusedByEveryCommand(t *testing.T) {
+	dir, st := demoDir(t)
+	os.WriteFile(filepath.Join(st, "runtime.env"), nil, 0o600)
+	os.WriteFile(filepath.Join(st, ".glow-instance"), []byte("glow-demo\n"), 0o644)
+	for _, a := range [][]string{{"status"}, {"backup"}, {"users", "list"}, {"update", "v9.9.9", "--yes"}} {
+		code, msg := stderrOf(t, append(a, "--dir", dir)...)
+		if code != 1 || !strings.Contains(msg, "belongs to project glow-demo; GLOW_INSTANCE cannot change after install") {
+			t.Errorf("%v: exit %d %q", a, code, msg)
+		}
+	}
+}

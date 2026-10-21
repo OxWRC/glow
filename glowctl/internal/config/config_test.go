@@ -187,3 +187,34 @@ func TestFormatErrorsIndentsEveryLine(t *testing.T) {
 		t.Errorf("%q", got)
 	}
 }
+
+func TestInstance(t *testing.T) {
+	base := "GLOW_DOMAIN=d.example.org\nGLOW_DEMO_MODE=true\n"
+	for _, tc := range []struct {
+		env, project, stateDir string
+		bad                    bool
+	}{
+		{base, "glow", "/var/lib/glow", false},
+		{base + "GLOW_INSTANCE=demo\n", "glow-demo", "/var/lib/glow-demo", false},
+		{base + "GLOW_INSTANCE=e2e-2\nGLOW_STATE_DIR=/srv/st\n", "glow-e2e-2", "/srv/st", false},
+		{base + "GLOW_INSTANCE=Demo\n", "", "", true},
+		{base + "GLOW_INSTANCE=-x\n", "", "", true},
+		{base + "GLOW_INSTANCE=a_b\n", "", "", true},
+		{base + "GLOW_INSTANCE=" + strings.Repeat("a", 32) + "\n", "", "", true},
+	} {
+		c, err := Load(write(t, tc.env))
+		if err != nil {
+			t.Fatal(err)
+		}
+		errs := c.Validate()
+		if tc.bad {
+			if len(errs) != 1 || !strings.Contains(errs[0].Error(), "GLOW_INSTANCE") {
+				t.Errorf("%q: errs %v", tc.env, errs)
+			}
+			continue
+		}
+		if len(errs) != 0 || c.Project() != tc.project || c.StateDir != tc.stateDir {
+			t.Errorf("%q: %v project %q state %q", tc.env, errs, c.Project(), c.StateDir)
+		}
+	}
+}
