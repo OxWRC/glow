@@ -67,7 +67,7 @@ Added risks: SSM outages or IAM mistakes can lock you out (keep a break-glass pa
 
 ## 4. Demo and production on one host
 
-Each stack needs its own release directory, `glow.env`, `GLOW_STATE_DIR`, domain and Compose project name, and the proxy ports must not collide. `glowctl` does not support this (see step 6); you do it by hand. Until then, use a separate server for demo; running a second stack on the same host is not supported by glowctl yet.
+Each stack needs its own release directory, `glow.env`, `GLOW_STATE_DIR`, `GLOW_BACKUP_PATH` (production only), domain, ports and Compose project name. `GLOW_INSTANCE=demo` in the demo's `glow.env` gives it the project `glow-demo` and the default state dir `/var/lib/glow-demo`; `glowctl` then manages each stack from its own release directory.
 
 ```
 users --> :80/:443  --> [ your front proxy (Caddy/nginx/HAProxy) ]
@@ -78,11 +78,13 @@ users --> :80/:443  --> [ your front proxy (Caddy/nginx/HAProxy) ]
 Approach:
 
 1. Run your own front proxy on 80/443 with TLS (it owns the certificates).
-2. Production: `GLOW_TLS_MODE=off`, `GLOW_HTTP_PORT=8080`, `GLOW_STATE_DIR=/var/lib/glow`.
-3. Demo (by hand, step 6): its own release directory, `GLOW_DEMO_MODE=true`, `GLOW_TLS_MODE=off`, `GLOW_HTTP_PORT=9080`, `GLOW_STATE_DIR=/var/lib/glow-demo`, different `GLOW_DOMAIN`.
-4. Your front proxy routes by hostname (all three names per site) to the right local port and forwards the original `Host` header.
-5. In `off` mode the server must reach `https://odk.<domain>` itself (the API and Enketo call it): the hostnames must resolve, from the server, to the front proxy. `glowctl doctor` checks this.
-6. **Project name clash.** `glowctl` always runs Compose with the project name `glow`, so two stacks on one host share container, network and volume names, and a second `install` would act on the first stack's containers. `glowctl` cannot run two stacks side by side. Run the second stack by hand with Compose (its own release directory, `--project-name glow-demo` and its own env file), or use a second server or VM. Do not run `glowctl` for both.
+2. Production (`/opt/glow/glow-<tag>`): `GLOW_TLS_MODE=off`, `GLOW_HTTP_PORT=8080`, `GLOW_STATE_DIR=/var/lib/glow`, `GLOW_BACKUP_PATH=/srv/glow-backups`, `GLOW_DOMAIN=glow.example.org`.
+3. Demo (its own release directory, for example `/opt/glow-demo/glow-<tag>`): `GLOW_INSTANCE=demo`, `GLOW_DEMO_MODE=true`, `GLOW_TLS_MODE=off`, `GLOW_HTTP_PORT=9080`, `GLOW_DOMAIN=demo.example.org`, and no `GLOW_STATE_DIR` line (it defaults to `/var/lib/glow-demo`). A production second instance would also need its own `GLOW_BACKUP_PATH`: two stacks must never share a backup path.
+4. Install each from its own release directory: `sudo ./glowctl install ...`. Every later `glowctl` command (status, update, backup, users) is run from that stack's release directory.
+5. Your front proxy routes by hostname (all three names per site) to the right local port and forwards the original `Host` header. `GLOW_TLS_MODE=files` with a front proxy passing TLS through by SNI also works; `acme` does not, since ACME needs ports 80/443 to itself.
+6. In `off` mode the server must reach `https://odk.<domain>` itself (the API and Enketo call it): the hostnames must resolve, from the server, to the front proxy. `glowctl doctor` checks this, and warns when another GLOW stack's proxy is already running.
+
+`GLOW_INSTANCE` cannot change after install: each state directory records its project (`.glow-instance`), and `glowctl` refuses a `glow.env` that names another. `install` and `restore` also refuse to act on a Compose project whose containers use another state directory, so a missing `GLOW_INSTANCE` cannot take over the production stack. For logs by hand, use `--project-name glow-demo`.
 
 Added risks: demo and production share a kernel, disk and Docker daemon, so a demo problem (disk full, runaway container) can hurt production. Demo mode has open login by design: keep it on a separate hostname, never reuse production domains, and never load real data into it. Prefer separate servers if you can.
 
@@ -94,7 +96,7 @@ internet-connected machine --> download release assets --> (USB / internal mirro
                                   [ server ] <-- sha256sum -c, glowctl install --bundle
 ```
 
-- **Offline bundle:** use the release assets (archive, `glow-images-*` parts, `digests.json`, `SHA256SUMS`, `glowctl` binary) as described in [Offline install](../DEPLOYMENT.md#offline-install). Install and update with `--bundle`. The parts are each under 2 GB so they fit hosting and transfer limits. Getting them to the server is up to you; verify checksums on the server.
+- **Offline bundle:** use the release assets (archive, `glow-images-*` parts, `digests.json`, `SHA256SUMS`, `glowctl` binary) as described in [Offline install](../DEPLOYMENT.md#offline-install). Install, update and restore with `--bundle` (a disaster restore onto a new offline server needs the release directory plus the bundle; see the restore drill in the deployment guide). The parts are each under 2 GB so they fit hosting and transfer limits. Getting them to the server is up to you; verify checksums on the server.
 - **ICP filing (mainland China):** serving a website on a mainland domain from a mainland server requires ICP filing (and for some uses, public security filing). That is a legal process with your provider and takes time. Plan for it before the launch date. Servers outside the mainland (for example Hong Kong) avoid ICP but may have slower or less reliable access from the mainland.
 - **Registry mirrors:** GHCR and GitHub can be slow or blocked. The bundle avoids both. If you prefer online pulls, you can use a mirror that holds the same digests as `digests.json` (a Docker registry mirror, or your own registry via `GLOW_REGISTRY`). `update` needs the same registry for the new release. See [DEPLOYMENT.md](../DEPLOYMENT.md#configure-glowenv) for `GLOW_REGISTRY`.
 - **ACME:** Let's Encrypt validation needs the three names to resolve and port 80 reachable. Where that is impractical (or the domain is not yet filed), use `GLOW_TLS_MODE=files` with a certificate from a CA you can reach, or `off` behind your provider's certificate and load balancer.

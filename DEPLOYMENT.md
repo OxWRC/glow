@@ -69,8 +69,9 @@ Edit `glow.env` in the release directory. One `KEY=VALUE` per line. Comments go 
 | `GLOW_HTTP_PORT` | `80` | Host port for HTTP. |
 | `GLOW_HTTPS_PORT` | `443` | Host port for HTTPS. |
 | `GLOW_DEMO_MODE` | `false` | `true` for a demo with fictional data: no login, no backups, no OIDC settings. |
-| `GLOW_STATE_DIR` | `/var/lib/glow` | Persistent state: databases, ODK secrets, generated secrets, audit logs, vintages, certificates. |
-| `GLOW_BACKUP_PATH` | none (required unless demo) | Existing, writable directory for the backup repository. Use a different disk from `GLOW_STATE_DIR`. |
+| `GLOW_INSTANCE` | empty | Name of a second stack on the same host (lowercase letters, digits, `-`; up to 31). The Compose project becomes `glow-<instance>` instead of `glow`. Cannot change after install. See [docs/hosting.md](docs/hosting.md#4-demo-and-production-on-one-host). |
+| `GLOW_STATE_DIR` | `/var/lib/glow` (`/var/lib/glow-<instance>` with `GLOW_INSTANCE`) | Persistent state: databases, ODK secrets, generated secrets, audit logs, vintages, certificates. |
+| `GLOW_BACKUP_PATH` | none (required unless demo) | Existing, writable directory for the backup repository. Use a different disk from `GLOW_STATE_DIR`. Each instance needs its own: two stacks must never share a backup path. |
 | `GLOW_PERIOD_TIMEZONE` | `Europe/London` | IANA timezone of the school calendar. See [Time handling](#time-handling). |
 | `GLOW_SMTP_HOST` | empty | Mail relay for ODK Central. Empty disables ODK email. |
 | `GLOW_SMTP_PORT` | `587` | SMTP port. |
@@ -207,7 +208,9 @@ The result shows in `glowctl status`.
 sudo ./glowctl restore --from /path/to/backup-copy --key-file /root/glow-backup.key
 ```
 
-`--snapshot ID` picks a snapshot (default `latest`); without `--key-file` you are prompted for the key on a terminal. `restore` checks the key first (a wrong key changes nothing), restores the databases, secrets, config and vintages, starts the stack and checks it through the proxy. The snapshot's `glow.env` is saved in the state directory for you to compare with yours and merge by hand.
+`--snapshot ID` picks a snapshot (default `latest`); without `--key-file` you are prompted for the key on a terminal. `restore` checks the key first (a wrong key changes nothing), restores the databases, secrets, config and vintages, starts the stack and checks it through the proxy. The snapshot's `glow.env` is saved as `glow.env.restored` in the release directory for you to compare with yours and merge by hand.
+
+Offline (no GitHub or GHCR, for example a disaster restore onto a new server): unpack the release and add `--bundle /path/to/bundle-dir` (see [Offline install](#offline-install)). The images are loaded from the bundle before the key check, so `restore` needs no registry.
 
 On a server that already holds live data, `restore` refuses unless you add `--force`. It then replaces the data and keeps the originals as `*.pre-restore`. Delete those once you are satisfied. `restore` must run as root.
 
@@ -258,7 +261,7 @@ A service that is still starting, and a failed prune, are warnings only (exit 0)
 ./glowctl doctor
 ```
 
-`doctor` checks the host and `glow.env`. It exits 1 on errors (Docker or Compose v2 missing, invalid `glow.env`) and prints warnings for: backups on the same filesystem as the state directory, `GLOW_TLS_MODE=off` (and an unreachable `https://odk.<domain>`), default ports already in use (before install), and missing SMTP. Run it before the first install and after config changes.
+`doctor` checks the host and `glow.env`. It exits 1 on errors (Docker or Compose v2 missing, invalid `glow.env`) and prints warnings for: backups on the same filesystem as the state directory, `GLOW_TLS_MODE=off` (and an unreachable `https://odk.<domain>`), default ports already in use (before install), another GLOW stack's proxy running on this host (ACME needs 80/443 to itself), and missing SMTP. Run it before the first install and after config changes.
 
 Logs: run compose the way `glowctl` does, from the release directory:
 
@@ -266,7 +269,7 @@ Logs: run compose the way `glowctl` does, from the release directory:
 docker compose --project-name glow --env-file /var/lib/glow/runtime.env logs backup
 ```
 
-Use your `GLOW_STATE_DIR` in place of `/var/lib/glow`; other subcommands (`ps`, `logs proxy`, `logs odk-service`) work the same way. Below this is shortened to `compose logs <service>`. Container logs rotate by size. Audit logs live in `GLOW_STATE_DIR/api-audit-logs` and are backed up. GLOW does not alert; it exposes `status` for you to alert on.
+Use your `GLOW_STATE_DIR` in place of `/var/lib/glow`, and `--project-name glow-<instance>` if you set `GLOW_INSTANCE`; other subcommands (`ps`, `logs proxy`, `logs odk-service`) work the same way. Below this is shortened to `compose logs <service>`. Container logs rotate by size. Audit logs live in `GLOW_STATE_DIR/api-audit-logs` and are backed up. GLOW does not alert; it exposes `status` for you to alert on.
 
 ## Time handling
 
