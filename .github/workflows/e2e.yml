@@ -26,6 +26,7 @@ jobs:
         with:
           go-version-file: glowctl/go.mod
           cache-dependency-path: glowctl/go.mod
+      - run: docker compose version
       - uses: astral-sh/setup-uv@v7
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc

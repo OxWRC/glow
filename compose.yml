@@ -199,7 +199,7 @@ services:
       GLOW_DOMAIN: ${GLOW_DOMAIN:-localhost}
       GLOW_ACME_EMAIL_DIRECTIVE: ${GLOW_ACME_EMAIL:+email ${GLOW_ACME_EMAIL}}
     volumes:
-      - ./proxy/Caddyfile.${GLOW_TLS_MODE:-acme}:/etc/caddy/Caddyfile:ro
+      - {type: bind, source: "./proxy/Caddyfile.${GLOW_TLS_MODE:-acme}", target: /etc/caddy/Caddyfile, read_only: true}
       - {<<: *bind, source: "${GLOW_TLS_CERT_DIR:-./proxy/certs}", target: /certs, read_only: true}
       - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/caddy-data", target: /data}
     ports:

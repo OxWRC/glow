@@ -51,6 +51,11 @@ for name, s in services.items():
 if bad:
     sys.exit("check_compose: state not under GLOW_STATE_DIR: " + "; ".join(bad))
 '
+# Older compose (e.g. v2.38) splits short-syntax mounts on every ':' under
+# `config --no-interpolate` (release staging), so ${VAR:-default} sources need long syntax.
+if grep -nE '^\s*- [^{"].*\$\{[^}]*:-[^}]*\}.*:/' compose.yml compose.demo.yml compose.glow-init.yml; then
+  echo "check_compose: use long-syntax volumes for \${VAR:-default} sources (lines above)" >&2; exit 1
+fi
 # Proxy ports per TLS mode: HTTP always; HTTPS only when Caddy terminates TLS.
 for mode in acme files off; do
   GLOW_TLS_MODE=$mode GLOW_TLS_CERT_DIR=$PWD/proxy render | MODE=$mode python3 -c '
