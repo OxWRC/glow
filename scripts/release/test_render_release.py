@@ -30,6 +30,9 @@ def compose(stage):
                 "volumes": [
                     {"type": "volume", "source": "${GLOW_STATE_DIR:-./docker-mount-data}/x",
                      "target": "/x", "volume": {}},
+                    # long-syntax bind: compose prefixes the stage dir even to a ${VAR} source
+                    {"type": "bind", "source": f"{s}/${{GLOW_STATE_DIR:-./docker-mount-data}}",
+                     "target": "/state", "read_only": True, "bind": {"create_host_path": True}},
                     {"type": "bind", "source": f"{s}/odk-central/local-glow.json",
                      "target": "/c.json", "read_only": True, "bind": {"create_host_path": True}},
                 ],
@@ -95,6 +98,7 @@ def test_present_bind_sources_pass(stage):
     assert "./odk-central/local-glow.json:/c.json:ro" in out["services"]["api"]["volumes"]
     # state-dir volume skipped by the check, kept verbatim
     assert "${GLOW_STATE_DIR:-./docker-mount-data}/x:/x" in out["services"]["api"]["volumes"]
+    assert "${GLOW_STATE_DIR:-./docker-mount-data}:/state:ro" in out["services"]["api"]["volumes"]
 
 
 def test_variables_are_preserved(stage):

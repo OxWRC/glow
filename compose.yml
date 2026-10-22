@@ -2,6 +2,13 @@
 # Glow and ODK Central services all run by default; Caddy `proxy` is the only
 # published service in production.
 
+# Mounts with a ${VAR:-default} source use long syntax: some compose versions
+# split short syntax on every ':' under `config --no-interpolate` (release staging).
+x-bind: &bind
+  type: bind
+  bind:
+    create_host_path: true
+
 x-logging: &default-logging
   driver: json-file
   options:
@@ -49,8 +56,8 @@ services:
       GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["https://${GLOW_DOMAIN:-localhost}"]}
       GLOW_AUDIT_LOG_PATH: ${GLOW_AUDIT_LOG_PATH:-/var/log/glow-api/audit.jsonl}
     volumes:
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/api-audit-logs:/var/log/glow-api
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/vintages:/var/lib/glow-vintages
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/api-audit-logs", target: /var/log/glow-api}
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/vintages", target: /var/lib/glow-vintages}
     depends_on:
       api-db:
         condition: service_healthy
@@ -83,7 +90,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-glow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-production}
     volumes:
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/glow-postgres:/var/lib/postgresql/data
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/glow-postgres", target: /var/lib/postgresql/data}
     networks:
       - api_db
     restart: unless-stopped
@@ -132,15 +139,14 @@ services:
       ODK_POSTGRES_PASSWORD: ${ODK_POSTGRES_PASSWORD:-odk}
     volumes:
       - backup_cache:/cache
-      # Long syntax: some compose versions split the nested default on ':' under --no-interpolate.
       - type: bind
         source: ${GLOW_BACKUP_PATH:-${GLOW_STATE_DIR:-./docker-mount-data}/backups}
         target: /backup
         bind:
           create_host_path: true
-      - ${GLOW_STATE_DIR:-./docker-mount-data}:/state:ro
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/backup-status:/state/backup-status
-      - ${GLOW_ENV_FILE:-./glow.env}:/release/glow.env:ro
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}", target: /state, read_only: true}
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/backup-status", target: /state/backup-status}
+      - {<<: *bind, source: "${GLOW_ENV_FILE:-./glow.env}", target: /release/glow.env, read_only: true}
     depends_on:
       api-db:
         condition: service_healthy
@@ -194,8 +200,8 @@ services:
       GLOW_ACME_EMAIL_DIRECTIVE: ${GLOW_ACME_EMAIL:+email ${GLOW_ACME_EMAIL}}
     volumes:
       - ./proxy/Caddyfile.${GLOW_TLS_MODE:-acme}:/etc/caddy/Caddyfile:ro
-      - ${GLOW_TLS_CERT_DIR:-./proxy/certs}:/certs:ro
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/caddy-data:/data
+      - {<<: *bind, source: "${GLOW_TLS_CERT_DIR:-./proxy/certs}", target: /certs, read_only: true}
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/caddy-data", target: /data}
     ports:
       - "${GLOW_HTTP_PORT:-80}:80"
     # Network aliases and the HTTPS port mapping come from
@@ -220,7 +226,7 @@ services:
       POSTGRES_USER: ${ODK_POSTGRES_USER:-odk}
       POSTGRES_PASSWORD: ${ODK_POSTGRES_PASSWORD:-odk}
     volumes:
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-postgres:/var/lib/postgresql/data
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-postgres", target: /var/lib/postgresql/data}
     networks:
       - odk_internal
     restart: unless-stopped
@@ -252,7 +258,7 @@ services:
         fi
         exec tail -f /dev/null
     volumes:
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets:/etc/secrets
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets", target: /etc/secrets}
     healthcheck:
       test:
         - CMD
@@ -290,7 +296,7 @@ services:
       HTTPS_PORT: ${ODK_PUBLIC_HTTPS_PORT:-443}
       SUPPORT_EMAIL: ${ODK_SYSADMIN_EMAIL:-admin@example.com}
     volumes:
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets:/etc/secrets
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets", target: /etc/secrets}
     networks:
       # public: Enketo fetches forms from Central's public URL
       # (https://${ODK_DOMAIN}), which odk_internal can't resolve or reach.
@@ -303,7 +309,7 @@ services:
     image: redis:8.6.2
     volumes:
       - ./odk-central/redis/redis-enketo-main.conf:/usr/local/etc/redis/redis.conf:ro
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-enketo-redis-main:/data
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-enketo-redis-main", target: /data}
     command:
       - redis-server
       - /usr/local/etc/redis/redis.conf
@@ -316,7 +322,7 @@ services:
     image: redis:8.6.2
     volumes:
       - ./odk-central/redis/redis-enketo-cache.conf:/usr/local/etc/redis/redis.conf:ro
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-enketo-redis-cache:/data
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-enketo-redis-cache", target: /data}
     command:
       - redis-server
       - /usr/local/etc/redis/redis.conf
@@ -377,8 +383,8 @@ services:
       S3_BUCKET_NAME: ${ODK_S3_BUCKET_NAME:-}
       SESSION_LIFETIME: ${ODK_SESSION_LIFETIME:-86400}
     volumes:
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets:/etc/secrets
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-transfer:/data/transfer
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-secrets", target: /etc/secrets}
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-transfer", target: /data/transfer}
       - ./odk-central/local-glow.json:/usr/odk/config/local-glow.json:ro
     networks:
       odk_internal:
@@ -410,9 +416,9 @@ services:
       - ./odk-central/nginx/client-config.json.template:/usr/share/odk/nginx/client-config.json.template:ro
       # The image declares these VOLUMEs; bound so no anonymous volumes pile
       # up, and the dhparam (slow to generate) survives container recreation.
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-dh:/etc/dh
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-letsencrypt:/etc/letsencrypt
-      - ${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-selfsign:/etc/selfsign
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-dh", target: /etc/dh}
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-letsencrypt", target: /etc/letsencrypt}
+      - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/odk-nginx-selfsign", target: /etc/selfsign}
     networks:
       - public
       - odk_internal

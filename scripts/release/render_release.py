@@ -58,8 +58,11 @@ def _volume(v, stage):
     if typ == "volume" and "${" not in src:
         return v  # named volume, keep long form
     if src.startswith(str(stage) + "/"):
-        src = "./" + src[len(str(stage)) + 1:]
-    if typ == "bind":
+        src = src[len(str(stage)) + 1:]
+        # a source that starts with a variable (e.g. ${GLOW_STATE_DIR:-...}) is a
+        # deploy-time path, possibly absolute: don't anchor it to the stage dir
+        src = src if src.startswith("${") else "./" + src
+    if typ == "bind" and not src.startswith("${"):
         # check existence using the variable defaults (e.g. Caddyfile.${GLOW_TLS_MODE:-acme})
         check = Path(_expand(src, {}))
         if not check.is_absolute():
