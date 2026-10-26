@@ -273,7 +273,7 @@ Logs: run compose the way `glowctl` does, from the release directory (`/opt/glow
 docker compose --project-name glow --env-file /var/lib/glow/runtime.env logs backup
 ```
 
-Use your `GLOW_STATE_DIR` in place of `/var/lib/glow`, and `--project-name glow-<instance>` if you set `GLOW_INSTANCE`; other subcommands (`ps`, `logs proxy`, `logs odk-service`) work the same way. Below this is shortened to `compose logs <service>`. Container logs rotate by size. The audit log lives in the GLOW database, so it is in every backup. Admins browse and filter it (who, what, when) on the dashboard's Admin page, and can download any filtered view as JSON Lines (`GET /admin/audit/export`) to keep or feed into other tools. GLOW does not alert; it exposes `status` for you to alert on.
+Use your `GLOW_STATE_DIR` in place of `/var/lib/glow`, and `--project-name glow-<instance>` if you set `GLOW_INSTANCE`; other subcommands (`ps`, `logs proxy`, `logs odk-service`) work the same way. Below this is shortened to `compose logs <service>`. Container logs rotate by size. The audit log lives in the GLOW database, so it is in every backup. GLOW never prunes it: every event is kept. Admins browse and filter it (who, what, when) on the dashboard's Admin page, and can download any filtered view as JSON Lines (`GET /admin/audit/export`) to keep or feed into other tools. Deployments installed before the audit log moved into the database still hold the older log as JSON Lines files in `GLOW_STATE_DIR/api-audit-logs/`; GLOW no longer writes or backs up that directory, so archive the files somewhere safe, then delete it. GLOW does not alert; it exposes `status` for you to alert on.
 
 ## Time handling
 
