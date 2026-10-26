@@ -500,9 +500,9 @@ def _audit_query(
     """The WHO / WHAT / WHEN filters shared by the list and the export."""
     query = db.query(AuditEvent)
     if who:
-        query = query.filter(AuditEvent.actor.ilike(f"%{who}%"))
+        query = query.filter(AuditEvent.actor.icontains(who, autoescape=True))
     if what:
-        query = query.filter(AuditEvent.action.ilike(f"%{what}%"))
+        query = query.filter(AuditEvent.action.icontains(what, autoescape=True))
     if since:
         query = query.filter(AuditEvent.ts >= since)
     if until:

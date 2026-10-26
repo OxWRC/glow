@@ -176,6 +176,10 @@ class TestAdminAuditEndpoint:
         entries = self._get(admin_client, what="vintage")
         assert [e["action"] for e in entries] == ["vintage.cut"]
 
+    def test_filters_are_literal_not_like_patterns(self, admin_client, seeded):
+        assert self._get(admin_client, what="_") == []
+        assert self._get(admin_client, who="%") == []
+
     def test_filter_when(self, admin_client, seeded):
         entries = self._get(
             admin_client,
