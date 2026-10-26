@@ -114,8 +114,8 @@ export const ResetConfirm: Story = {
       }),
     );
     await waitFor(() => expect(resetSpy).toHaveBeenCalledTimes(1));
-    await expect(await canvas.findByRole("status")).toHaveTextContent(
-      "Demo reset",
+    await waitFor(() =>
+      expect(canvas.getByRole("status")).toHaveTextContent("Demo reset"),
     );
     await expect(canvas.getByText("location: /en/login")).toBeVisible();
     // The school list is refetched: stale IDs would fail a school login.
