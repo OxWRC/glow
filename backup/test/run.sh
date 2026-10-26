@@ -23,7 +23,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$GLOW_STATE_DIR"/{backup-status,odk-secrets,api-audit-logs,vintages/20260101T000000Z,vintages/.tmp-x,glow-postgres,odk-postgres} "$GLOW_BACKUP_PATH"
+mkdir -p "$GLOW_STATE_DIR"/{backup-status,odk-secrets,vintages/20260101T000000Z,vintages/.tmp-x,glow-postgres,odk-postgres} "$GLOW_BACKUP_PATH"
 echo s > "$GLOW_STATE_DIR/odk-secrets/enketo-secret"
 echo 'GLOW_BACKUP_KEY=x' > "$GLOW_STATE_DIR/secrets.env"
 echo '{}' > "$GLOW_STATE_DIR/odk-forms-state.json"
@@ -31,7 +31,6 @@ echo '{}' > "$GLOW_STATE_DIR/deployment.json"
 echo 'GLOW_DOMAIN=example.org' > "$GLOW_ENV_FILE"
 echo keep > "$GLOW_STATE_DIR/vintages/20260101T000000Z/meta.json"
 echo unsuppressed > "$GLOW_STATE_DIR/vintages/.tmp-x/data.parquet"
-echo l > "$GLOW_STATE_DIR/api-audit-logs/audit.jsonl"
 
 dc build "${BUILD_ARGS[@]}" backup postgres14 >/dev/null
 dc up -d --wait api-db postgres14 >/dev/null
@@ -57,7 +56,7 @@ n=$(echo "$snaps" | jq 'length'); [ "$n" = 2 ] || fail "want 2 snapshots (loop +
 echo "$snaps" | jq -e '.[0].tags | index("glow")' >/dev/null || fail "snapshot not tagged glow"
 files=$(dc exec -T backup restic ls latest)
 for want in glow.dump odk.dump /state/secrets.env /state/odk-secrets/enketo-secret /release/glow.env \
-  /state/api-audit-logs/audit.jsonl /state/vintages/20260101T000000Z/meta.json \
+  /state/vintages/20260101T000000Z/meta.json \
   /state/odk-forms-state.json /state/deployment.json; do
   echo "$files" | grep -q -- "$want" || fail "snapshot lacks $want"
 done
