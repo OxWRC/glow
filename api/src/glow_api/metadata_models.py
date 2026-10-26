@@ -129,8 +129,8 @@ class AuditEvent(Base):
     ts = Column(UTCDateTime, nullable=False, index=True)
     # A user's email, "<email or key name>#<short code>" for an API key,
     # "anonymous", "cli" or "system:<job>".
-    actor = Column(String, nullable=False, index=True)
-    action = Column(String, nullable=False, index=True)  # e.g. "user.create"
+    actor = Column(String, nullable=False)
+    action = Column(String, nullable=False)  # e.g. "user.create"
     status_code = Column(Integer, nullable=True)  # Null outside HTTP requests
     details = Column(JSON, nullable=True)
 
