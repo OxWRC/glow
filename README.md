@@ -153,8 +153,8 @@ glow-api config check
 # Print the suppression config hash
 glow-api suppression-hash
 
-# Issue an export API key (the key is printed once; lifetime defaults to
-# GLOW_API_KEY_EXPIRE_DAYS), list keys, revoke one
+# Issue an export API key directly (the key is printed once; omit
+# --expires-in-days for a key that never expires), list keys, revoke one
 glow-api api-keys create --name "partner-x" --expires-in-days 90
 glow-api api-keys list
 glow-api api-keys revoke 3
@@ -165,6 +165,8 @@ Key creation and revocation are audited, whether done here or on the dashboard's
 ### Pseudonymous data export
 
 `GET /export` returns the whole dataset, suppressed and pseudonymised. Authenticate with an admin-issued key: `curl -H "X-API-Key: glow_..." http://localhost:8000/export`. No other credential is accepted.
+
+Admins never see keys. On the dashboard's admin page an admin issues a key to an email address (with an optional name, notes and expiry); GLOW emails that address a one-time claim link (valid `GLOW_API_KEY_CLAIM_HOURS`, default 24) that reveals the key once. Keys are `unclaimed`, `active`, `expired` or `revoked`. Admins can revoke a key, or regenerate it (revokes it and emails a fresh claim link with the same details). A key holder can revoke their own key: `curl -X DELETE -H "X-API-Key: glow_..." http://localhost:8000/api-keys/self`. Sending claim links needs SMTP (`GLOW_SMTP_*`, see `DEPLOYMENT.md`); without it, issuing a key fails with 503.
 
 The response has `dataset_version`, `rules_sha256`, `min_n`, `generated_at`, `suppressed`, `coarsening` (the level reached for each dimension) and `rows`. If no coarsening reaches `min_n`, `suppressed` is true and `rows` is empty. Rows carry only allowlisted columns, with `student_id`, `school_id` and `class_id` as salted hashes of the coarsened values; raw identifiers, timestamps and instance ids are not included.
 
@@ -185,7 +187,9 @@ The dashboard provides:
 - **Login** — OIDC sign-in (PKCE), with a dev-only role picker when dev-auth-bypass is enabled (see [Authentication](#authentication) above)
 - **Home** — pre-built overview charts
 - **Query Builder** — a step-based analytical query builder with built-in suppression
-- **Admin** — user CRUD (admin users only)
+- **Admin** — user, school, API key and vintage management (admin users only)
+- **Claim key** — one-time reveal of an API key from an emailed link
+- **API playground** — demo only: try API keys against the export endpoints; demo email lands in a Mailpit inbox (`http://127.0.0.1:8025` in dev, `<domain>/mail/` on a demo deployment)
 
 ## Development
 

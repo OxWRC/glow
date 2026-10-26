@@ -5,6 +5,7 @@ export interface RuntimeConfig {
   oidcIssuer: string;
   oidcClientId: string;
   demoMode: boolean;
+  mailViewerUrl: string;
 }
 
 declare global {
@@ -53,5 +54,10 @@ export function getRuntimeConfig(): RuntimeConfig {
       (injected.PUBLIC_DEMO_MODE ??
         import.meta.env.VITE_PUBLIC_DEMO_MODE ??
         "false") === "true",
+    // Demo/dev only: where the Mailpit inbox catching claim emails lives.
+    mailViewerUrl:
+      injected.PUBLIC_MAIL_VIEWER_URL ??
+      import.meta.env.VITE_PUBLIC_MAIL_VIEWER_URL ??
+      "",
   };
 }

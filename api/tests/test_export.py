@@ -60,7 +60,7 @@ def export_client(auth_client, db_session):
     app.dependency_overrides[get_suppression_rules] = lambda: TEST_RULES
     cache = ExportCache()
     app.dependency_overrides[get_export_cache] = lambda: cache
-    _, raw = issue_api_key(db_session, "test", None, None)
+    _, raw = issue_api_key(db_session, name="test")
     auth_client.headers["X-API-Key"] = raw
     return auth_client
 
@@ -77,9 +77,9 @@ def test_export_requires_valid_key(auth_client, db_session):
         auth_client.get("/export", headers={"X-API-Key": "glow_nope"}).status_code
         == 401
     )
-    revoked, raw_revoked = issue_api_key(db_session, "r", None, None)
+    revoked, raw_revoked = issue_api_key(db_session, name="r")
     revoked.revoked_at = datetime.now(timezone.utc)
-    expired, raw_expired = issue_api_key(db_session, "e", None, None)
+    expired, raw_expired = issue_api_key(db_session, name="e")
     expired.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     db_session.commit()
     for raw in (raw_revoked, raw_expired):

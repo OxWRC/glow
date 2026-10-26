@@ -10,6 +10,9 @@ import { LoginPage } from "./routes/LoginPage";
 import { AuthCallbackPage } from "./routes/AuthCallbackPage";
 import { DashboardPage } from "./routes/DashboardPage";
 import { AdminPage } from "./routes/AdminPage";
+import { ClaimKeyPage } from "./routes/ClaimKeyPage";
+import { PlaygroundPage } from "./routes/PlaygroundPage";
+import { DEMO_MODE } from "./lib/api";
 
 const router = createBrowserRouter([
   { path: "/", element: <Navigate to="/en" replace /> },
@@ -23,6 +26,10 @@ const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: "admin", element: <AdminPage /> },
       { path: "login", element: <LoginPage /> },
+      { path: "claim-key", element: <ClaimKeyPage /> },
+      ...(DEMO_MODE
+        ? [{ path: "playground", element: <PlaygroundPage /> }]
+        : []),
     ],
   },
   { path: "*", element: <ErrorPage status={404} /> },

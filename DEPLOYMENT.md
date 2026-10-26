@@ -22,6 +22,7 @@ Images are public on GHCR and pinned by digest. The server never builds images a
 - root (or sudo) on that server. `restore` and `update` write into the state directory and must run as root.
 - A domain you control, with DNS records for three names (see [DNS](#dns)).
 - An OIDC identity provider you trust (Microsoft Entra ID, Google, Keycloak, Cognito, or any compliant issuer). Not needed for a demo.
+- An SMTP relay the server can reach (`GLOW_SMTP_*`). GLOW emails API key claim links through it, and ODK Central sends its own mail. Without one, admins cannot issue API keys. Not needed for a demo (it has a built-in inbox at `<domain>/mail/`).
 - Outbound internet to GitHub and GHCR, or the offline bundle (see [Offline install](#offline-install)).
 - Somewhere off the server to keep a copy of the backups (see [Backups](#backups)).
 
@@ -73,11 +74,11 @@ Edit `glow.env` in the release directory. One `KEY=VALUE` per line. Comments go 
 | `GLOW_STATE_DIR` | `/var/lib/glow` (`/var/lib/glow-<instance>` with `GLOW_INSTANCE`) | Persistent state: databases, ODK secrets, generated secrets, audit logs, vintages, certificates. |
 | `GLOW_BACKUP_PATH` | none (required unless demo) | Existing, writable directory for the backup repository. Use a different disk from `GLOW_STATE_DIR`. Each instance needs its own: two stacks must never share a backup path. |
 | `GLOW_PERIOD_TIMEZONE` | `Europe/London` | IANA timezone of the school calendar. See [Time handling](#time-handling). |
-| `GLOW_SMTP_HOST` | empty | Mail relay for ODK Central. Empty disables ODK email. |
+| `GLOW_SMTP_HOST` | empty | Mail relay for ODK Central and GLOW (API key claim links). Empty disables email: ODK can't send mail and admins can't issue API keys. Ignored in demo mode, which uses a built-in inbox at `<domain>/mail/`. |
 | `GLOW_SMTP_PORT` | `587` | SMTP port. |
 | `GLOW_SMTP_SECURE` | `false` | Use TLS for the SMTP connection. |
 | `GLOW_SMTP_USER`, `GLOW_SMTP_PASSWORD` | empty | SMTP credentials. |
-| `GLOW_SMTP_FROM` | empty | From address for outgoing mail. |
+| `GLOW_SMTP_FROM` | `no-reply@<domain>` | From address for outgoing mail. |
 
 `GLOW_REGISTRY` and `GLOW_VERSION` are also accepted, but they are set by the release; do not set them unless told to. Setting `GLOW_VERSION` blocks `glowctl update`.
 

@@ -165,30 +165,33 @@ export interface QueryOptions {
   metadata: Record<string, VariableMetadata>;
 }
 
+export type ApiKeyStatus = "unclaimed" | "active" | "expired" | "revoked";
+
 export interface ApiKey {
   id: number;
-  name: string;
-  prefix: string;
+  email: string | null;
+  name: string | null;
+  notes: string | null;
+  status: ApiKeyStatus;
   created_by: string | null;
   created_at: string;
-  expires_at: string;
+  claimed_at: string | null;
+  expires_at: string | null;
   revoked_at: string | null;
   last_used_at: string | null;
   use_count: number;
 }
 
 export interface ApiKeyCreate {
-  name: string;
-  expires_in_days?: number;
+  email: string;
+  name?: string | null;
+  notes?: string | null;
+  expires_in_days?: number | null;
 }
 
-export interface ApiKeyCreated {
-  id: number;
-  name: string;
-  prefix: string;
+export interface ApiKeyClaimed {
   key: string;
-  created_at: string;
-  expires_at: string;
+  expires_at: string | null;
 }
 
 export interface Vintage {
@@ -502,13 +505,36 @@ export async function listApiKeys(token: string): Promise<ApiKey[]> {
 export async function createApiKey(
   token: string,
   data: ApiKeyCreate,
-): Promise<ApiKeyCreated> {
-  return apiFetch<ApiKeyCreated>("/admin/api-keys", {
+): Promise<ApiKey> {
+  return apiFetch<ApiKey>("/admin/api-keys", {
     method: "POST",
     headers: { ...authHeaders(token), "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
 }
+
+export async function regenerateApiKey(
+  token: string,
+  id: number,
+): Promise<ApiKey> {
+  return apiFetch<ApiKey>(`/admin/api-keys/${id}/regenerate`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+}
+
+/** Unauthenticated: the one-time claim token from the emailed link is the
+ * credential. Returns the raw key - the only time it is ever shown. */
+export async function claimApiKey(claimToken: string): Promise<ApiKeyClaimed> {
+  return apiFetch<ApiKeyClaimed>("/api-keys/claim", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: claimToken }),
+  });
+}
+
+/** Absolute URL, for showing users the curl that revokes their own key. */
+export const API_KEY_SELF_URL = `${API_BASE}/api-keys/self`;
 
 export async function revokeApiKey(token: string, id: number): Promise<void> {
   const res = await fetch(`${API_BASE}/admin/api-keys/${id}`, {

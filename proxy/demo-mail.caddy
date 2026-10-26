@@ -1,0 +1,6 @@
+# Demo only (mounted by compose.demo.yml into the dashboard site block): the
+# Mailpit inbox that catches every email the demo sends, at <domain>/mail/.
+# Mailpit never relays, so the public demo can't be used to send real mail.
+handle /mail/* {
+	reverse_proxy mail:8025
+}

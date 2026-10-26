@@ -446,15 +446,16 @@ def api_keys() -> None:
     "--expires-in-days",
     type=click.IntRange(1, 365),
     default=None,
-    help=f"Lifetime in days (default {settings.API_KEY_EXPIRE_DAYS}).",
+    help="Lifetime in days (default: never expires).",
 )
 def api_keys_create(name: str, expires_in_days: int | None) -> None:
     """Issue a key. The raw key is printed once and never again."""
     with SessionLocal() as db:
-        record, raw_key = issue_api_key(db, name, expires_in_days, None)
+        record, raw_key = issue_api_key(db, name=name, expires_in_days=expires_in_days)
         key_id, expires_at = record.id, record.expires_at
     _audit_cli("api_key_created", api_key_id=key_id, name=name)
-    click.echo(f"Created API key {key_id} '{name}', expires {expires_at:%Y-%m-%d} UTC.")
+    expiry = f"expires {expires_at:%Y-%m-%d} UTC" if expires_at else "never expires"
+    click.echo(f"Created API key {key_id} '{name}', {expiry}.")
     click.echo("Copy it now - it will not be shown again:")
     click.echo(raw_key)
 
@@ -481,9 +482,10 @@ def api_keys_list() -> None:
         return
     for key_id, name, prefix, status, expires_at, last_used_at, use_count in rows:
         last_used = f"{last_used_at:%Y-%m-%d %H:%M} UTC" if last_used_at else "never"
+        expires = f"{expires_at:%Y-%m-%d}" if expires_at else "never"
         click.echo(
-            f"  [{key_id}] {name} ({prefix}...) {status}, "
-            f"expires {expires_at:%Y-%m-%d}, last used {last_used}, uses {use_count}"
+            f"  [{key_id}] {name or '-'} ({prefix or 'unclaimed'}...) {status}, "
+            f"expires {expires}, last used {last_used}, uses {use_count}"
         )
 
 

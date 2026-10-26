@@ -44,7 +44,7 @@ def test_non_admin_cannot_manage_vintages(client, vintages_dir):
 def test_api_key_cannot_manage_vintages(auth_client, db_session, vintages_dir):
     from glow_api.api_keys import issue_api_key
 
-    _, raw = issue_api_key(db_session, "k", None, None)
+    _, raw = issue_api_key(db_session, name="k")
     headers = {"X-API-Key": raw}
 
     assert auth_client.get("/admin/vintages", headers=headers).status_code == 401

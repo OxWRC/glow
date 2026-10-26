@@ -6,6 +6,7 @@ vi.mock("../runtimeConfig", () => ({
     oidcIssuer: "https://idp.example.test",
     oidcClientId: "client-123",
     demoMode: false,
+    mailViewerUrl: "",
   }),
 }));
 vi.mock("./oidc", () => ({

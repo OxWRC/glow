@@ -16,7 +16,7 @@ work=$(mktemp -d)
 mkdir -p "$work/proxy" "$work/odk-central"
 cp compose.yml compose.demo.yml compose.glow-init.yml "$work/"
 cp proxy/compose.acme.yml "$work/proxy/"'compose.${GLOW_TLS_MODE:-acme}.yml'
-cp -r proxy/Caddyfile.* "$work/proxy/"
+cp -r proxy/Caddyfile.* proxy/demo-mail.caddy "$work/proxy/"
 cp -r odk-central/nginx odk-central/redis odk-central/local-glow.json "$work/odk-central/"
 
 export GLOW_OIDC_ISSUER=x GLOW_OIDC_CLIENT_ID=x

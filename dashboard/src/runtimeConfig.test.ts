@@ -14,12 +14,14 @@ describe("getRuntimeConfig", () => {
       PUBLIC_OIDC_ISSUER: "https://idp.example.com",
       PUBLIC_OIDC_CLIENT_ID: "client123",
       PUBLIC_DEMO_MODE: "false",
+      PUBLIC_MAIL_VIEWER_URL: "https://mail.example.com",
     };
     expect(getRuntimeConfig()).toEqual({
       apiBase: "https://api.example.com",
       oidcIssuer: "https://idp.example.com",
       oidcClientId: "client123",
       demoMode: false,
+      mailViewerUrl: "https://mail.example.com",
     });
   });
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 from alembic.config import Config
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, or_
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -374,26 +374,44 @@ def extract_schools_from_dataframe(
 
 
 # API key CRUD operations
-def create_api_key(
-    db: Session,
-    *,
-    name: str,
-    key_hash: str,
-    prefix: str,
-    expires_at: datetime,
-    created_by_user_id: int | None,
-) -> ApiKey:
-    api_key = ApiKey(
-        name=name,
-        key_hash=key_hash,
-        prefix=prefix,
-        expires_at=expires_at,
-        created_by_user_id=created_by_user_id,
-    )
+def create_api_key(db: Session, **fields) -> ApiKey:
+    api_key = ApiKey(**fields)
     db.add(api_key)
     db.commit()
     db.refresh(api_key)
     return api_key
+
+
+def delete_api_key(db: Session, api_key: ApiKey) -> None:
+    db.delete(api_key)
+    db.commit()
+
+
+def set_api_key_hash(
+    db: Session, key_id: int, key_hash: str, prefix: str
+) -> ApiKey | None:
+    """Claim an unclaimed, live key. A single conditional UPDATE, so two
+    concurrent claims of one link can't both succeed."""
+    now = datetime.now(timezone.utc)
+    claimed = (
+        db.query(ApiKey)
+        .filter(
+            ApiKey.id == key_id,
+            ApiKey.key_hash.is_(None),
+            ApiKey.revoked_at.is_(None),
+            or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),
+        )
+        .update(
+            {ApiKey.key_hash: key_hash, ApiKey.prefix: prefix, ApiKey.claimed_at: now},
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    if not claimed:
+        return None
+    record = get_api_key_by_id(db, key_id)
+    db.refresh(record)  # the bulk UPDATE bypassed the session's copy
+    return record
 
 
 def get_api_key_by_hash(db: Session, key_hash: str) -> ApiKey | None:

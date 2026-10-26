@@ -12,6 +12,8 @@
 }
 
 http://{$GLOW_DOMAIN} {
+	# Optional extras, e.g. the demo inbox (proxy/demo-mail.caddy).
+	import /etc/caddy/site.d/*.caddy
 	import upstream dashboard:3000
 }
 

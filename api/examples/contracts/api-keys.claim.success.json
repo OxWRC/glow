@@ -1,0 +1,13 @@
+{
+  "id": "api-keys.claim.success",
+  "method": "POST",
+  "path": "/api-keys/claim",
+  "status": 200,
+  "request_model": "ApiKeyClaim",
+  "response_model": "ApiKeyClaimed",
+  "request": { "token": "eyJhbGciOiJIUzI1NiJ9.claim.sig" },
+  "response": {
+    "key": "glow_N3wK3yAbCdEfGhIjKlMnOpQrStUvWxYz0123456789ab",
+    "expires_at": "2027-01-05T09:00:00Z"
+  }
+}

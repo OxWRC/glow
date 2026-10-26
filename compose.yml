@@ -55,6 +55,15 @@ services:
       GLOW_METADATA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-glow}:${POSTGRES_PASSWORD:-change-me-in-production}@api-db:5432/${POSTGRES_DB:-glow}
       GLOW_CORS_ORIGINS: ${GLOW_CORS_ORIGINS:-["https://${GLOW_DOMAIN:-localhost}"]}
       GLOW_AUDIT_LOG_PATH: ${GLOW_AUDIT_LOG_PATH:-/var/log/glow-api/audit.jsonl}
+      # Claim links for admin-issued API keys are emailed through the same
+      # relay as ODK; unset host makes issuing a key fail with 503.
+      GLOW_DASHBOARD_URL: https://${GLOW_DOMAIN:-localhost}
+      GLOW_SMTP_FROM: ${GLOW_SMTP_FROM:-no-reply@${GLOW_DOMAIN:-localhost}}
+      GLOW_SMTP_HOST: ${GLOW_SMTP_HOST:-}
+      GLOW_SMTP_PORT: ${GLOW_SMTP_PORT:-587}
+      GLOW_SMTP_SECURE: ${GLOW_SMTP_SECURE:-false}
+      GLOW_SMTP_USER: ${GLOW_SMTP_USER:-}
+      GLOW_SMTP_PASSWORD: ${GLOW_SMTP_PASSWORD:-}
     volumes:
       - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/api-audit-logs", target: /var/log/glow-api}
       - {<<: *bind, source: "${GLOW_STATE_DIR:-./docker-mount-data}/vintages", target: /var/lib/glow-vintages}
@@ -354,7 +363,7 @@ services:
       PGAPPNAME: odkcentral
       DB_POOL_SIZE: ${ODK_DB_POOL_SIZE:-10}
       # Outbound mail: set GLOW_SMTP_* for a real relay. Unset host leaves
-      # ODK running but unable to send mail (dev/test overlays add mailpit).
+      # ODK running but unable to send mail (dev/test/demo overlays add mailpit).
       EMAIL_FROM: ${GLOW_SMTP_FROM:-no-reply@${GLOW_DOMAIN:-localhost}}
       EMAIL_HOST: ${GLOW_SMTP_HOST:-}
       EMAIL_PORT: ${GLOW_SMTP_PORT:-587}
