@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from glow_api import audit, request_context
@@ -101,7 +102,8 @@ class RequestLoggingMiddleware:
                 log.info("request_completed", **log_fields)
 
             if is_audit:
-                self._record_audit(scope, log_fields)
+                # Off the event loop: a slow DB must not stall other requests.
+                await run_in_threadpool(self._record_audit, scope, log_fields)
 
             request_context.clear_timeline()
 
