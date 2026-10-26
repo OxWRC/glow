@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { getExample } from "../mocks/contractExamples";
 import { AuditLogPanel } from "./AuditLogPanel";
@@ -117,6 +117,57 @@ export const LoadMore: Story = {
     await expect(canvas.getAllByRole("row")).toHaveLength(102);
     await expect(
       canvas.queryByRole("button", { name: "Load more" }),
+    ).toBeNull();
+  },
+};
+
+export const LoadMoreDoubleClick: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get("/api/admin/audit", async ({ request }) => {
+          const before = new URL(request.url).searchParams.get("before_id");
+          if (!before) return HttpResponse.json(page(0, 100));
+          await delay(100);
+          return HttpResponse.json(page(100, 1));
+        }),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole("row", { name: /system:poll-99/ });
+    const more = canvas.getByRole("button", { name: "Load more" });
+    await userEvent.click(more);
+    await expect(more).toBeDisabled();
+    await userEvent.click(more);
+    await canvas.findByRole("row", { name: /system:poll-100/ });
+    await expect(canvas.getAllByRole("row")).toHaveLength(102);
+  },
+};
+
+export const StaleResponseIgnored: Story = {
+  parameters: {
+    msw: {
+      handlers: [
+        http.get("/api/admin/audit", async ({ request }) => {
+          if (new URL(request.url).searchParams.get("who"))
+            return HttpResponse.json([listExample.response[0]]);
+          await delay(300); // the unfiltered first load arrives last
+          return HttpResponse.json(listExample.response);
+        }),
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const form = canvas.getByRole("search", { name: "Filter audit log" });
+    await userEvent.type(within(form).getByLabelText("Who"), "4f9c2ab");
+    await userEvent.click(within(form).getByRole("button", { name: "Filter" }));
+    await canvas.findByRole("row", { name: /4f9c2ab/ });
+    await new Promise((r) => setTimeout(r, 400));
+    await expect(
+      canvas.queryByRole("row", { name: /system:scheduler/ }),
     ).toBeNull();
   },
 };

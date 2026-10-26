@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   exportAuditEvents,
   listAuditEvents,
@@ -33,22 +33,31 @@ export function AuditLogPanel({
   const [events, setEvents] = useState<AuditEvent[] | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  // Only the newest request may set state: an older one may be for stale
+  // filters, a stale token, or a page a newer request supersedes.
+  const latestRequest = useRef(0);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const load = useCallback(
     async (beforeId?: number) => {
+      const request = ++latestRequest.current;
+      setLoading(true);
       try {
         const page = await listAuditEvents(token, {
           ...filters,
           limit: PAGE,
           before_id: beforeId,
         });
+        if (request !== latestRequest.current) return;
         setEvents((prev) => (beforeId && prev ? [...prev, ...page] : page));
         setHasMore(page.length === PAGE);
         setLoadError(null);
       } catch (e: unknown) {
-        setLoadError(errMsg(e));
+        if (request === latestRequest.current) setLoadError(errMsg(e));
+      } finally {
+        if (request === latestRequest.current) setLoading(false);
       }
     },
     [token, filters],
@@ -235,6 +244,7 @@ export function AuditLogPanel({
             type="button"
             className="btn-secondary"
             onClick={() => load(events[events.length - 1].id)}
+            disabled={loading}
           >
             {t("audit.loadMore")}
           </button>
