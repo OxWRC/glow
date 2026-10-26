@@ -104,7 +104,7 @@ class CountsStore:
             previous_rows = len(self._frame)
             self._frame = frame
         self._save_cache(frame)
-        if len(frame) != previous_rows:
+        if len(frame) > previous_rows:
             audit.record_system(
                 "system:poll",
                 "data.ingested",

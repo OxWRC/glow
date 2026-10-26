@@ -99,7 +99,7 @@ def test_scheduled_vintage_cut_is_system(db_session, monkeypatch, tmp_path):
     assert event.details["row_count"] == 1
 
 
-def test_counts_poll_records_new_records_only_when_changed(db_session):
+def test_counts_poll_records_only_new_records(db_session):
     frame = pd.DataFrame(
         {"uid": ["S1"], "school": ["Focus"], "createdAt": ["2024-10-01T00:00:00Z"]}
     )
@@ -108,6 +108,8 @@ def test_counts_poll_records_new_records_only_when_changed(db_session):
 
     store.refresh()
     store.refresh()  # nothing new
+    client.submissions_by_form["f1"] = frame.iloc[0:0]
+    store.refresh()  # records removed: nothing ingested
 
     [event] = _events(db_session)
     assert (event.actor, event.action) == ("system:poll", "data.ingested")
