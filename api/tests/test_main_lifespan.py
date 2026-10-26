@@ -61,7 +61,6 @@ def lifespan_env(monkeypatch):
     monkeypatch.setattr(main_module, "get_counts_store", lambda: fake_counts)
     fake_store.counts = fake_counts
     monkeypatch.setattr(main_module, "BackgroundScheduler", _FakeScheduler)
-    monkeypatch.setattr(main_module.settings, "AUDIT_LOG_PATH", None)
     return fake_store
 
 

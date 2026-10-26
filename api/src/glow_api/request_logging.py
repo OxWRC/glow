@@ -21,9 +21,11 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from starlette.concurrency import run_in_threadpool
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from glow_api import audit, request_context
+from glow_api.database import get_db
 
 log = structlog.get_logger("glow_api.request")
 
@@ -66,7 +68,8 @@ class RequestLoggingMiddleware:
         finally:
             duration_s = time.perf_counter() - start
             route_path, route_name = self._route_template(scope)
-            is_audit = audit.is_audit_route(method, route_path)
+            action = audit.audit_action(method, route_path)
+            is_audit = action is not None
 
             status_code = response_state["status_code"]
             if status_code is None and exc_to_reraise is not None:
@@ -86,6 +89,8 @@ class RequestLoggingMiddleware:
             }
             if is_audit:
                 log_fields["ts"] = datetime.now(timezone.utc).isoformat()
+                log_fields["actor"] = request_context.get_actor() or "anonymous"
+                log_fields["action"] = action
                 log_fields["timeline"] = timeline
 
             if error_fields is not None:
@@ -97,12 +102,32 @@ class RequestLoggingMiddleware:
                 log.info("request_completed", **log_fields)
 
             if is_audit:
-                audit.write_audit_line(log_fields)
+                # Off the event loop: a slow DB must not stall other requests.
+                await run_in_threadpool(self._record_audit, scope, log_fields)
 
             request_context.clear_timeline()
 
         if exc_to_reraise is not None:
             raise exc_to_reraise
+
+    @staticmethod
+    def _record_audit(scope: Scope, fields: dict[str, Any]) -> None:
+        try:
+            # Resolve get_db through the app so tests' DB override applies.
+            gen = scope["app"].dependency_overrides.get(get_db, get_db)()
+            try:
+                audit.record(
+                    next(gen),
+                    actor=fields["actor"],
+                    action=fields["action"],
+                    status_code=fields["status_code"],
+                    details=fields,
+                )
+            finally:
+                gen.close()
+        except Exception:
+            # Same rule as the timeline: never break the request being logged.
+            log.exception("audit_record_failed", request_id=fields["request_id"])
 
     @staticmethod
     def _client_ip(scope: Scope) -> str:

@@ -21,17 +21,38 @@ from typing import Any
 _timeline: contextvars.ContextVar[list[dict[str, Any]] | None] = contextvars.ContextVar(
     "_timeline", default=None
 )
+# A mutable holder for the same reason as the timeline: sync dependencies run
+# in a threadpool on a *copy* of the context, so a plain .set() there would
+# never reach the middleware.
+_actor: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar(
+    "_actor", default=None
+)
 
 
 def new_timeline() -> list[dict[str, Any]]:
     """Create and install a fresh timeline list for the current request context."""
     timeline: list[dict[str, Any]] = []
     _timeline.set(timeline)
+    _actor.set({})
     return timeline
 
 
 def clear_timeline() -> None:
     _timeline.set(None)
+    _actor.set(None)
+
+
+def set_actor(who: str) -> None:
+    """Record WHO is making the current request, once they've authenticated.
+    No-op outside a request, like record_event."""
+    holder = _actor.get()
+    if holder is not None:
+        holder["who"] = who
+
+
+def get_actor() -> str | None:
+    holder = _actor.get()
+    return holder.get("who") if holder else None
 
 
 def record_event(stage: str, **fields: Any) -> None:

@@ -173,6 +173,7 @@ export interface ApiKey {
   name: string | null;
   notes: string | null;
   status: ApiKeyStatus;
+  short_code: string | null;
   created_by: string | null;
   created_at: string;
   claimed_at: string | null;
@@ -200,6 +201,26 @@ export interface Vintage {
   dataset_version: string;
   row_count: number;
   created_by_username: string | null;
+}
+
+export interface AuditEvent {
+  id: number;
+  ts: string;
+  actor: string;
+  action: string;
+  status_code: number | null;
+  details: Record<string, unknown> | null;
+}
+
+/** WHO / WHAT are case-insensitive substrings; since/until are ISO instants. */
+export interface AuditFilters {
+  who?: string;
+  what?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  /** Next page: the id of the last event already shown. */
+  before_id?: number;
 }
 
 export interface User {
@@ -600,6 +621,44 @@ export async function listVintages(token: string): Promise<Vintage[]> {
   return apiFetch<Vintage[]>("/admin/vintages", {
     headers: authHeaders(token),
   });
+}
+
+function auditQuery(filters: AuditFilters): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v !== undefined && v !== "") params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function listAuditEvents(
+  token: string,
+  filters: AuditFilters = {},
+): Promise<AuditEvent[]> {
+  return apiFetch<AuditEvent[]>(`/admin/audit${auditQuery(filters)}`, {
+    headers: authHeaders(token),
+  });
+}
+
+/** Every event matching the filters (no paging), as a JSON Lines file. */
+export async function exportAuditEvents(
+  token: string,
+  filters: AuditFilters = {},
+): Promise<Blob> {
+  const res = await fetch(
+    `${API_BASE}/admin/audit/export${auditQuery(filters)}`,
+    { headers: authHeaders(token) },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { detail?: string };
+    throw new ApiError(
+      res.status,
+      getFriendlyErrorMessage(res.status, body.detail),
+      body.detail,
+    );
+  }
+  return res.blob();
 }
 
 export async function cutVintage(token: string): Promise<Vintage> {

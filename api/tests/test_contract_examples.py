@@ -25,6 +25,7 @@ MODEL_MAP = {
     "ApiKeyCreate": models.ApiKeyCreate,
     "ApiKeyClaim": models.ApiKeyClaim,
     "ApiKeyClaimed": models.ApiKeyClaimed,
+    "AuditEventReadList": list[models.AuditEventRead],
     "VintageReadList": list[models.VintageRead],
     "VintageRead": models.VintageRead,
     "VintageStatus": models.VintageStatus,

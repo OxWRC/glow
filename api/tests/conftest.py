@@ -82,6 +82,19 @@ def db_engine():
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _audit_system_db(db_engine, monkeypatch):
+    """Point out-of-request audit writes (scheduler, polls) at the test DB,
+    never the real metadata.db."""
+    from glow_api import audit
+
+    monkeypatch.setattr(
+        audit,
+        "SessionLocal",
+        sessionmaker(autocommit=False, autoflush=False, bind=db_engine),
+    )
+
+
 @pytest.fixture(scope="function")
 def db_session(db_engine):
     Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)

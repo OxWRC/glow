@@ -5,7 +5,16 @@ Separate from the read-only CSV data.
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+)
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -109,6 +118,21 @@ class ApiKey(Base):
     )
 
     created_by = relationship("User")
+
+
+class AuditEvent(Base):
+    """WHO did WHAT and WHEN. Append-only; written by glow_api.audit."""
+
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True)
+    ts = Column(UTCDateTime, nullable=False, index=True)
+    # A user's email, "<email or key name>#<short code>" for an API key,
+    # "anonymous", "cli" or "system:<job>".
+    actor = Column(String, nullable=False)
+    action = Column(String, nullable=False)  # e.g. "user.create"
+    status_code = Column(Integer, nullable=True)  # Null outside HTTP requests
+    details = Column(JSON, nullable=True)
 
 
 class School(Base):

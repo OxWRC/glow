@@ -81,13 +81,6 @@ class Settings(BaseSettings):
     LOG_UVICORN_ACCESS: str = "WARNING"  # Log level for uvicorn.access; duplicates our own request_completed logs
     LOG_UVICORN: str = "INFO"  # Log level for uvicorn.error (server logs)
 
-    # Audit log sink (durable, append-only JSONL for audit-tier requests)
-    AUDIT_LOG_PATH: Optional[str] = (
-        None  # e.g. /var/log/glow-api/audit.jsonl; None disables the file sink
-    )
-    AUDIT_LOG_MAX_BYTES: int = 50_000_000  # rotate at ~50MB
-    AUDIT_LOG_BACKUP_COUNT: int = 20  # keep up to 20 rotated files (~1GB total)
-
     model_config = SettingsConfigDict(
         env_prefix="GLOW_",
         env_file=".env",

@@ -2,7 +2,7 @@
 # glow-backup.sh run-loop | backup | verify | check-key | restore-files | restore-dbs | rollback-dbs
 #
 # One restic snapshot (tag "glow") per run holding: pg_dump -Fc of the GLOW DB
-# and the ODK DB, odk-secrets, secrets.env, glow.env, audit logs, vintages
+# and the ODK DB, odk-secrets, secrets.env, glow.env, vintages
 # (minus in-flight .tmp-* dirs), odk-forms-state.json and deployment.json.
 #
 # Consistency: each pg_dump is transactionally consistent for its own DB. The
@@ -140,7 +140,7 @@ do_backup() {
 		'{glow:{users:$u,schools:$s},odk:{forms:$f}}' >"$DUMPS/meta.json"
 	restic backup --json --tag glow --host glow --exclude '.tmp-*' \
 		"$DUMPS" "$STATE/odk-secrets" "$STATE/secrets.env" "$RELEASE_ENV" \
-		"$STATE/api-audit-logs" "$STATE/vintages" \
+		"$STATE/vintages" \
 		"$STATE/odk-forms-state.json" "$STATE/deployment.json" >"$RESTIC_OUT" ||
 		{ cat "$RESTIC_OUT"; return 1; }
 	# glowctl update reads this line: the exact pre-update snapshot.

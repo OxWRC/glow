@@ -71,7 +71,7 @@ Edit `glow.env` in the release directory. One `KEY=VALUE` per line. Comments go 
 | `GLOW_HTTPS_PORT` | `443` | Host port for HTTPS. |
 | `GLOW_DEMO_MODE` | `false` | `true` for a demo with fictional data: no login, no backups, no OIDC settings. |
 | `GLOW_INSTANCE` | empty | Name of a second stack on the same host (lowercase letters, digits, `-`; up to 31). The Compose project becomes `glow-<instance>` instead of `glow`. Cannot change after install. See [docs/hosting.md](docs/hosting.md#4-demo-and-production-on-one-host). |
-| `GLOW_STATE_DIR` | `/var/lib/glow` (`/var/lib/glow-<instance>` with `GLOW_INSTANCE`) | Persistent state: databases, ODK secrets, generated secrets, audit logs, vintages, certificates. |
+| `GLOW_STATE_DIR` | `/var/lib/glow` (`/var/lib/glow-<instance>` with `GLOW_INSTANCE`) | Persistent state: databases (including the audit log), ODK secrets, generated secrets, vintages, certificates. |
 | `GLOW_BACKUP_PATH` | none (required unless demo) | Existing, writable directory for the backup repository. Use a different disk from `GLOW_STATE_DIR`. Each instance needs its own: two stacks must never share a backup path. |
 | `GLOW_PERIOD_TIMEZONE` | `Europe/London` | IANA timezone of the school calendar. See [Time handling](#time-handling). |
 | `GLOW_SMTP_HOST` | empty | Mail relay for ODK Central and GLOW (API key claim links). Empty disables email: ODK can't send mail and admins can't issue API keys. Ignored in demo mode, which uses a built-in inbox at `<domain>/mail/`. |
@@ -176,7 +176,7 @@ glowctl users disable teacher@example.org
 
 ## Backups
 
-**What.** Every hour, the `backup` service writes one encrypted, deduplicated snapshot (restic) to `GLOW_BACKUP_PATH`. A snapshot holds: `pg_dump` of the GLOW and ODK databases, ODK secrets, `secrets.env`, `glow.env`, audit logs, vintages (released datasets, which are identifiable and need the same protection as the databases), the ODK forms state and `deployment.json`. The two database dumps are taken seconds apart, not at the same instant.
+**What.** Every hour, the `backup` service writes one encrypted, deduplicated snapshot (restic) to `GLOW_BACKUP_PATH`. A snapshot holds: `pg_dump` of the GLOW and ODK databases, ODK secrets, `secrets.env`, `glow.env`, vintages (released datasets, which are identifiable and need the same protection as the databases), the ODK forms state and `deployment.json`. The two database dumps are taken seconds apart, not at the same instant.
 
 **When.** The first backup runs at install; the loop then runs hourly, starting a few minutes after the stack starts. Retention is 48 hourly, 30 daily and 12 monthly snapshots. Quiet periods cost almost nothing. There is no backup in demo mode.
 
@@ -273,7 +273,7 @@ Logs: run compose the way `glowctl` does, from the release directory (`/opt/glow
 docker compose --project-name glow --env-file /var/lib/glow/runtime.env logs backup
 ```
 
-Use your `GLOW_STATE_DIR` in place of `/var/lib/glow`, and `--project-name glow-<instance>` if you set `GLOW_INSTANCE`; other subcommands (`ps`, `logs proxy`, `logs odk-service`) work the same way. Below this is shortened to `compose logs <service>`. Container logs rotate by size. Audit logs live in `GLOW_STATE_DIR/api-audit-logs` and are backed up. GLOW does not alert; it exposes `status` for you to alert on.
+Use your `GLOW_STATE_DIR` in place of `/var/lib/glow`, and `--project-name glow-<instance>` if you set `GLOW_INSTANCE`; other subcommands (`ps`, `logs proxy`, `logs odk-service`) work the same way. Below this is shortened to `compose logs <service>`. Container logs rotate by size. The audit log lives in the GLOW database, so it is in every backup. GLOW never prunes it: every event is kept. Admins browse and filter it (who, what, when) on the dashboard's Admin page, and can download any filtered view as JSON Lines (`GET /admin/audit/export`) to keep or feed into other tools. Deployments installed before the audit log moved into the database still hold the older log as JSON Lines files in `GLOW_STATE_DIR/api-audit-logs/`; GLOW no longer writes or backs up that directory, so archive the files somewhere safe, then delete it. GLOW does not alert; it exposes `status` for you to alert on.
 
 ## Time handling
 

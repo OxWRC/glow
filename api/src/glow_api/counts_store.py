@@ -19,6 +19,7 @@ from typing import Optional
 import pandas as pd
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from glow_api import audit
 from glow_api.data import get_odk_client
 from glow_api.normalization import normalize_submissions
 from glow_api.odk_client import ODKClient
@@ -88,18 +89,28 @@ class CountsStore:
         return normalized.reindex(columns=_COLUMNS)
 
     def refresh(self) -> None:
-        """Re-poll ODK; keeps the previous counts if it fails."""
+        """Re-poll ODK; keeps the previous counts if it fails. Audits
+        failures, and polls that found new records."""
         try:
             frame = self._load()
-        except Exception:
+        except Exception as exc:
             logger.warning(
                 "Failed to load counts from ODK Central; keeping previous counts",
                 exc_info=True,
             )
+            audit.record_system("system:poll", "data.poll_failed", error=str(exc))
             return
         with self._lock:
+            previous_rows = len(self._frame)
             self._frame = frame
         self._save_cache(frame)
+        if len(frame) > previous_rows:
+            audit.record_system(
+                "system:poll",
+                "data.ingested",
+                rows=len(frame),
+                new_rows=len(frame) - previous_rows,
+            )
 
     def _save_cache(self, frame: pd.DataFrame) -> None:
         if not self._cache_path:

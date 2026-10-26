@@ -298,17 +298,11 @@ def _cut_vintage(
 
 
 def scheduled_cut_vintage(datastore: DataStore) -> VintageInfo:
-    """Scheduler job entry point. Bypasses HTTP middleware, so it writes its
-    own audit line directly - same reasoning as the CLI's _audit_cli."""
+    """Scheduler job entry point. Bypasses HTTP middleware, so it records its
+    own audit event directly - same reasoning as the CLI's _audit_cli."""
     info = cut_vintage(datastore, get_vintages_dir(), created_by=None)
-    audit_module.write_audit_line(
-        {
-            "actor": "scheduler",
-            "action": "vintage_cut",
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "prefix": info.prefix,
-            "row_count": info.row_count,
-        }
+    audit_module.record_system(
+        "system:scheduler", "vintage.cut", prefix=info.prefix, row_count=info.row_count
     )
     return info
 
