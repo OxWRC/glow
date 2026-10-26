@@ -241,6 +241,7 @@ class ApiKeyRead(BaseModel):
     name: Optional[str] = None
     notes: Optional[str] = None
     status: Literal["unclaimed", "active", "expired", "revoked"]
+    short_code: Optional[str] = None  # Null until claimed
     created_by: Optional[str] = None
     created_at: AwareDatetime
     claimed_at: Optional[AwareDatetime] = None
@@ -267,6 +268,16 @@ class VintageRead(BaseModel):
     dataset_version: str
     row_count: int
     created_by_username: Optional[str] = None
+
+
+class AuditEventRead(BaseModel):
+    id: int
+    ts: AwareDatetime
+    actor: str
+    action: str
+    status_code: Optional[int] = None
+    details: Optional[dict[str, Any]] = None
+    model_config = {"from_attributes": True}
 
 
 class VintageStatus(BaseModel):

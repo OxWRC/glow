@@ -39,6 +39,19 @@ def display_prefix(raw_key: str) -> str:
     return raw_key[:DISPLAY_PREFIX_LEN]
 
 
+def short_code(api_key: ApiKey) -> str | None:
+    """Git-short-sha-style handle telling a holder's keys apart in the audit
+    log. From the hash, not the key, so it reveals nothing; None until
+    claimed."""
+    return api_key.key_hash[:7] if api_key.key_hash else None
+
+
+def actor_label(api_key: ApiKey) -> str:
+    """Audit-log WHO for a key: its email (CLI keys have none: their name)
+    plus short code."""
+    return f"{api_key.email or api_key.name or 'api-key'}#{short_code(api_key)}"
+
+
 def _create(db: Session, expires_in_days: int | None, **fields) -> ApiKey:
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(days=expires_in_days) if expires_in_days else None
@@ -168,6 +181,7 @@ def api_key_read(api_key: ApiKey) -> ApiKeyRead:
         name=api_key.name,
         notes=api_key.notes,
         status=key_status(api_key, datetime.now(timezone.utc)),
+        short_code=short_code(api_key),
         created_by=api_key.created_by.username if api_key.created_by else None,
         created_at=api_key.created_at,
         claimed_at=api_key.claimed_at,

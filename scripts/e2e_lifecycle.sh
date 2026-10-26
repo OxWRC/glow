@@ -147,9 +147,9 @@ for i in api dashboard odk-postgres enketo backup; do
 done
 # The broken release: same API image, but it never serves (health fails).
 # Before idling it writes to the GLOW DB (a user the rollback's DB restore
-# must remove) and then a file in the audit-log state dir (proof it ran).
+# must remove) and then a file in the vintages state dir (proof it ran).
 MARKER=rollback-marker@example.org
-printf 'FROM %s\nCMD ["sh", "-c", "glow-api users create %s && touch /var/log/glow-api/e2e-broken-ran && exec sleep infinity"]\n' \
+printf 'FROM %s\nCMD ["sh", "-c", "glow-api users create %s && touch /var/lib/glow-vintages/e2e-broken-ran && exec sleep infinity"]\n' \
   "$REG/glow-api:$V0" "$MARKER" | docker build -q -t "$REG/glow-api:$V2" - >/dev/null
 (cd glowctl && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=e2e" -o "$WORK/glowctl" .)
 
@@ -309,7 +309,7 @@ grep -q "rolled back to $V1" "$WORK/update2.log" || die "no successful rollback 
 api_img=$(docker inspect --format '{{.Config.Image}}' "$(docker ps -q --filter label=com.docker.compose.project=$PROJECT --filter label=com.docker.compose.service=api)")
 [ "$api_img" = "$REG/glow-api:$V0" ] || die "api runs $api_img after rollback, want $REG/glow-api:$V0"
 proxy_checks
-[ -f "$STATE/api-audit-logs/e2e-broken-ran" ] || die "the broken API never ran, so the DB restore is unproven"
+[ -f "$STATE/vintages/e2e-broken-ran" ] || die "the broken API never ran, so the DB restore is unproven"
 users_list "$REL1" | diff "$WORK/users.before" - || die "users differ after rollback (marker $MARKER not removed?)"
 odk_counts | diff "$WORK/odk.before" - || die "ODK data differs after rollback"
 no_anon_volumes

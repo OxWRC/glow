@@ -271,7 +271,7 @@ func TestProductionHappyPathOrder(t *testing.T) {
 		t.Fatalf("verify gets %q", g)
 	}
 	for _, d := range []string{"glow-postgres", "odk-postgres", "odk-secrets", "odk-transfer",
-		"odk-enketo-redis-main", "odk-enketo-redis-cache", "api-audit-logs", "vintages", "caddy-data", "certs", "backup-status", "odk-nginx-dh", "odk-nginx-letsencrypt", "odk-nginx-selfsign"} {
+		"odk-enketo-redis-main", "odk-enketo-redis-cache", "vintages", "caddy-data", "certs", "backup-status", "odk-nginx-dh", "odk-nginx-letsencrypt", "odk-nginx-selfsign"} {
 		if fi, err := os.Stat(filepath.Join(e.st, d)); err != nil || !fi.IsDir() {
 			t.Errorf("state dir %s missing", d)
 		}

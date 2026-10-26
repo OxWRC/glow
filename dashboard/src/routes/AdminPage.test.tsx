@@ -25,6 +25,9 @@ vi.mock("../lib/components/ApiKeysPanel", () => ({
 vi.mock("../lib/components/VintagesPanel", () => ({
   VintagesPanel: () => null,
 }));
+vi.mock("../lib/components/AuditLogPanel", () => ({
+  AuditLogPanel: () => null,
+}));
 
 afterEach(() => {
   cleanup();

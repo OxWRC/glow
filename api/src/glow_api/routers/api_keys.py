@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
-from glow_api.api_keys import claim_api_key
+from glow_api.api_keys import actor_label, claim_api_key
 from glow_api.auth import require_api_key
 from glow_api.database import get_db, revoke_api_key
 from glow_api.metadata_models import ApiKey
@@ -24,6 +24,7 @@ def claim_key(body: ApiKeyClaim, db: Session = Depends(get_db)) -> ApiKeyClaimed
             detail="This link is invalid, expired or has already been used",
         )
     record, raw_key = claimed
+    request_context.set_actor(actor_label(record))
     request_context.record_event("api_key_claimed", api_key_id=record.id)
     return ApiKeyClaimed(key=raw_key, expires_at=record.expires_at)
 

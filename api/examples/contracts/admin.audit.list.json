@@ -1,0 +1,91 @@
+{
+  "id": "admin.audit.list",
+  "method": "GET",
+  "path": "/admin/audit",
+  "status": 200,
+  "request_model": null,
+  "response_model": "AuditEventReadList",
+  "request": null,
+  "response": [
+    {
+      "id": 5,
+      "ts": "2026-10-06T09:12:44Z",
+      "actor": "analyst@example.org#4f9c2ab",
+      "action": "data.export",
+      "status_code": 200,
+      "details": {
+        "method": "GET",
+        "path": "/export",
+        "client_ip": "203.0.113.7",
+        "timeline": [
+          {
+            "stage": "auth_assessed",
+            "outcome": "success",
+            "success": true,
+            "api_key_id": 3
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "ts": "2026-10-06T09:00:03Z",
+      "actor": "admin@example.org",
+      "action": "api_key.create",
+      "status_code": 201,
+      "details": {
+        "method": "POST",
+        "path": "/admin/api-keys",
+        "client_ip": "198.51.100.4",
+        "timeline": [
+          {
+            "stage": "api_key_created",
+            "actor": "adminuser",
+            "api_key_id": 5
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "ts": "2026-10-05T14:30:00Z",
+      "actor": "system:poll",
+      "action": "data.ingested",
+      "status_code": null,
+      "details": {
+        "rows": 5112,
+        "new_rows": 8
+      }
+    },
+    {
+      "id": 2,
+      "ts": "2026-10-01T03:00:00Z",
+      "actor": "system:scheduler",
+      "action": "vintage.cut",
+      "status_code": null,
+      "details": {
+        "prefix": "vintages/20261001T030000.000000Z-7c9e4d/",
+        "row_count": 5104
+      }
+    },
+    {
+      "id": 1,
+      "ts": "2026-09-30T17:45:10Z",
+      "actor": "anonymous",
+      "action": "data.export",
+      "status_code": 401,
+      "details": {
+        "method": "GET",
+        "path": "/export",
+        "client_ip": "192.0.2.99",
+        "timeline": [
+          {
+            "stage": "auth_assessed",
+            "outcome": "invalid_api_key",
+            "success": false
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -238,6 +238,7 @@ export function ApiKeysPanel({
                 {(
                   [
                     "email",
+                    "shortCode",
                     "name",
                     "notes",
                     "status",
@@ -259,6 +260,7 @@ export function ApiKeysPanel({
                   <td className="px-6 py-4 font-medium text-gray-900">
                     {k.email}
                   </td>
+                  <td className="px-6 py-4 font-mono">{k.short_code}</td>
                   <td className="px-6 py-4">{k.name}</td>
                   <td className="px-6 py-4 text-gray-600 whitespace-pre-line">
                     {k.notes}

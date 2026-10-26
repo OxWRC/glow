@@ -47,7 +47,7 @@ type Options struct {
 }
 
 // stateItems are swapped in from the snapshot; secrets.env is required.
-var stateItems = []string{"secrets.env", "odk-secrets", "api-audit-logs", "vintages", "odk-forms-state.json"}
+var stateItems = []string{"secrets.env", "odk-secrets", "vintages", "odk-forms-state.json"}
 
 // dbDirs are the database data dirs; non-empty means live data.
 var dbDirs = []string{"glow-postgres", "odk-postgres"}

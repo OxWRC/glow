@@ -7,28 +7,23 @@ from click.testing import CliRunner
 from sqlalchemy.orm import sessionmaker
 
 import glow_api.cli as cli_module
-from glow_api import audit as audit_module
-from glow_api.metadata_models import ApiKey
-from glow_api.settings import settings
+from glow_api.metadata_models import ApiKey, AuditEvent
 
 
 @pytest.fixture()
-def cli_env(monkeypatch, db_engine, tmp_path):
+def cli_env(monkeypatch, db_engine):
     Session = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
     monkeypatch.setattr(cli_module, "SessionLocal", Session)
-    audit_path = tmp_path / "audit.jsonl"
-    monkeypatch.setattr(settings, "AUDIT_LOG_PATH", str(audit_path))
-    audit_module.reset_audit_sink()
-    yield Session, audit_path
-    audit_module.reset_audit_sink()
+    return Session
 
 
-def _audit_lines(path):
-    return [json.loads(line) for line in path.read_text().splitlines()]
+def _audit_events(Session) -> list[AuditEvent]:
+    with Session() as db:
+        return db.query(AuditEvent).order_by(AuditEvent.id).all()
 
 
 def test_create_prints_key_once_and_audits(cli_env):
-    Session, audit_path = cli_env
+    Session = cli_env
     result = CliRunner().invoke(
         cli_module.cli,
         ["api-keys", "create", "--name", "WRC", "--expires-in-days", "30"],
@@ -40,11 +35,11 @@ def test_create_prints_key_once_and_audits(cli_env):
         record = db.query(ApiKey).one()
         assert record.created_by_user_id is None
         assert raw not in (record.key_hash, record.prefix)
-    [line] = _audit_lines(audit_path)
-    assert line["actor"] == "cli"
-    assert line["action"] == "api_key_created"
-    assert line["api_key_id"] == record.id
-    assert raw not in json.dumps(line)
+    [event] = _audit_events(Session)
+    assert event.actor == "cli"
+    assert event.action == "api_key.create"
+    assert event.details["api_key_id"] == record.id
+    assert raw not in json.dumps(event.details)
 
 
 def test_create_rejects_out_of_range_expiry(cli_env):
@@ -66,7 +61,7 @@ def test_list_shows_status_without_secret(cli_env):
 
 
 def test_revoke_marks_revoked_and_audits(cli_env):
-    Session, audit_path = cli_env
+    Session = cli_env
     runner = CliRunner()
     runner.invoke(cli_module.cli, ["api-keys", "create", "--name", "WRC"])
     with Session() as db:
@@ -75,7 +70,7 @@ def test_revoke_marks_revoked_and_audits(cli_env):
     assert result.exit_code == 0
     with Session() as db:
         assert db.query(ApiKey).one().revoked_at is not None
-    assert _audit_lines(audit_path)[-1]["action"] == "api_key_revoked"
+    assert _audit_events(Session)[-1].action == "api_key.revoke"
     assert "revoked" in runner.invoke(cli_module.cli, ["api-keys", "list"]).output
 
 

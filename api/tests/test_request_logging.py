@@ -1,29 +1,18 @@
 """Tests for structured request logging: the timeline, audit-tier routing,
-the local JSONL sink, and unhandled-exception traceback filtering.
+audit event rows, and unhandled-exception traceback filtering.
 """
 
-import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from structlog.testing import capture_logs
 
-from glow_api import audit as audit_module
 from glow_api.data import get_datastore
 from glow_api.database import get_db
 from glow_api.main import app
-from glow_api.settings import settings
+from glow_api.metadata_models import AuditEvent
 from glow_api.vintages import get_current_vintage_frame
-
-
-@pytest.fixture(autouse=True)
-def _reset_audit_sink():
-    """Ensure each test starts/ends with a clean audit-sink logger cache, so
-    changes to settings.AUDIT_LOG_PATH within a test actually take effect."""
-    audit_module.reset_audit_sink()
-    yield
-    audit_module.reset_audit_sink()
 
 
 @pytest.fixture()
@@ -128,31 +117,16 @@ class TestUnhandledExceptionLogging:
             assert "fastapi" not in frame["file"]
 
 
-class TestAuditFileSink:
-    def test_non_audit_route_does_not_write_file(self, client, tmp_path, monkeypatch):
-        audit_path = tmp_path / "audit.jsonl"
-        monkeypatch.setattr(settings, "AUDIT_LOG_PATH", str(audit_path))
-        audit_module.reset_audit_sink()
-
-        resp = client.get("/health")
-        assert resp.status_code == 200
-        assert not audit_path.exists() or audit_path.read_text() == ""
-
-    def test_audit_route_writes_one_json_line(self, client, tmp_path, monkeypatch):
-        audit_path = tmp_path / "audit.jsonl"
-        monkeypatch.setattr(settings, "AUDIT_LOG_PATH", str(audit_path))
-        audit_module.reset_audit_sink()
-
+class TestAuditEventRow:
+    def test_audit_route_records_one_row(self, client, db_session):
         resp = client.get("/query/", params={"v": ["bw_wbeing_1"]})
         assert resp.status_code == 200
 
-        lines = [ln for ln in audit_path.read_text().splitlines() if ln.strip()]
-        assert len(lines) == 1
-        payload = json.loads(lines[0])
-        assert payload["path"] == "/query/"
-        assert payload["audit"] is True
-        ts = datetime.fromisoformat(payload["ts"])
-        assert ts.utcoffset() == timedelta(0)
+        [event] = db_session.query(AuditEvent).all()
+        assert event.action == "data.query"
+        assert event.details["path"] == "/query/"
+        assert event.details["audit"] is True
+        assert event.ts.utcoffset() == timedelta(0)
 
 
 class TestAdminMutationAuditEvents:

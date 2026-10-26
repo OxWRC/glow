@@ -12,6 +12,7 @@ import {
   type School,
 } from "../lib/api";
 import { ApiKeysPanel } from "../lib/components/ApiKeysPanel";
+import { AuditLogPanel } from "../lib/components/AuditLogPanel";
 import { VintagesPanel } from "../lib/components/VintagesPanel";
 import { useAuth, useIsAdmin } from "../auth/AuthContext";
 import { createI18n, availableLocales, type Locale } from "../lib/i18n";
@@ -182,6 +183,7 @@ export function AdminPage() {
     ["users", "admin.sectionUsers"],
     ["api-keys", "admin.sectionApiKeys"],
     ["vintages", "admin.sectionVintages"],
+    ["audit", "admin.sectionAudit"],
   ];
 
   return (
@@ -348,6 +350,8 @@ export function AdminPage() {
       {token && <ApiKeysPanel token={token} locale={locale} />}
 
       {token && <VintagesPanel token={token} locale={locale} />}
+
+      {token && <AuditLogPanel token={token} locale={locale} />}
 
       {/* Create/Edit Modal */}
       <dialog

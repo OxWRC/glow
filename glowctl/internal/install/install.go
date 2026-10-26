@@ -46,7 +46,7 @@ type Options struct {
 // StateDirs are created under GLOW_STATE_DIR before compose so Docker never
 // creates them root-owned. Names match the compose bind mounts.
 var StateDirs = []string{"glow-postgres", "odk-postgres", "odk-secrets", "odk-transfer",
-	"odk-enketo-redis-main", "odk-enketo-redis-cache", "api-audit-logs", "vintages", "caddy-data", "backup-status",
+	"odk-enketo-redis-main", "odk-enketo-redis-cache", "vintages", "caddy-data", "backup-status",
 	"odk-nginx-dh", "odk-nginx-letsencrypt", "odk-nginx-selfsign"}
 
 // EnsureStateDirs creates StateDirs (and certs unless GLOW_TLS_MODE=files)

@@ -1,93 +1,95 @@
-"""Audit-tier routing and the durable local audit log sink.
+"""Audit-tier routing and the audit log.
 
-Audit-tier requests (data reads and identity/access-changing actions) get
-their full request log line additionally appended to a local rotating JSONL
-file, since the CloudWatch log group the API's stdout normally lands in only
-retains 14 days — not a real audit trail.
+Every audited event (an audit-tier request, a CLI action, a system job)
+records WHO did WHAT and WHEN as an audit_events row in the metadata DB
+(durable and backed up, unlike stdout logs). Admins browse it at
+GET /admin/audit and download it as JSONL from GET /admin/audit/export.
 """
 
 import json
 import logging
-import logging.handlers
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any
 
-from glow_api.settings import settings
+from sqlalchemy.orm import Session
 
-# (method, route path template) pairs considered audit-tier. Both slash
-# variants are listed where the app registers both forms of a route.
-AUDIT_ROUTES: set[tuple[str, str]] = {
-    ("GET", "/query"),
-    ("GET", "/query/"),
-    ("GET", "/dimensions"),
-    ("POST", "/admin/users"),
-    ("POST", "/admin/users/"),
-    ("PUT", "/admin/users/{user_id}"),
-    ("DELETE", "/admin/users/{user_id}"),
-    ("POST", "/admin/schools"),
-    ("POST", "/admin/schools/"),
-    ("PUT", "/admin/schools/{school_id}"),
-    ("DELETE", "/admin/schools/{school_id}"),
-    ("POST", "/admin/api-keys"),
-    ("POST", "/admin/api-keys/{key_id}/regenerate"),
-    ("DELETE", "/admin/api-keys/{key_id}"),
-    ("POST", "/api-keys/claim"),
-    ("DELETE", "/api-keys/self"),
-    ("GET", "/export"),
-    ("GET", "/export/counts"),
-    ("GET", "/query/counts"),
-    ("POST", "/admin/vintages"),
-    ("POST", "/demo/reset"),
-    ("GET", "/demo/export/raw"),
+from glow_api.database import SessionLocal
+from glow_api.metadata_models import AuditEvent
+
+logger = logging.getLogger(__name__)
+
+# Audit-tier (method, route path template) -> the action (WHAT) recorded for
+# it. Both slash variants are listed where the app registers both forms.
+AUDIT_ROUTES: dict[tuple[str, str], str] = {
+    ("GET", "/query"): "data.query",
+    ("GET", "/query/"): "data.query",
+    ("GET", "/dimensions"): "data.dimensions",
+    ("GET", "/query/counts"): "data.query_counts",
+    ("GET", "/export"): "data.export",
+    ("GET", "/export/counts"): "data.export_counts",
+    ("POST", "/admin/users"): "user.create",
+    ("POST", "/admin/users/"): "user.create",
+    ("PUT", "/admin/users/{user_id}"): "user.update",
+    ("DELETE", "/admin/users/{user_id}"): "user.delete",
+    ("POST", "/admin/schools"): "school.create",
+    ("POST", "/admin/schools/"): "school.create",
+    ("PUT", "/admin/schools/{school_id}"): "school.update",
+    ("DELETE", "/admin/schools/{school_id}"): "school.delete",
+    ("POST", "/admin/api-keys"): "api_key.create",
+    ("POST", "/admin/api-keys/{key_id}/regenerate"): "api_key.regenerate",
+    ("DELETE", "/admin/api-keys/{key_id}"): "api_key.revoke",
+    ("POST", "/api-keys/claim"): "api_key.claim",
+    ("DELETE", "/api-keys/self"): "api_key.revoke_self",
+    ("POST", "/admin/vintages"): "vintage.cut",
+    ("GET", "/admin/audit"): "audit.read",
+    ("GET", "/admin/audit/export"): "audit.export",
+    ("POST", "/demo/reset"): "demo.reset",
+    ("GET", "/demo/export/raw"): "demo.export_raw",
 }
 
 
-def is_audit_route(method: str, route_path: str | None) -> bool:
+def audit_action(method: str, route_path: str | None) -> str | None:
+    """The action for an audit-tier route, or None if it isn't one."""
     if route_path is None:
-        return False
-    return (method, route_path) in AUDIT_ROUTES
-
-
-_audit_logger: logging.Logger | None = None
-
-
-def _get_audit_logger() -> logging.Logger | None:
-    """Lazily build the dedicated stdlib logger + rotating file handler for
-    the JSONL audit sink. Returns None (disabled) if settings.AUDIT_LOG_PATH
-    is unset — the normal case in tests/local dev.
-    """
-    global _audit_logger
-    if _audit_logger is not None:
-        return _audit_logger
-    if not settings.AUDIT_LOG_PATH:
         return None
-
-    path = Path(settings.AUDIT_LOG_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    logger = logging.getLogger("glow_api.audit_sink")
-    logger.setLevel(logging.INFO)
-    logger.propagate = False
-    logger.handlers.clear()
-    handler = logging.handlers.RotatingFileHandler(
-        filename=str(path),
-        maxBytes=settings.AUDIT_LOG_MAX_BYTES,
-        backupCount=settings.AUDIT_LOG_BACKUP_COUNT,
-    )
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(handler)
-    _audit_logger = logger
-    return logger
+    return AUDIT_ROUTES.get((method, route_path))
 
 
-def reset_audit_sink() -> None:
-    """Test hook: drop the cached logger so a changed AUDIT_LOG_PATH takes effect."""
-    global _audit_logger
-    _audit_logger = None
+def record(
+    db: Session,
+    *,
+    actor: str,
+    action: str,
+    status_code: int | None = None,
+    details: dict[str, Any] | None = None,
+    ts: datetime | None = None,
+) -> None:
+    """Write one audit event to the audit_events table.
+
+    A DB failure is logged, never raised: auditing must not break the action
+    it describes (which has already happened by now).
+    """
+    ts = ts or datetime.now(timezone.utc)
+    # Round-trip through JSON so non-JSON values (datetimes etc.) are str()'d
+    # rather than breaking the JSON column.
+    details = json.loads(json.dumps(details, default=str)) if details else None
+    try:
+        db.add(
+            AuditEvent(
+                ts=ts,
+                actor=actor,
+                action=action,
+                status_code=status_code,
+                details=details,
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to write audit event %s by %s", action, actor)
 
 
-def write_audit_line(fields: dict[str, Any]) -> None:
-    logger = _get_audit_logger()
-    if logger is None:
-        return
-    logger.info(json.dumps(fields, default=str))
+def record_system(actor: str, action: str, **details: Any) -> None:
+    """For callers outside any request (scheduler jobs, polls): own session."""
+    with SessionLocal() as db:
+        record(db, actor=actor, action=action, details=details or None)

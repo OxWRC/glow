@@ -1,7 +1,10 @@
 import smtplib
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Query as SAQuery
 from sqlalchemy.orm import Session
 
 from glow_api import mailer, request_context
@@ -28,10 +31,11 @@ from glow_api.database import (
     update_user,
 )
 from glow_api.data import DataStore, get_datastore
-from glow_api.metadata_models import ApiKey
+from glow_api.metadata_models import ApiKey, AuditEvent
 from glow_api.models import (
     ApiKeyCreate,
     ApiKeyRead,
+    AuditEventRead,
     SchoolCreate,
     SchoolRead,
     SchoolUpdate,
@@ -479,3 +483,63 @@ def cut_vintage_route(
         row_count=info.row_count,
     )
     return _vintage_read(info)
+
+
+# ---------------------------------------------------------------------------
+# Audit log (#41): WHO did WHAT and WHEN, newest first
+# ---------------------------------------------------------------------------
+
+
+def _audit_query(
+    who: str | None = Query(None, description="Case-insensitive actor substring"),
+    what: str | None = Query(None, description="Case-insensitive action substring"),
+    since: datetime | None = Query(None, description="Inclusive lower bound"),
+    until: datetime | None = Query(None, description="Inclusive upper bound"),
+    db: Session = Depends(get_db),
+) -> SAQuery:
+    """The WHO / WHAT / WHEN filters shared by the list and the export."""
+    query = db.query(AuditEvent)
+    if who:
+        query = query.filter(AuditEvent.actor.ilike(f"%{who}%"))
+    if what:
+        query = query.filter(AuditEvent.action.ilike(f"%{what}%"))
+    if since:
+        query = query.filter(AuditEvent.ts >= since)
+    if until:
+        query = query.filter(AuditEvent.ts <= until)
+    return query
+
+
+@router.get("/audit", response_model=list[AuditEventRead])
+def list_audit_events(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    _: UserRead = Depends(_require_admin),
+    query: SAQuery = Depends(_audit_query),
+) -> list[AuditEvent]:
+    """Newest first, paged."""
+    return (
+        query.order_by(AuditEvent.ts.desc(), AuditEvent.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
+@router.get(
+    "/audit/export",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"application/x-ndjson": {}}}},
+)
+def export_audit_events(
+    _: UserRead = Depends(_require_admin),
+    query: SAQuery = Depends(_audit_query),
+) -> StreamingResponse:
+    """Every matching event as JSON Lines, oldest first, as a download."""
+    rows = query.order_by(AuditEvent.ts, AuditEvent.id).yield_per(1000)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return StreamingResponse(
+        (AuditEventRead.model_validate(r).model_dump_json() + "\n" for r in rows),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f'attachment; filename="audit-{stamp}.jsonl"'},
+    )

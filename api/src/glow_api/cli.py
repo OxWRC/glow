@@ -423,16 +423,10 @@ def demo_reset() -> None:
 
 
 def _audit_cli(action: str, **fields) -> None:
-    # CLI actions bypass the HTTP request-logging middleware, so write the
-    # audit line directly.
-    audit.write_audit_line(
-        {
-            "actor": "cli",
-            "action": action,
-            "ts": datetime.now(UTC).isoformat(),
-            **fields,
-        }
-    )
+    # CLI actions bypass the HTTP request-logging middleware, so record the
+    # audit event directly.
+    with SessionLocal() as db:
+        audit.record(db, actor="cli", action=action, details=fields)
 
 
 @cli.group("api-keys")
@@ -453,7 +447,7 @@ def api_keys_create(name: str, expires_in_days: int | None) -> None:
     with SessionLocal() as db:
         record, raw_key = issue_api_key(db, name=name, expires_in_days=expires_in_days)
         key_id, expires_at = record.id, record.expires_at
-    _audit_cli("api_key_created", api_key_id=key_id, name=name)
+    _audit_cli("api_key.create", api_key_id=key_id, name=name)
     expiry = f"expires {expires_at:%Y-%m-%d} UTC" if expires_at else "never expires"
     click.echo(f"Created API key {key_id} '{name}', {expiry}.")
     click.echo("Copy it now - it will not be shown again:")
@@ -499,7 +493,7 @@ def api_keys_revoke(key_id: int) -> None:
             click.echo(f"API key {key_id} not found.")
             sys.exit(1)
         revoke_api_key(db, record)
-    _audit_cli("api_key_revoked", api_key_id=key_id)
+    _audit_cli("api_key.revoke", api_key_id=key_id)
     click.echo(f"API key {key_id} revoked.")
 
 
@@ -527,7 +521,7 @@ def vintages_cut() -> None:
     except VintageStorageNotConfigured as exc:
         click.echo(f"Error: {exc}.", err=True)
         sys.exit(1)
-    _audit_cli("vintage_cut", prefix=info.prefix, row_count=info.row_count)
+    _audit_cli("vintage.cut", prefix=info.prefix, row_count=info.row_count)
     click.echo(f"Cut vintage {info.prefix} ({info.row_count} rows).")
 
 

@@ -1,12 +1,10 @@
 """GET /export: API-key-only, suppressed, pseudonymised, cached per data version."""
 
-import json
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytest
 
-from glow_api import audit as audit_module
 from glow_api.api_keys import issue_api_key
 from glow_api.audit import AUDIT_ROUTES
 from glow_api.auth import create_access_token
@@ -19,7 +17,7 @@ from glow_api.export import (
     get_suppression_rules,
 )
 from glow_api.main import app
-from glow_api.settings import settings
+from glow_api.metadata_models import AuditEvent
 from glow_api.suppression import parse_rules
 
 # Sample data (conftest SAMPLE_CSV): 10 students, 15 rows, 5 per school.
@@ -242,15 +240,9 @@ def test_export_blocks_unlisted_demographic(export_client):
     assert "d_city" in response.json()["detail"]
 
 
-def test_export_is_audited_with_key_id(export_client, tmp_path, monkeypatch):
+def test_export_is_audited_with_key_id(export_client, db_session):
     assert ("GET", "/export") in AUDIT_ROUTES
-    path = tmp_path / "audit.jsonl"
-    monkeypatch.setattr(settings, "AUDIT_LOG_PATH", str(path))
-    audit_module.reset_audit_sink()
-    try:
-        _get(export_client)
-    finally:
-        audit_module.reset_audit_sink()
-    [line] = [json.loads(x) for x in path.read_text().splitlines()]
-    assert line["path"] == "/export"
-    assert any(e.get("api_key_id") == 1 for e in line["timeline"])
+    _get(export_client)
+    [event] = db_session.query(AuditEvent).all()
+    assert event.details["path"] == "/export"
+    assert any(e.get("api_key_id") == 1 for e in event.details["timeline"])

@@ -46,6 +46,7 @@ export const KeyStatuses: Story = {
       within(active).getByText("Annual report pipeline"),
     ).toBeVisible();
     await expect(within(active).getByText("4")).toBeVisible();
+    await expect(within(active).getByText("4f9c2ab")).toBeVisible();
     const expired = canvas.getByRole("row", { name: /Old pipeline/ });
     await expect(within(expired).getByText("Expired")).toBeVisible();
     await expect(

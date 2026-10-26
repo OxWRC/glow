@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from glow_api import request_context
-from glow_api.api_keys import hash_api_key
+from glow_api.api_keys import actor_label, hash_api_key
 from glow_api.database import (
     get_api_key_by_hash,
     get_db,
@@ -220,6 +220,7 @@ def _authenticate_token(token: str, db: Session) -> UserRead:
         raise credentials_exception
 
     sync_user_claims(db, user, claims)
+    request_context.set_actor(user.email or user.username)
 
     return _user_model_to_read(user)
 
@@ -292,6 +293,7 @@ def get_optional_school_user(
         )
 
     sync_user_claims(db, user, claims)
+    request_context.set_actor(user.email or user.username)
 
     user_school_ids = [s.id for s in user.schools]
     if not user.is_admin and school_id not in user_school_ids:
@@ -356,6 +358,7 @@ async def require_api_key(
             detail="Invalid or expired API key",
             headers={"WWW-Authenticate": "ApiKey"},
         )
+    request_context.set_actor(actor_label(record))
     request_context.record_event(
         "auth_assessed", outcome="success", success=True, api_key_id=record.id
     )

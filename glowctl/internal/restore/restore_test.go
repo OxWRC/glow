@@ -73,7 +73,6 @@ func (f *fake) writeSnapshot(dir string) {
 	files := map[string]string{
 		"state/secrets.env":                      sec,
 		"state/odk-secrets/enketo-secret":        "restored-enketo",
-		"state/api-audit-logs/audit.jsonl":       "restored-audit",
 		"state/vintages/20260101T000000Z/m.json": "restored-vintage",
 		"state/odk-forms-state.json":             "{\"restored\":true}",
 		"state/deployment.json":                  "{}",
@@ -322,7 +321,6 @@ func TestFilesSwappedAndGlowEnvSideBySide(t *testing.T) {
 	}
 	for p, want := range map[string]string{
 		"odk-secrets/enketo-secret":        "restored-enketo",
-		"api-audit-logs/audit.jsonl":       "restored-audit",
 		"vintages/20260101T000000Z/m.json": "restored-vintage",
 		"odk-forms-state.json":             "{\"restored\":true}",
 	} {
