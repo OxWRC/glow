@@ -156,7 +156,7 @@ func Run(cfg *config.Config, cfgErrs []error, env Env) []Finding {
 		}
 	}
 	if cfg.SMTP.Host == "" {
-		add(Warn, "no SMTP configured (GLOW_SMTP_HOST); ODK Central cannot send email")
+		add(Warn, "no SMTP configured (GLOW_SMTP_HOST); ODK Central cannot send email and admins cannot issue API keys")
 	}
 	return fs
 }

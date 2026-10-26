@@ -108,7 +108,7 @@ def test_export_counts_requires_api_key(counts_client):
 
 
 def test_export_counts_uses_rules_min_n_not_settings_min_n(counts_client, db_session):
-    _, raw_key = issue_api_key(db_session, "test", None, None)
+    _, raw_key = issue_api_key(db_session, name="test")
     counts_client.headers["X-API-Key"] = raw_key
 
     response = counts_client.get("/export/counts")

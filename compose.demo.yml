@@ -1,7 +1,8 @@
 # Demo-deployment overlay for compose.yml, applied by
 # the deployment tooling when GLOW_DEMO_MODE=true:
 #   docker compose -f compose.yml -f compose.demo.yml ...
-# Production-shaped otherwise: no bind mounts, no dev build targets except the
+# Production-shaped otherwise: no bind mounts (bar the proxy's demo-inbox
+# route), no dev build targets except the
 # pre-seeded ODK Postgres. Fictional data only.
 
 services:
@@ -19,10 +20,19 @@ services:
       PGDATABASE: odk
       PGUSER: odk
       PGPASSWORD: odk
+      # Demo mail goes to the Mailpit inbox (see the mail service below).
+      EMAIL_HOST: mail
+      EMAIL_PORT: "1025"
+      EMAIL_SECURE: "false"
+      EMAIL_IGNORE_TLS: "true"
 
   api:
     environment:
       GLOW_DEMO_MODE: "true"
+      # API key claim links go to the demo inbox, never a real relay: anyone
+      # can be an admin here, so real mail would make the demo a spam relay.
+      GLOW_SMTP_HOST: mail
+      GLOW_SMTP_PORT: "1025"
       # api's slim counts poll writes here; glow-init seeds schools from it
       # instead of racing its own ODK fetch (same pattern as compose.test.yml).
       GLOW_DATA_CACHE_PATH: /cache/data.parquet
@@ -37,6 +47,27 @@ services:
   dashboard:
     environment:
       PUBLIC_DEMO_MODE: "true"
+      PUBLIC_MAIL_VIEWER_URL: https://${GLOW_DOMAIN:-localhost}/mail/
+
+  # Catches all demo email; its inbox is public at <domain>/mail/ (fictional
+  # data only - but anyone can read claim links issued on the demo).
+  mail:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    image: axllent/mailpit:v1.27
+    environment:
+      MP_WEBROOT: mail
+    networks:
+      - odk_internal
+      - public
+    restart: unless-stopped
+
+  proxy:
+    volumes:
+      - {type: bind, source: ./proxy/demo-mail.caddy, target: /etc/caddy/site.d/demo-mail.caddy, read_only: true}
 
   glow-init:
     extends:

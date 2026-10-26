@@ -184,7 +184,7 @@ def test_query_is_pinned_not_live(pinned_client, vintages_root):
 
 def test_export_is_pinned_not_live(pinned_client, vintages_root, db_session):
     client, fake_store = pinned_client
-    _, raw_key = issue_api_key(db_session, "test", None, None)
+    _, raw_key = issue_api_key(db_session, name="test")
     client.headers["X-API-Key"] = raw_key
     cut_vintage(fake_store, vintages_root)
 

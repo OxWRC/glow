@@ -17,6 +17,8 @@ services:
       - "8000:8000"
     environment:
       GLOW_SECRET_KEY: smoke-test-secret
+      GLOW_SMTP_HOST: mail
+      GLOW_SMTP_PORT: "1025"
       GLOW_CORS_ORIGINS: '["http://127.0.0.1:3000","https://glow.test"]'
       # Production-like ODK wiring comes from compose.yml: the api reaches
       # ODK's nginx (SSL_TYPE=upstream) over plain HTTP at http://nginx with
@@ -123,6 +125,7 @@ services:
     image: axllent/mailpit:v1.27
     networks:
       - odk_internal
+      - public
     restart: unless-stopped
 
   odk-service:

@@ -16,7 +16,16 @@ from glow_api.data import ODKFetchError, get_datastore
 from glow_api.database import run_migrations
 from glow_api.logging_config import configure_logging
 from glow_api.request_logging import RequestLoggingMiddleware
-from glow_api.routers import admin, auth, dimensions, export, me, query, schools
+from glow_api.routers import (
+    admin,
+    api_keys,
+    auth,
+    dimensions,
+    export,
+    me,
+    query,
+    schools,
+)
 from glow_api.settings import settings
 from glow_api.vintages import VintageStorageNotConfigured, scheduled_cut_vintage
 
@@ -142,6 +151,7 @@ app.include_router(dimensions.router)
 app.include_router(schools.router)
 app.include_router(query.router)
 app.include_router(export.router)
+app.include_router(api_keys.router)
 
 if settings.DEMO_MODE:
     # Only mounted in demo mode - kept out of the route table entirely

@@ -9,7 +9,6 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("../lib/api", () => ({
-  DEMO_MODE: false,
   listUsers: vi.fn().mockResolvedValue([]),
   listSchools: vi.fn().mockResolvedValue([]),
   createUser: api.createUser,
@@ -19,9 +18,6 @@ vi.mock("../lib/api", () => ({
 vi.mock("../auth/AuthContext", () => ({
   useAuth: () => ({ token: "t", identity: null }),
   useIsAdmin: () => true,
-}));
-vi.mock("../lib/components/ApiKeyTester", () => ({
-  ApiKeyTester: () => null,
 }));
 vi.mock("../lib/components/ApiKeysPanel", () => ({
   ApiKeysPanel: () => null,

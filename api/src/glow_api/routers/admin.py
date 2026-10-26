@@ -1,10 +1,11 @@
+import smtplib
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from glow_api import request_context
-from glow_api.api_keys import api_key_read, issue_api_key
+from glow_api import mailer, request_context
+from glow_api.api_keys import api_key_read, lifetime_days, offer_api_key
 from glow_api.auth import require_current_user
 from glow_api.database import (
     create_school,
@@ -27,9 +28,9 @@ from glow_api.database import (
     update_user,
 )
 from glow_api.data import DataStore, get_datastore
+from glow_api.metadata_models import ApiKey
 from glow_api.models import (
     ApiKeyCreate,
-    ApiKeyCreated,
     ApiKeyRead,
     SchoolCreate,
     SchoolRead,
@@ -353,26 +354,77 @@ def list_keys(
     return [api_key_read(k) for k in list_api_keys(db)]
 
 
+def _offer(db: Session, admin: UserRead, **fields) -> ApiKeyRead:
+    if not mailer.configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Email is not configured (GLOW_SMTP_HOST); cannot send claim links",
+        )
+    try:
+        record = offer_api_key(db, created_by_user_id=admin.id, **fields)
+    except (OSError, smtplib.SMTPException) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not send the claim email: {exc}",
+        ) from exc
+    request_context.record_event(
+        "api_key_created", actor=admin.username, api_key_id=record.id
+    )
+    return api_key_read(record)
+
+
 @router.post(
-    "/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED
+    "/api-keys", response_model=ApiKeyRead, status_code=status.HTTP_201_CREATED
 )
 def create_key(
     body: ApiKeyCreate,
     admin: UserRead = Depends(_require_admin),
     db: Session = Depends(get_db),
-) -> ApiKeyCreated:
-    record, raw_key = issue_api_key(db, body.name, body.expires_in_days, admin.id)
+) -> ApiKeyRead:
+    """Issue an unclaimed key and email its one-time claim link."""
+    return _offer(db, admin, **body.model_dump())
+
+
+def _get_key_or_404(db: Session, key_id: int) -> ApiKey:
+    record = get_api_key_by_id(db, key_id)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
+        )
+    return record
+
+
+@router.post(
+    "/api-keys/{key_id}/regenerate",
+    response_model=ApiKeyRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def regenerate_key(
+    key_id: int,
+    admin: UserRead = Depends(_require_admin),
+    db: Session = Depends(get_db),
+) -> ApiKeyRead:
+    """Reissue a key's details to a new unclaimed key, then revoke the old one
+    (only once the new link is sent, so a mail failure leaves it working)."""
+    old = _get_key_or_404(db, key_id)
+    if old.email is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Key has no email to send a claim link to",
+        )
+    new = _offer(
+        db,
+        admin,
+        email=old.email,
+        name=old.name,
+        notes=old.notes,
+        expires_in_days=lifetime_days(old),
+    )
+    revoke_api_key(db, old)
     request_context.record_event(
-        "api_key_created", actor=admin.username, api_key_id=record.id, name=record.name
+        "api_key_revoked", actor=admin.username, api_key_id=key_id
     )
-    return ApiKeyCreated(
-        id=record.id,
-        name=record.name,
-        prefix=record.prefix,
-        key=raw_key,
-        created_at=record.created_at,
-        expires_at=record.expires_at,
-    )
+    return new
 
 
 @router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -381,12 +433,7 @@ def revoke_key(
     admin: UserRead = Depends(_require_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    record = get_api_key_by_id(db, key_id)
-    if record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="API key not found"
-        )
-    revoke_api_key(db, record)
+    revoke_api_key(db, _get_key_or_404(db, key_id))
     request_context.record_event(
         "api_key_revoked", actor=admin.username, api_key_id=key_id
     )

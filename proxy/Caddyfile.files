@@ -13,6 +13,8 @@
 
 {$GLOW_DOMAIN} {
 	tls /certs/fullchain.pem /certs/privkey.pem
+	# Optional extras, e.g. the demo inbox (proxy/demo-mail.caddy).
+	import /etc/caddy/site.d/*.caddy
 	import upstream dashboard:3000
 }
 

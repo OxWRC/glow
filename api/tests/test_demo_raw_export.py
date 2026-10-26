@@ -13,7 +13,7 @@ from glow_api.models import RawExportResponse
 
 @pytest.fixture()
 def raw_client(auth_client, db_session):
-    key, raw = issue_api_key(db_session, "test", None, None)
+    key, raw = issue_api_key(db_session, name="test")
     auth_client.headers["X-API-Key"] = raw
     auth_client.key_id = key.id
     return auth_client
@@ -47,7 +47,7 @@ def test_raw_export_records_key_use(raw_client, db_session):
 
 
 def test_raw_export_503_when_data_not_loaded(auth_client_empty_data, db_session):
-    _, raw = issue_api_key(db_session, "test", None, None)
+    _, raw = issue_api_key(db_session, name="test")
     resp = auth_client_empty_data.get("/demo/export/raw", headers={"X-API-Key": raw})
     assert resp.status_code == 503
 

@@ -85,6 +85,7 @@ export function Layout() {
     identity?.kind === "authenticated" ? identity.username : null;
   const isHome = location.pathname === `/${locale}`;
   const isAdminRoute = location.pathname.startsWith(`/${locale}/admin`);
+  const isPlayground = location.pathname.startsWith(`/${locale}/playground`);
 
   const chrome = (
     <div className="min-h-screen bg-gray-50">
@@ -121,6 +122,18 @@ export function Layout() {
                     }`}
                   >
                     {i18n.t("nav.admin")}
+                  </a>
+                )}
+                {DEMO_MODE && (
+                  <a
+                    href={`/${locale}/playground`}
+                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                      isPlayground
+                        ? "bg-blue-50 text-blue-700"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                    }`}
+                  >
+                    {i18n.t("nav.playground")}
                   </a>
                 )}
               </div>
@@ -235,6 +248,15 @@ export function Layout() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {i18n.t("nav.admin")}
+              </a>
+            )}
+            {DEMO_MODE && (
+              <a
+                href={`/${locale}/playground`}
+                className="block px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {i18n.t("nav.playground")}
               </a>
             )}
             {displayName && (

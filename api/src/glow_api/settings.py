@@ -48,7 +48,19 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8  # 8 hours
-    API_KEY_EXPIRE_DAYS: int = 90  # default lifetime for a newly-created export API key
+    API_KEY_CLAIM_HOURS: int = 24  # lifetime of the emailed one-time claim link
+
+    # Public dashboard origin, for links in outgoing email (claim links)
+    DASHBOARD_URL: str = "http://localhost:3000"
+
+    # Outbound mail (shared with ODK Central's GLOW_SMTP_* settings).
+    # Empty host disables sending; issuing API keys then fails with 503.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_SECURE: bool = False  # implicit TLS; otherwise STARTTLS when offered
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "no-reply@localhost"
 
     # OIDC / auth mode
     OIDC_ISSUER: Optional[str] = None

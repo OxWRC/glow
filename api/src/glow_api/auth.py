@@ -343,7 +343,10 @@ async def require_api_key(
     if (
         record is None
         or record.revoked_at is not None
-        or record.expires_at < datetime.now(timezone.utc)
+        or (
+            record.expires_at is not None
+            and record.expires_at < datetime.now(timezone.utc)
+        )
     ):
         request_context.record_event(
             "auth_assessed", outcome="invalid_api_key", success=False

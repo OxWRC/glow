@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createApiKey, listApiKeys, revokeApiKey, type ApiKey } from "../api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  createApiKey,
+  listApiKeys,
+  regenerateApiKey,
+  revokeApiKey,
+  type ApiKey,
+  type ApiKeyStatus,
+} from "../api";
 import { formatDateTime } from "../formatDateTime";
 import { createI18n, type Locale } from "../i18n";
 
 const TH =
   "px-6 py-3 text-left font-semibold text-gray-600 uppercase tracking-wider text-xs";
 
-type KeyStatus = "active" | "expired" | "revoked";
-
-const BADGE: Record<KeyStatus, string> = {
+const BADGE: Record<ApiKeyStatus, string> = {
+  unclaimed: "badge-blue",
   active: "badge-green",
   expired: "badge-yellow",
   revoked: "badge-red",
@@ -21,30 +27,24 @@ function errMsg(e: unknown) {
 export function ApiKeysPanel({
   token,
   locale,
-  now,
 }: {
   token: string;
   locale: Locale;
-  now?: Date;
 }) {
   const t = useMemo(() => createI18n(locale).t, [locale]);
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [days, setDays] = useState("90");
+  const [notes, setNotes] = useState("");
+  const [days, setDays] = useState("");
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
 
-  const [revealKey, setRevealKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
-  const revealRef = useRef<HTMLDialogElement>(null);
-
-  const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
-  const [revoking, setRevoking] = useState(false);
-  const [revokeError, setRevokeError] = useState<string | null>(null);
-  const revokeRef = useRef<HTMLDialogElement>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -60,34 +60,23 @@ export function ApiKeysPanel({
     reload();
   }, [reload]);
 
-  useEffect(() => {
-    const d = revealRef.current;
-    if (!d) return;
-    if (revealKey !== null && !d.open) d.showModal();
-    else if (revealKey === null && d.open) d.close();
-  }, [revealKey]);
-
-  useEffect(() => {
-    const d = revokeRef.current;
-    if (!d) return;
-    if (revokeTarget && !d.open) d.showModal();
-    else if (!revokeTarget && d.open) d.close();
-  }, [revokeTarget]);
-
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setCreating(true);
     setFormError(null);
+    setSentTo(null);
     try {
       const made = await createApiKey(token, {
-        name,
-        expires_in_days: Number(days),
+        email,
+        name: name.trim() || null,
+        notes: notes.trim() || null,
+        expires_in_days: days ? Number(days) : null,
       });
-      setCopied(false);
-      setCopyFailed(false);
-      setRevealKey(made.key);
+      setSentTo(made.email);
+      setEmail("");
       setName("");
-      setDays("90");
+      setNotes("");
+      setDays("");
       await reload();
     } catch (err: unknown) {
       setFormError(errMsg(err));
@@ -96,39 +85,36 @@ export function ApiKeysPanel({
     }
   }
 
-  async function copyKey() {
-    if (revealKey === null) return;
-    try {
-      await navigator.clipboard.writeText(revealKey);
-      setCopied(true);
-    } catch {
-      setCopyFailed(true);
-    }
-  }
+  const label = (k: ApiKey) => k.name ?? k.email ?? t("apiKeys.unnamed");
 
-  async function confirmRevoke() {
-    if (!revokeTarget) return;
-    setRevoking(true);
-    setRevokeError(null);
+  async function act(k: ApiKey, action: "revoke" | "regenerate") {
+    const message =
+      action === "revoke"
+        ? t("apiKeys.revokeConfirm", { name: label(k) })
+        : t("apiKeys.regenerateConfirm", {
+            name: label(k),
+            email: k.email ?? "",
+          });
+    if (!window.confirm(message)) return;
+    setBusyId(k.id);
+    setActionError(null);
+    setSentTo(null);
     try {
-      await revokeApiKey(token, revokeTarget.id);
-      setRevokeTarget(null);
+      if (action === "revoke") {
+        await revokeApiKey(token, k.id);
+      } else {
+        setSentTo((await regenerateApiKey(token, k.id)).email);
+      }
       await reload();
     } catch (err: unknown) {
-      setRevokeError(errMsg(err));
+      setActionError(errMsg(err));
     } finally {
-      setRevoking(false);
+      setBusyId(null);
     }
   }
 
-  const today = now ?? new Date();
-  const date = (iso: string) => formatDateTime(iso, locale);
-
-  function status(k: ApiKey): KeyStatus {
-    if (k.revoked_at) return "revoked";
-    if (new Date(k.expires_at) < today) return "expired";
-    return "active";
-  }
+  const date = (iso: string | null) =>
+    iso ? formatDateTime(iso, locale) : t("apiKeys.never");
 
   return (
     <section
@@ -148,21 +134,40 @@ export function ApiKeysPanel({
         className="card flex flex-wrap items-end gap-4"
       >
         <div>
+          <label className="label" htmlFor="api-key-email">
+            {t("apiKeys.email")}
+          </label>
+          <input
+            id="api-key-email"
+            type="email"
+            className="input"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <div>
           <label className="label" htmlFor="api-key-name">
-            {t("apiKeys.name")}
+            {t("apiKeys.name")}{" "}
+            <span className="font-normal text-gray-500">
+              {t("apiKeys.optional")}
+            </span>
           </label>
           <input
             id="api-key-name"
             type="text"
             className="input"
-            required
+            maxLength={100}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </div>
         <div>
           <label className="label" htmlFor="api-key-days">
-            {t("apiKeys.expiresInDays")}
+            {t("apiKeys.expiresInDays")}{" "}
+            <span className="font-normal text-gray-500">
+              {t("apiKeys.optional")}
+            </span>
           </label>
           <input
             id="api-key-days"
@@ -170,9 +175,27 @@ export function ApiKeysPanel({
             className="input"
             min={1}
             max={365}
-            required
+            aria-describedby="api-key-days-hint"
             value={days}
             onChange={(e) => setDays(e.target.value)}
+          />
+          <p id="api-key-days-hint" className="text-xs text-gray-500 mt-1">
+            {t("apiKeys.expiresHint")}
+          </p>
+        </div>
+        <div className="w-full">
+          <label className="label" htmlFor="api-key-notes">
+            {t("apiKeys.notes")}{" "}
+            <span className="font-normal text-gray-500">
+              {t("apiKeys.optional")}
+            </span>
+          </label>
+          <textarea
+            id="api-key-notes"
+            className="input w-full"
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
           />
         </div>
         <button type="submit" className="btn-primary" disabled={creating}>
@@ -184,6 +207,15 @@ export function ApiKeysPanel({
           </p>
         )}
       </form>
+
+      <p role="status" className="text-sm text-green-700">
+        {sentTo && t("apiKeys.sent", { email: sentTo })}
+      </p>
+      {actionError && (
+        <p role="alert" className="text-sm text-red-700">
+          {t("apiKeys.actionFailed", { error: actionError })}
+        </p>
+      )}
 
       {keys === null ? (
         loadError ? (
@@ -205,14 +237,13 @@ export function ApiKeysPanel({
               <tr>
                 {(
                   [
+                    "email",
                     "name",
-                    "prefix",
-                    "createdBy",
-                    "created",
+                    "notes",
+                    "status",
                     "expires",
                     "lastUsed",
                     "uses",
-                    "status",
                     "actions",
                   ] as const
                 ).map((h) => (
@@ -223,133 +254,59 @@ export function ApiKeysPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
-              {keys.map((k) => {
-                const s = status(k);
-                return (
-                  <tr key={k.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium text-gray-900">
-                      {k.name}
-                    </td>
-                    <td className="px-6 py-4 font-mono">{k.prefix}…</td>
-                    <td className="px-6 py-4">
-                      {k.created_by ?? t("apiKeys.cli")}
-                    </td>
-                    <td className="px-6 py-4">{date(k.created_at)}</td>
-                    <td className="px-6 py-4">{date(k.expires_at)}</td>
-                    <td className="px-6 py-4">
-                      {k.last_used_at
-                        ? date(k.last_used_at)
-                        : t("apiKeys.never")}
-                    </td>
-                    <td className="px-6 py-4">{k.use_count}</td>
-                    <td className="px-6 py-4">
-                      <span className={`badge ${BADGE[s]}`}>
-                        {t(`apiKeys.${s}`)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      {s === "active" && (
+              {keys.map((k) => (
+                <tr key={k.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 font-medium text-gray-900">
+                    {k.email}
+                  </td>
+                  <td className="px-6 py-4">{k.name}</td>
+                  <td className="px-6 py-4 text-gray-600 whitespace-pre-line">
+                    {k.notes}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className={`badge ${BADGE[k.status]}`}>
+                      {t(`apiKeys.${k.status}`)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">{date(k.expires_at)}</td>
+                  <td className="px-6 py-4">{date(k.last_used_at)}</td>
+                  <td className="px-6 py-4">{k.use_count}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex gap-2">
+                      {(k.status === "unclaimed" || k.status === "active") && (
                         <button
                           type="button"
                           className="btn-danger btn-sm"
                           aria-label={t("apiKeys.revokeNamed", {
-                            name: k.name,
+                            name: label(k),
                           })}
-                          onClick={() => {
-                            setRevokeError(null);
-                            setRevokeTarget(k);
-                          }}
+                          disabled={busyId !== null}
+                          onClick={() => act(k, "revoke")}
                         >
                           {t("apiKeys.revoke")}
                         </button>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
+                      {k.email && (
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm"
+                          aria-label={t("apiKeys.regenerateNamed", {
+                            name: label(k),
+                          })}
+                          disabled={busyId !== null}
+                          onClick={() => act(k, "regenerate")}
+                        >
+                          {t("apiKeys.regenerate")}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       )}
-
-      <dialog
-        ref={revealRef}
-        aria-labelledby="api-key-reveal-title"
-        onClose={() => setRevealKey(null)}
-        className="rounded-2xl shadow-2xl w-full max-w-lg backdrop:bg-black/50 p-0"
-      >
-        <div className="bg-white rounded-2xl p-6 space-y-4">
-          <h2
-            id="api-key-reveal-title"
-            className="text-lg font-semibold text-gray-900"
-          >
-            {t("apiKeys.revealTitle")}
-          </h2>
-          <p className="text-gray-600">{t("apiKeys.revealWarning")}</p>
-          <code className="block break-all rounded-sm bg-gray-100 p-3">
-            {revealKey}
-          </code>
-          {copyFailed && (
-            <p role="alert" className="text-sm text-red-700">
-              {t("apiKeys.copyFailed")}
-            </p>
-          )}
-          <div className="flex justify-end gap-3">
-            <button type="button" className="btn-secondary" onClick={copyKey}>
-              {copied ? t("apiKeys.copied") : t("apiKeys.copy")}
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setRevealKey(null)}
-            >
-              {t("apiKeys.done")}
-            </button>
-          </div>
-        </div>
-      </dialog>
-
-      <dialog
-        ref={revokeRef}
-        aria-labelledby="api-key-revoke-title"
-        onClose={() => setRevokeTarget(null)}
-        className="rounded-2xl shadow-2xl w-full max-w-sm backdrop:bg-black/50 p-0"
-      >
-        <div className="bg-white rounded-2xl p-6 space-y-4">
-          <h2
-            id="api-key-revoke-title"
-            className="text-lg font-semibold text-gray-900"
-          >
-            {t("apiKeys.revokeTitle")}
-          </h2>
-          <p className="text-gray-600">
-            {t("apiKeys.revokeConfirm", { name: revokeTarget?.name ?? "" })}
-          </p>
-          {revokeError && (
-            <p role="alert" className="text-sm text-red-700">
-              {revokeError}
-            </p>
-          )}
-          <div className="flex justify-end gap-3">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setRevokeTarget(null)}
-              disabled={revoking}
-            >
-              {t("apiKeys.cancel")}
-            </button>
-            <button
-              type="button"
-              className="btn-danger"
-              onClick={confirmRevoke}
-              disabled={revoking}
-            >
-              {revoking ? t("apiKeys.revoking") : t("apiKeys.revoke")}
-            </button>
-          </div>
-        </div>
-      </dialog>
     </section>
   );
 }

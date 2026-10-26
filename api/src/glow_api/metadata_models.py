@@ -81,18 +81,25 @@ class User(Base):
 
 
 class ApiKey(Base):
-    """Admin-issued key for the pseudonymous data export (GET /export)."""
+    """Admin-issued key for the pseudonymous data export (GET /export).
+
+    Admin-issued keys start unclaimed (no hash): the recipient reveals the
+    key once via an emailed claim link, which is when the hash is stored.
+    """
 
     __tablename__ = "api_keys"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    prefix = Column(String, nullable=False)
-    key_hash = Column(String, nullable=False, unique=True, index=True)
+    email = Column(String, nullable=True)  # Null for CLI-issued keys
+    name = Column(String, nullable=True)
+    notes = Column(String, nullable=True)
+    prefix = Column(String, nullable=True)
+    key_hash = Column(String, nullable=True, unique=True, index=True)
     created_at = Column(
         UTCDateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )
-    expires_at = Column(UTCDateTime, nullable=False)
+    claimed_at = Column(UTCDateTime, nullable=True)
+    expires_at = Column(UTCDateTime, nullable=True)  # Null: never expires
     revoked_at = Column(UTCDateTime, nullable=True)
     last_used_at = Column(UTCDateTime, nullable=True)
     use_count = Column(Integer, nullable=False, default=0, server_default="0")

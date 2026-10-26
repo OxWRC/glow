@@ -226,33 +226,39 @@ class DemoInfo(BaseModel):
 
 
 class ApiKeyCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-    # Falls back to settings.API_KEY_EXPIRE_DAYS. Bounded so a key can't be
-    # issued with effectively-infinite/no expiry.
+    email: str
+    name: Optional[str] = Field(None, max_length=100)
+    notes: Optional[str] = Field(None, max_length=1000)
+    # None: the key never expires. Counted from issue, not from claim.
     expires_in_days: Optional[int] = Field(None, gt=0, le=365)
+
+    _normalise_email = field_validator("email")(validate_email)
 
 
 class ApiKeyRead(BaseModel):
     id: int
-    name: str
-    prefix: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+    notes: Optional[str] = None
+    status: Literal["unclaimed", "active", "expired", "revoked"]
     created_by: Optional[str] = None
     created_at: AwareDatetime
-    expires_at: AwareDatetime
+    claimed_at: Optional[AwareDatetime] = None
+    expires_at: Optional[AwareDatetime] = None
     revoked_at: Optional[AwareDatetime] = None
     last_used_at: Optional[AwareDatetime] = None
     use_count: int
 
 
-class ApiKeyCreated(BaseModel):
-    """Response for key creation - the only time the raw key is ever returned."""
+class ApiKeyClaim(BaseModel):
+    token: str
 
-    id: int
-    name: str
-    prefix: str
+
+class ApiKeyClaimed(BaseModel):
+    """Claim response - the only time the raw key is ever returned."""
+
     key: str
-    created_at: AwareDatetime
-    expires_at: AwareDatetime
+    expires_at: Optional[AwareDatetime] = None
 
 
 class VintageRead(BaseModel):

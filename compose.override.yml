@@ -35,6 +35,9 @@ services:
       # Dev-only: mints local tokens via /demo/login instead of requiring
       # a real identity provider for local dev/demo.
       GLOW_DEMO_MODE: "true"
+      GLOW_DASHBOARD_URL: http://127.0.0.1:3000
+      GLOW_SMTP_HOST: mail
+      GLOW_SMTP_PORT: "1025"
 
   glow-init:
     extends:
@@ -96,6 +99,7 @@ services:
       # (likely unconfigured) real identity provider. Pairs with the api
       # service's GLOW_DEMO_MODE above.
       VITE_PUBLIC_DEMO_MODE: "true"
+      VITE_PUBLIC_MAIL_VIEWER_URL: http://127.0.0.1:8025
       PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://127.0.0.1:8000}
     healthcheck:
       # Override compose.yml's wget-based check: the dev target runs on a
@@ -144,11 +148,15 @@ services:
       target: dev
 
   # Dev/test-only SMTP sink; production sets GLOW_SMTP_* instead.
+  # Inbox (API key claim links, ODK mail) at http://127.0.0.1:8025.
   mail:
     logging: *default-logging
     image: axllent/mailpit:v1.27
+    ports:
+      - "8025:8025"
     networks:
       - odk_internal
+      - public
     restart: unless-stopped
 
 volumes:

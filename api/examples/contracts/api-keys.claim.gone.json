@@ -1,0 +1,12 @@
+{
+  "id": "api-keys.claim.gone",
+  "method": "POST",
+  "path": "/api-keys/claim",
+  "status": 410,
+  "request_model": "ApiKeyClaim",
+  "response_model": null,
+  "request": { "token": "eyJhbGciOiJIUzI1NiJ9.used.sig" },
+  "response": {
+    "detail": "This link is invalid, expired or already used"
+  }
+}
