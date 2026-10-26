@@ -101,10 +101,10 @@ export const LoadMore: Story = {
     msw: {
       handlers: [
         http.get("/api/admin/audit", ({ request }) => {
-          const offset = Number(
-            new URL(request.url).searchParams.get("offset"),
-          );
-          return HttpResponse.json(offset ? page(offset, 1) : page(0, 100));
+          const before = new URL(request.url).searchParams.get("before_id");
+          // The first page's last id is 901 (1000 - 99).
+          if (before && before !== "901") return HttpResponse.json([]);
+          return HttpResponse.json(before ? page(100, 1) : page(0, 100));
         }),
       ],
     },

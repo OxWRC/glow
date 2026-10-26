@@ -219,7 +219,8 @@ export interface AuditFilters {
   since?: string;
   until?: string;
   limit?: number;
-  offset?: number;
+  /** Next page: the id of the last event already shown. */
+  before_id?: number;
 }
 
 export interface User {

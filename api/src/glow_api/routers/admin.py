@@ -513,17 +513,17 @@ def _audit_query(
 @router.get("/audit", response_model=list[AuditEventRead])
 def list_audit_events(
     limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
+    before_id: int | None = Query(
+        None, description="Next page: the id of the last event already shown"
+    ),
     _: UserRead = Depends(_require_admin),
     query: SAQuery = Depends(_audit_query),
 ) -> list[AuditEvent]:
-    """Newest first, paged."""
-    return (
-        query.order_by(AuditEvent.ts.desc(), AuditEvent.id.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    """Newest (most recently recorded) first, paged by id cursor: an offset
+    would shift as new events, including this read's own, are recorded."""
+    if before_id is not None:
+        query = query.filter(AuditEvent.id < before_id)
+    return query.order_by(AuditEvent.id.desc()).limit(limit).all()
 
 
 @router.get(

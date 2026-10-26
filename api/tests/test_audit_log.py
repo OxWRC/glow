@@ -191,11 +191,24 @@ class TestAdminAuditEndpoint:
             "data.export",
         ]
 
-    def test_limit_and_offset(self, admin_client, seeded):
+    def test_pages_by_id_cursor(self, admin_client, seeded):
         [first] = self._get(admin_client, what="data.export", limit=1)
-        [second] = self._get(admin_client, what="data.export", limit=1, offset=1)
+        [second] = self._get(
+            admin_client, what="data.export", limit=1, before_id=first["id"]
+        )
         assert first["actor"].endswith("def5678")
         assert second["actor"].endswith("abc1234")
+
+    def test_next_page_unaffected_by_reads(self, admin_client, seeded):
+        first = self._get(admin_client, limit=2)
+        self._get(admin_client)  # records more audit.read events
+        rest = self._get(admin_client, before_id=first[-1]["id"])
+        assert [e["action"] for e in first + rest] == [
+            "data.export",
+            "vintage.cut",
+            "data.export",
+            "user.create",
+        ]
 
     def test_requires_admin(self, client):
         assert client.get("/admin/audit").status_code == 403

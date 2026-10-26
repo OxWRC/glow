@@ -37,14 +37,14 @@ export function AuditLogPanel({
   const [exportError, setExportError] = useState<string | null>(null);
 
   const load = useCallback(
-    async (offset: number) => {
+    async (beforeId?: number) => {
       try {
         const page = await listAuditEvents(token, {
           ...filters,
           limit: PAGE,
-          offset,
+          before_id: beforeId,
         });
-        setEvents((prev) => (offset && prev ? [...prev, ...page] : page));
+        setEvents((prev) => (beforeId && prev ? [...prev, ...page] : page));
         setHasMore(page.length === PAGE);
         setLoadError(null);
       } catch (e: unknown) {
@@ -56,7 +56,7 @@ export function AuditLogPanel({
 
   useEffect(() => {
     setEvents(null);
-    load(0);
+    load();
   }, [load]);
 
   // Exports the applied filters (what the table shows), not unsubmitted edits.
@@ -234,7 +234,7 @@ export function AuditLogPanel({
           <button
             type="button"
             className="btn-secondary"
-            onClick={() => load(events.length)}
+            onClick={() => load(events[events.length - 1].id)}
           >
             {t("audit.loadMore")}
           </button>
