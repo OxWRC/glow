@@ -410,7 +410,7 @@ export function AdminPage() {
                     >
                       <input
                         type="checkbox"
-                        className="rounded border-gray-300"
+                        className="rounded-sm border-gray-300"
                         checked={formSchoolIds.includes(school.id)}
                         onChange={(e) => {
                           if (e.currentTarget.checked) {
@@ -437,7 +437,7 @@ export function AdminPage() {
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  className="rounded border-gray-300"
+                  className="rounded-sm border-gray-300"
                   checked={formIsActive}
                   onChange={(e) => setFormIsActive(e.target.checked)}
                 />
@@ -448,7 +448,7 @@ export function AdminPage() {
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  className="rounded border-gray-300"
+                  className="rounded-sm border-gray-300"
                   checked={formIsAdmin}
                   onChange={(e) => setFormIsAdmin(e.target.checked)}
                 />

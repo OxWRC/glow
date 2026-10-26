@@ -28,7 +28,7 @@ export function AwaitingDataNotice({
   return (
     <section
       aria-labelledby="awaiting-data-heading"
-      className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-600"
+      className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-blue-600"
     >
       <h2
         id="awaiting-data-heading"

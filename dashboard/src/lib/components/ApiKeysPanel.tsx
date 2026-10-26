@@ -286,7 +286,7 @@ export function ApiKeysPanel({
             {t("apiKeys.revealTitle")}
           </h2>
           <p className="text-gray-600">{t("apiKeys.revealWarning")}</p>
-          <code className="block break-all rounded bg-gray-100 p-3">
+          <code className="block break-all rounded-sm bg-gray-100 p-3">
             {revealKey}
           </code>
           {copyFailed && (

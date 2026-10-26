@@ -39,7 +39,7 @@ import { createI18n, availableLocales, type Locale } from "../lib/i18n";
 //   - `<h1 class="text-3xl">` rendered at text-2xl, `<h2 class="text-lg">` at
 //     text-xl/gray-900 (app.css's global h2 is gray-800).
 // Unifying any of this is a separate job from the React port.
-const CARD = "bg-white rounded-lg shadow-sm border border-gray-200 p-6";
+const CARD = "bg-white rounded-lg shadow-xs border border-gray-200 p-6";
 
 export function DashboardPage() {
   const { locale: localeParam } = useParams<{ locale: string }>();
@@ -385,7 +385,7 @@ export function DashboardPage() {
                     onChange={(e) =>
                       setSelectedSchoolId(Number(e.target.value))
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   >
                     {schools.map((school) => (
                       <option key={school.id} value={school.id}>
