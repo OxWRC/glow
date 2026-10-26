@@ -122,7 +122,7 @@ export function ApiKeyTester({ locale }: { locale: Locale }) {
 
         <div>
           <h3 className="label">{t("keyTester.curl")}</h3>
-          <code className="block break-all rounded bg-gray-100 p-3 text-sm">
+          <code className="block break-all rounded-sm bg-gray-100 p-3 text-sm">
             {`curl -H "X-API-Key: ${key.trim() ? `${key.trim().slice(0, 12)}…` : "<key>"}" ${apiKeyEndpointUrl(endpoint)}`}
           </code>
         </div>
@@ -162,7 +162,7 @@ export function ApiKeyTester({ locale }: { locale: Locale }) {
           <pre
             tabIndex={0}
             aria-label={t("keyTester.responseBody")}
-            className="max-h-96 overflow-auto rounded bg-gray-100 p-3 text-xs"
+            className="max-h-96 overflow-auto rounded-sm bg-gray-100 p-3 text-xs"
           >
             {result.body.slice(0, MAX_SHOWN)}
           </pre>
