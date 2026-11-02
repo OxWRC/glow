@@ -155,4 +155,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "$GLOW_VERSION" --title "$GLOW_VERSION" --generate-notes assets/*
+          # A release made by hand in the GitHub UI keeps its notes; only the assets are added.
+          if gh release view "$GLOW_VERSION" > /dev/null 2>&1; then
+            gh release upload "$GLOW_VERSION" --clobber assets/*
+          else
+            gh release create "$GLOW_VERSION" --title "$GLOW_VERSION" --generate-notes assets/*
+          fi
