@@ -60,6 +60,29 @@ def query_get(
     Returns:
         NewQueryResponse with period-organized multi-variable results
     """
+    # If school_id is provided, check authorization
+    if school_id is not None:
+        _user, school = get_optional_school_user(credentials, db, school_id)
+
+        # Filter data to this school, joining on the raw ODK "school" value
+        # (odk_school_id), not the admin-facing display name. A school not
+        # yet linked to ODK data (odk_school_id is None) matches nothing.
+        df = dfwl.df
+        if "school" in df.columns and school.odk_school_id is not None:
+            df = df[df["school"] == school.odk_school_id]
+        else:
+            df = df.iloc[0:0]  # no data loaded yet, or school not linked to ODK data
+        school_name = school.odk_school_id
+    else:
+        if not settings.DEMO_MODE:
+            raise PermissionError("Anonymous queries are not permitted when not in demo mode.")
+        request_context.record_event(
+            "auth_assessed", outcome="anonymous", success=None, school_id=None
+        )
+        # Dataset-scoped query
+        df = dfwl.df
+        school_name = None
+
     # Normalize query parameters
     canonical = normalize_query(
         school_id=school_id,
@@ -89,27 +112,6 @@ def query_get(
 
     # Set ETag header
     response.headers["ETag"] = etag
-
-    # If school_id is provided, check authorization
-    if school_id is not None:
-        _user, school = get_optional_school_user(credentials, db, school_id)
-
-        # Filter data to this school, joining on the raw ODK "school" value
-        # (odk_school_id), not the admin-facing display name. A school not
-        # yet linked to ODK data (odk_school_id is None) matches nothing.
-        df = dfwl.df
-        if "school" in df.columns and school.odk_school_id is not None:
-            df = df[df["school"] == school.odk_school_id]
-        else:
-            df = df.iloc[0:0]  # no data loaded yet, or school not linked to ODK data
-        school_name = school.odk_school_id
-    else:
-        request_context.record_event(
-            "auth_assessed", outcome="anonymous", success=None, school_id=None
-        )
-        # Dataset-scoped query
-        df = dfwl.df
-        school_name = None
 
     # Data should already be normalized with period_id column from DataStore
     # But verify it exists
